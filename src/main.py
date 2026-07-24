@@ -534,6 +534,11 @@ class MainWindow(QMainWindow):
             self._update_remove_button
         )
 
+        # All the mode-sensitive widgets now exist, so point them at the
+        # current mode - otherwise the interface would show Scene Mode's
+        # labels until the first video was opened.
+        self._apply_edit_mode()
+
         right.addWidget(
             self.remove_scenes_btn
         )
@@ -617,6 +622,121 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(
             self.index_progress
         )
+
+    def _apply_jump_settings(self):
+        """Update the skip buttons' hints after the distances change."""
+        controls = getattr(self, "transport_controls", None)
+        refresh = getattr(controls, "refresh_jump_tooltips", None)
+        if callable(refresh):
+            refresh()
+
+    def _apply_tooltip_setting(self):
+        """Honour the "Show tooltips" setting straight away.
+
+        Tooltips are suppressed app-wide by an event filter.  Installing and
+        removing it here means toggling the setting takes effect at once,
+        rather than only after a restart.
+        """
+        app = QApplication.instance()
+        if app is None:
+            return
+
+        wanted = self.config.get("settings", {}).get("show_tooltips", True)
+        gate = getattr(self, "_tooltip_gate", None)
+
+        if wanted:
+            if gate is not None:
+                app.removeEventFilter(gate)
+                self._tooltip_gate = None
+        else:
+            if gate is None:
+                self._tooltip_gate = _TooltipGate()
+                app.installEventFilter(self._tooltip_gate)
+
+    def _apply_edit_mode_now(self):
+        """Switch the interface to the current mode straight away.
+
+        The mode's *starting state* - whether a video opens fully selected or
+        empty - can only apply when a video is opened, since it decides how an
+        edit begins.  But there's no reason the labels, the list's columns and
+        the highlight should wait for that, so changing the setting reshapes
+        the interface at once and any edit in progress carries over untouched
+        (both modes describe the same cut list, just from opposite ends).
+        """
+        self._apply_edit_mode()
+
+        if getattr(self, "scene_list", None) is not None:
+            self.scene_list.refresh()
+
+        if getattr(self, "scene_bar", None) is not None:
+            self.scene_bar.update()
+
+        if getattr(self, "info_panel", None) is not None:
+            self.info_panel.update_info()
+
+    def _apply_edit_mode(self):
+        """Point the mode-sensitive parts of the UI at the current mode.
+
+        The on-screen buttons and the scene list's column headings change
+        between Scene and Cut Mode; the menus offer both sets regardless, so
+        either way of working stays available.
+        """
+        mode = self._edit_mode()
+
+        bar = getattr(self, "action_bar", None)
+        if bar is not None:
+            bar.apply_mode(mode)
+
+        scene_list = getattr(self, "scene_list", None)
+        if scene_list is not None:
+            scene_list.apply_mode(mode)
+
+        # The removal button acts on whatever the list is showing, so its
+        # label follows too: cuts in Cut Mode, scenes in Scene Mode.
+        remove_btn = getattr(self, "remove_scenes_btn", None)
+        if remove_btn is not None:
+            remove_btn.setText(
+                self.tr("Remove Selected Cuts") if mode == "cut"
+                else self.tr("Remove Selected Scenes")
+            )
+
+    def jump_seconds(self, size):
+        """The configured skip distance in seconds for "small", "medium" or
+        "large".  Read fresh each time so a change in Settings applies at once.
+        """
+        defaults = {"small": 10, "medium": 30, "large": 120}
+        key = "jump_%s_seconds" % size
+        try:
+            value = int(
+                self.config.get("settings", {}).get(key, defaults[size])
+            )
+        except (TypeError, ValueError):
+            value = defaults[size]
+        # A zero or negative skip would do nothing (or run backwards), so fall
+        # back rather than leave a dead button.
+        return value if value > 0 else defaults[size]
+
+    @staticmethod
+    def format_jump_label(seconds):
+        """"30 seconds", "2 minutes", "1 min 30 sec" - for tooltips."""
+        seconds = int(seconds)
+        if seconds < 60:
+            return "%d second%s" % (seconds, "" if seconds == 1 else "s")
+        mins, secs = divmod(seconds, 60)
+        if secs == 0:
+            return "%d minute%s" % (mins, "" if mins == 1 else "s")
+        return "%d min %d sec" % (mins, secs)
+
+    def _edit_mode(self):
+        """The current editing mode: "cut" or "scene".
+
+        Read fresh each time rather than cached, so changing the setting takes
+        effect on the next video opened - which is how VideoReDo behaves and
+        what the setting's description promises.  Anything unrecognised falls
+        back to Cut Mode, the default.
+        """
+        mode = self.config.get("settings", {}).get("edit_mode", "cut")
+        return "scene" if str(mode).lower() == "scene" else "cut"
 
     def _menu_label(self, text, action_key):
         """Append the configured keyboard shortcut as a right-aligned hint.
@@ -771,6 +891,21 @@ class MainWindow(QMainWindow):
             self._menu_label(self.tr("Add Unselected"), "add_unselected")
         )
         add_unselected_action.triggered.connect(self.add_unselected)
+
+        cut_selection_action = edit_menu.addAction(
+            self._menu_label(self.tr("Cut Selection"), "cut_selection")
+        )
+        cut_selection_action.triggered.connect(self.cut_selection)
+
+        trim_unselected_action = edit_menu.addAction(
+            self._menu_label(self.tr("Trim Unselected"), "trim_unselected")
+        )
+        trim_unselected_action.triggered.connect(self.trim_unselected)
+
+        select_all_action = edit_menu.addAction(
+            self._menu_label(self.tr("Select All"), "select_all")
+        )
+        select_all_action.triggered.connect(self.select_all)
 
         clear_all_action = edit_menu.addAction(
             self._menu_label(self.tr("Clear All Scenes"), "clear_all_scenes")
@@ -1138,6 +1273,45 @@ class MainWindow(QMainWindow):
         # Kept scenes; an empty selection means "the whole file".
         keep = sorted(self.selection.ranges) or [(0, total_frames - 1)]
         fps = self.fps or 25.0
+
+        # Adding the same source twice is perfectly normal when the selections
+        # differ - that's how you interleave scenes from one recording.  But
+        # adding the *identical* set of scenes again is nearly always a stray
+        # second click, so ask in that case only.  Spans are compared to the
+        # millisecond, since they're stored as floating-point seconds.
+        def _spans(pairs):
+            return sorted(
+                (round(self.index.seconds_of(s), 3),
+                 round(self.index.seconds_of(e), 3))
+                for s, e in pairs
+            )
+
+        try:
+            new_spans = _spans(keep)
+            existing = sorted(
+                (round(e.start, 3), round(e.end, 3))
+                for e in self.joiner_list.entries
+                if e.source == source and not e.is_title
+            )
+        except Exception:
+            new_spans, existing = None, None
+
+        if new_spans and existing and new_spans == existing:
+            answer = QMessageBox.question(
+                self, self.tr("Joiner"),
+                self.tr("The same %d scene%s from \"%s\" %s already in the "
+                        "joiner list.\n\nAdd again?")
+                % (len(new_spans), "" if len(new_spans) == 1 else "s",
+                   os.path.basename(source),
+                   "is" if len(new_spans) == 1 else "are"),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                self.statusBar().showMessage(
+                    self.tr("Already in the joiner list: %s")
+                    % os.path.basename(source), 6000)
+                return
 
         for start_f, end_f in keep:
             # Per-scene cut list (everything except this one scene), captured
@@ -1861,6 +2035,9 @@ class MainWindow(QMainWindow):
             self._apply_frame_type_display()
             self._apply_shortcut_changes()
             self._apply_theme()
+            self._apply_tooltip_setting()
+            self._apply_jump_settings()
+            self._apply_edit_mode_now()
             self._prompt_language_restart(old_language)
 
         elif result == SettingsDialog.EDITED_EXTERNALLY:
@@ -1874,6 +2051,9 @@ class MainWindow(QMainWindow):
             self._apply_frame_type_display()
             self._apply_shortcut_changes()
             self._apply_theme()
+            self._apply_tooltip_setting()
+            self._apply_jump_settings()
+            self._apply_edit_mode_now()
             self._prompt_language_restart(old_language)
 
     def _prompt_language_restart(self, old_language):
@@ -2914,6 +3094,23 @@ class MainWindow(QMainWindow):
         # after the original recording for tidiness.)
         source = self.current_filename or self.original_source
         base = self._original_base()
+        # Already queued?  Compare the recording rather than the staging file,
+        # whose name is time-stamped and so never repeats.  Re-queueing the
+        # same recording is legitimate (to try different output settings), so
+        # this asks rather than refuses - and asks before writing anything.
+        if self.batch_controller.jobs_for_source(source):
+            answer = QMessageBox.question(
+                self, self.tr("Queue to Batch"),
+                self.tr("\"%s\" is already in the batch queue.\n\n"
+                        "Add it again?") % base,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                self.statusBar().showMessage(
+                    self.tr("Already in the batch queue: %s") % base, 6000)
+                return
+
         stamp = time.strftime("%Y%m%d-%H%M%S")
         vprj_path = os.path.join(queue_dir, f"{base} - {stamp}.vprj")
 
@@ -3609,6 +3806,27 @@ class MainWindow(QMainWindow):
 
         self.current_frame = 0
 
+        # The mode takes effect when a video is opened, so point the buttons
+        # (and the scene list's columns) at it now - this is what makes a
+        # change in Settings show up.
+        self._apply_edit_mode()
+
+        # In Cut Mode the whole programme starts selected (green) and pieces
+        # are cut out of it, as VideoReDo does.  Applied here because it needs
+        # the frame count, and only when nothing is selected yet - so a project
+        # being loaded, which brings its own cuts, is never overwritten no
+        # matter which order things happen in.
+        if (
+                self._edit_mode() == "cut"
+                and not self.selection.ranges
+                and len(self.frames)
+        ):
+            self.selection.select_all(len(self.frames) - 1)
+            # This is the starting state, not a user edit, so it shouldn't
+            # count as something to undo back past.
+            self.selection.undo_stack.clear()
+            self.selection.redo_stack.clear()
+
         self.index_builder = None
 
         #
@@ -4280,6 +4498,73 @@ class MainWindow(QMainWindow):
 
             self.info_panel.update_info()
 
+    def _after_selection_change(self):
+        """Refresh everything that reflects the cut list."""
+        self.scene_list.refresh()
+        self.update_timecode()
+        self.scene_bar.update()
+        self.draw_thumbnails()
+        self.info_panel.update_info()
+
+    def cut_selection(self):
+        """Cut Mode: remove the marked IN/OUT from what's being kept.
+
+        A cut landing inside a kept scene splits it in two, which is what lets
+        you work through a programme taking out one advert break at a time.
+        If the mark begins inside a cut you've already made, that cut is
+        replaced rather than extended - the same way re-marking a scene in
+        Scene Mode corrects it, so a cut that's a few frames out can simply be
+        re-marked instead of deleted and redone.
+        """
+        sel = self.selection
+
+        if sel.pending_in is None or sel.pending_out is None:
+            self.statusBar().showMessage(
+                self.tr("Mark IN and OUT first, then cut."), 4000)
+            return
+
+        start = min(sel.pending_in, sel.pending_out)
+        end = max(sel.pending_in, sel.pending_out)
+
+        changed = False
+
+        if self.frames:
+            for c_start, c_end in sel.cut_ranges(len(self.frames) - 1):
+                if c_start <= start <= c_end:
+                    changed = sel.adjust_cut(c_start, c_end, start, end)
+                    break
+            else:
+                changed = sel.subtract_range(start, end)
+        else:
+            changed = sel.subtract_range(start, end)
+
+        if changed:
+            self._after_selection_change()
+
+    def trim_unselected(self):
+        """Keep only the marked IN/OUT, cutting everything outside it.
+
+        The usual way to top-and-tail a recording in one action.
+        """
+        sel = self.selection
+
+        if sel.pending_in is None or sel.pending_out is None:
+            self.statusBar().showMessage(
+                self.tr("Mark IN and OUT first, then trim."), 4000)
+            return
+
+        if sel.intersect_range(sel.pending_in, sel.pending_out):
+            self._after_selection_change()
+
+    def select_all(self):
+        """Keep the whole programme - Cut Mode's starting state, and a way to
+        begin again from everything in either mode."""
+        if not self.frames:
+            return
+
+        if self.selection.select_all(len(self.frames) - 1):
+            self._after_selection_change()
+
     def add_unselected(self):
         """Invert the kept ranges: keep what's currently dropped, and vice versa.
 
@@ -4326,11 +4611,26 @@ class MainWindow(QMainWindow):
         self.info_panel.update_info()
 
     def clear_all_scenes(self):
-        """Remove every saved scene in one undoable step (VRD's Clear All).
+        """Start again in one undoable step (VideoReDo's Clear All).
 
-        Also clears any pending IN/OUT.  Does nothing - and so leaves the undo
-        history alone - when there is nothing to clear.
+        What "start again" means depends on the mode: in Scene Mode it clears
+        every scene, leaving nothing selected; in Cut Mode it removes every cut,
+        putting the whole programme back.  Either way it also clears any pending
+        IN/OUT, and does nothing - leaving the undo history alone - when there
+        is nothing to clear.
         """
+        if self._edit_mode() == "cut" and self.frames:
+            last = len(self.frames) - 1
+
+            if self.selection.ranges == [(0, last)] and \
+                    self.selection.pending_in is None and \
+                    self.selection.pending_out is None:
+                return      # already whole - nothing to undo back to
+
+            self.selection.select_all(last)
+            self._after_selection_change()
+            return
+
         if (
                 not self.selection.ranges
                 and self.selection.pending_in is None
@@ -4576,7 +4876,14 @@ class MainWindow(QMainWindow):
         if not rows:
             return
 
-        removed = self.selection.remove_ranges(rows)
+        if self._edit_mode() == "cut":
+            # The rows are cuts, so removing one means putting that part of the
+            # programme back rather than deleting a kept scene.
+            cuts = self.scene_list.displayed_ranges()
+            spans = [cuts[r] for r in rows if 0 <= r < len(cuts)]
+            removed = self.selection.union_ranges(spans)
+        else:
+            removed = self.selection.remove_ranges(rows)
 
         if not removed:
             return
@@ -4828,6 +5135,33 @@ class MainWindow(QMainWindow):
 
         if self.keys.match(
                 event,
+                "cut_selection",
+        ):
+
+            self.cut_selection()
+
+            return
+
+        if self.keys.match(
+                event,
+                "trim_unselected",
+        ):
+
+            self.trim_unselected()
+
+            return
+
+        if self.keys.match(
+                event,
+                "select_all",
+        ):
+
+            self.select_all()
+
+            return
+
+        if self.keys.match(
+                event,
                 "clear_all_scenes",
         ):
 
@@ -4914,7 +5248,7 @@ class MainWindow(QMainWindow):
                 "jump_back_10",
         ):
             self.jump_frames(
-                -(self.fps * 10)
+                -(self.fps * self.jump_seconds("small"))
             )
 
             return
@@ -4924,7 +5258,7 @@ class MainWindow(QMainWindow):
                 "jump_forward_10",
         ):
             self.jump_frames(
-                self.fps * 10
+                self.fps * self.jump_seconds("small")
             )
 
             return
@@ -4934,7 +5268,7 @@ class MainWindow(QMainWindow):
                 "jump_back_30",
         ):
             self.jump_frames(
-                -(self.fps * 30)
+                -(self.fps * self.jump_seconds("medium"))
             )
 
             return
@@ -4944,7 +5278,7 @@ class MainWindow(QMainWindow):
                 "jump_forward_30",
         ):
             self.jump_frames(
-                self.fps * 30
+                self.fps * self.jump_seconds("medium")
             )
 
             return
@@ -4954,7 +5288,7 @@ class MainWindow(QMainWindow):
                 "jump_back_120",
         ):
             self.jump_frames(
-                -(self.fps * 120)
+                -(self.fps * self.jump_seconds("large"))
             )
 
             return
@@ -4964,7 +5298,7 @@ class MainWindow(QMainWindow):
                 "jump_forward_120",
         ):
             self.jump_frames(
-                self.fps * 120
+                self.fps * self.jump_seconds("large")
             )
 
             return
@@ -5262,17 +5596,10 @@ class _TooltipGate(QObject):
 
 window = MainWindow()
 
-# Respect the "Show tooltips" setting (read once at startup, like the other
-# settings).  If it's off, install a filter that suppresses every tooltip.
+# Respect the "Show tooltips" setting.  The window owns the filter so the
+# setting can be toggled later without a restart.
 try:
-    _tips_on = (
-        window.config
-        .get("settings", {})
-        .get("show_tooltips", True)
-    )
-    if not _tips_on:
-        _tooltip_gate = _TooltipGate()
-        app.installEventFilter(_tooltip_gate)
+    window._apply_tooltip_setting()
 except Exception:
     pass
 

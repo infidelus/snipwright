@@ -5,6 +5,54 @@ All notable changes to VRD Next are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.9.0] - 2026-07-24
+
+The big feature is **Cut Mode** - VideoReDo's default way of working, where you
+start with the whole programme and cut the unwanted parts out - alongside a
+batch of fixes prompted by the project's first users. Subtitle tracks are now
+kept, more awkward broadcast recordings repair and export cleanly, and several
+smaller rough edges are smoothed.
+
+### Added
+
+- **Cut Mode**, selectable under Settings -> General (and now the default, as in
+  VideoReDo). Cut Mode starts with the whole recording selected and you cut
+  sections out; Scene Mode (the previous behaviour) starts empty and you mark
+  what to keep. Both share the same cut list and produce identical output - the
+  buttons, scene list and navigation bar relabel to match the mode, and you can
+  re-mark over an existing cut to adjust it. Switching modes updates the
+  interface at once; the starting state applies to the next video opened.
+- **DVB subtitle passthrough.** Subtitle tracks are carried through and cut to
+  match the video when saving to `.ts` or `.mkv` (MP4 can't carry DVB
+  subtitles).
+- **Configurable skip distances.** The three navigation jumps (short/medium/
+  long, 10/30/120 seconds by default) can be set under Settings -> General, with
+  a reset button; the buttons' hover hints follow whatever you choose.
+- **Duplicate prompts.** Queueing a recording that's already in the batch queue,
+  or adding an identical selection to the joiner, now asks first rather than
+  silently adding it again.
+
+### Changed
+
+- The "Show tooltips" and editing-mode settings apply immediately instead of
+  needing a restart.
+- The user guide covers both modes, the navigation-bar colour key, subtitle
+  handling, and clearer advice on correcting cut marks moved between editors.
+
+### Fixed
+
+- **Audio-description tracks are no longer dropped.** A genuine but sparsely-
+  transmitted AD track (seen on a Film4 recording) was mis-read as empty by a
+  too-short probe and discarded; both the repair and export steps now probe
+  thoroughly enough to recognise and keep it.
+- **Quick Stream Fix succeeds on more recordings.** The same short-probe issue
+  made QSF fail outright ("sample rate not set") on some multi-track broadcasts;
+  it now repairs them and keeps every real track.
+- The navigation bar highlights the correct section in Cut Mode (the selected
+  cut, not a mismatched scene).
+- The export warning no longer implies the main audio is missing when only a
+  secondary track (such as audio description) was affected.
+
 ## [1.8.0] - 2026-07-17
 
 A robustness, cross-platform and housekeeping release: hardened installers on
@@ -347,6 +395,7 @@ fixes.
 
 - Initial public release.
 
+[1.9.0]: https://github.com/infidelus/vrd-next/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/infidelus/vrd-next/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/infidelus/vrd-next/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/infidelus/vrd-next/compare/v1.5.1...v1.6.0

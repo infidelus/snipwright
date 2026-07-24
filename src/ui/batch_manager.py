@@ -298,6 +298,36 @@ class BatchManagerDialog(QDialog):
             self.controller.out_folder,
             "VideoReDo Project (*.vprj *.VPRJ);;All files (*)",
         )
+        if not paths:
+            return
+
+        # Anything already in the queue?  Adding a project twice is usually an
+        # accidental re-pick, but is legitimate when comparing output settings,
+        # so ask - and if they decline, still add the ones that are new.
+        dupes = [p for p in paths if self.controller.jobs_for_path(p)]
+
+        if dupes:
+            listed = "\n".join(
+                "\u2022 %s" % os.path.basename(p) for p in dupes[:5]
+            )
+            if len(dupes) > 5:
+                listed += "\n" + self.tr("\u2026and %d more") % (len(dupes) - 5)
+
+            answer = QMessageBox.question(
+                self, self.tr("Add Projects"),
+                self.tr("%d of the selected projects are already in the "
+                        "queue:\n\n%s\n\nAdd them again?")
+                % (len(dupes), listed)
+                if len(dupes) != 1 else
+                self.tr("\"%s\" is already in the queue.\n\nAdd it again?")
+                % os.path.basename(dupes[0]),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+
+            if answer != QMessageBox.Yes:
+                paths = [p for p in paths if p not in dupes]
+
         if paths:
             self.controller.add_jobs(paths)
 

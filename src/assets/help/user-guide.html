@@ -121,10 +121,12 @@ system. Comskip is optional but recommended for automatic ad detection (see sect
 or pick a recent one from <strong>File &rarr; Open Recent</strong>. VRD Next opens the
 common broadcast and file types &mdash; <code>.ts</code>, <code>.mkv</code>,
 <code>.mp4</code>, <code>.m2ts</code>, <code>.mov</code> and <code>.avi</code> &mdash;
-and you can pick any other file with the <strong>All files</strong> filter. You can also <strong>drag a file onto the window</strong> to open it &mdash; drop several videos at once and they go to the joiner (see <a href="#joiner">Joining recordings</a>), and a <code>.vprj</code> project opens straight into the editor. Selecting
-<em>several</em> files at once offers to add them all to the joiner list, each as a whole
-file &mdash; see <a href="#saving">Joining recordings</a>. The editor
-window has four main areas:</p>
+and you can pick any other file with the <strong>All files</strong> filter. You can also
+<strong>drag a file onto the window</strong> to open it, and a <code>.vprj</code> project
+opens straight into the editor. Choosing <em>several</em> videos at once &mdash; whether
+in the Open dialog or by dropping them together &mdash; offers to add them all to the
+joiner list, each as a whole file (see <a href="#joiner">Joining recordings</a>). The
+editor window has four main areas:</p>
 <ul>
   <li><strong>Preview</strong> &mdash; the current frame.</li>
   <li><strong>Thumbnail bar</strong> &mdash; a strip of frames around the cursor, for
@@ -146,15 +148,61 @@ virtual environment, and menu/desktop shortcuts, so you can start it from your
 applications menu like any other program. See the <code>README</code> there for details.</div>
 
 <h2 id="cutting">3. Marking and cutting</h2>
-<p>VRD Next works by marking the parts you want to <strong>keep</strong>, not the parts
-you want to remove. When cutting adverts, for instance, you mark the programme; the
-adverts are simply the gaps between kept scenes.</p>
+<h3>Two ways of working: Cut Mode and Scene Mode</h3>
+<p>VRD Next offers the same two editing modes as VideoReDo, chosen under
+<strong>Settings &rarr; General &rarr; Editing mode</strong>. The choice takes effect the
+next time you open a video.</p>
+<ul>
+  <li><strong>Cut Mode</strong> (the default) starts with the whole programme selected, and
+  you cut the unwanted parts out of it. The navigation bar starts green and each cut turns
+  a section red. This is usually the quickest way to remove adverts.</li>
+  <li><strong>Scene Mode</strong> starts with nothing selected, and you mark the parts you
+  want to <strong>keep</strong>, which turn green. It suits piecing together the good parts
+  of a recording, or any job where it is easier to describe what you want than what you
+  don't.</li>
+</ul>
+<p>Both modes share the same underlying cut list and produce identical output &mdash; only
+the way you build it differs. The buttons beneath the transport controls change to match
+the mode, and the list on the right shows either the cuts or the kept scenes accordingly.</p>
+<p>Automatic ad detection (see <a href="#detect">Automatic ad detection</a>) works in
+either mode: Comskip marks where it believes the breaks fall, giving you a starting point
+to refine rather than a blank timeline. How close those marks land depends on your Comskip
+<code>.ini</code> settings and the channel, so it is always worth checking each one before
+saving.</p>
 <h3>Navigating</h3>
 <p>Use the transport buttons or the keyboard to move through the recording: step one
-frame at a time, jump by 10, 30 or 120 seconds, or jump to the start or end. Watch the
+frame at a time, skip forwards or backwards, or jump to the start or end. Watch the
 thumbnail bar as you step &mdash; it makes finding the exact frame of a cut much easier.
 To jump to a specific timecode, use <strong>Goto</strong> (<kbd>Ctrl+G</kbd>).</p>
-<h3>Marking a scene</h3>
+<p>There are three skip distances, 10, 30 and 120 seconds by default:</p>
+<ul>
+  <li>The <strong>short skip</strong> (10 seconds) has no button &mdash; it is on the
+  keyboard only, <kbd>Ctrl+Shift+Left</kbd> and <kbd>Ctrl+Shift+Right</kbd> by default.</li>
+  <li>The <strong>medium skip</strong> (30 seconds) is the inner pair of skip buttons,
+  or <kbd>Ctrl+Left</kbd> / <kbd>Ctrl+Right</kbd>.</li>
+  <li>The <strong>long skip</strong> (120 seconds) is the outer pair, or
+  <kbd>Shift+Left</kbd> / <kbd>Shift+Right</kbd>.</li>
+</ul>
+<p>All three distances can be changed under <strong>Settings &rarr; General</strong>, and
+the buttons&rsquo; hover hints update to match. The shortcuts themselves are listed in
+<a href="#shortcuts">Keyboard shortcuts</a>.</p>
+<h3>Cutting in Cut Mode</h3>
+<ol>
+  <li>Move to where the unwanted section starts and press <strong>Mark In</strong>
+  (<kbd>F3</kbd>).</li>
+  <li>Move to where it ends and press <strong>Mark Out</strong> (<kbd>F4</kbd>).</li>
+  <li>Press <strong>Cut Selection</strong> (<kbd>Ctrl+X</kbd>) to remove it.</li>
+</ol>
+<p>Repeat for each advert break. A cut landing in the middle of the programme splits it in
+two, so you can work through a recording removing one break at a time. To top and tail a
+recording in a single action, mark the programme itself and press
+<strong>Trim Unselected</strong> (<kbd>Ctrl+T</kbd>), which cuts away everything outside
+the marked section.</p>
+<p>The list on the right shows the cuts you have made. Selecting a row and removing it puts
+that part of the programme back. <strong>Clear All Scenes</strong> (<kbd>Shift+Insert</kbd>)
+removes every cut and restores the whole recording.</p>
+
+<h3>Marking a scene in Scene Mode</h3>
 <ol>
   <li>Move to where the section you want to keep starts and press <strong>Mark In</strong>
   (<kbd>F3</kbd>).</li>
@@ -167,6 +215,17 @@ the new selection replaces it, so correcting a cut is just a matter of re-markin
 every gap as a kept scene &mdash; handy when it is quicker to mark the parts you want to
 remove and then invert. <strong>Clear All Scenes</strong> (<kbd>Shift+Insert</kbd>) starts
 over.</p>
+
+<h3>Reading the navigation bar</h3>
+<p>The coloured bar beneath the thumbnails shows the shape of your edit at a glance:</p>
+<ul>
+  <li><strong style="color:#2f8f3c">Green</strong> &mdash; will be kept.</li>
+  <li><strong style="color:#8a2a2a">Red</strong> &mdash; will not be kept.</li>
+  <li><strong style="color:#d0b000">Yellow</strong> &mdash; the scene currently selected in
+  the list. This is only a highlight so you can see which row is which part of the
+  recording; it does not indicate a problem with the video.</li>
+  <li><strong style="color:#00d8ff">Cyan</strong> &mdash; scene markers.</li>
+</ul>
 
 <h2 id="detect">4. Automatic ad detection and projects</h2>
 <h3>Comskip</h3>
@@ -197,8 +256,11 @@ VideoReDo <code>.vprj</code> files (both the V5 VRD and V3 Comskip dialects) and
 VRD Next and other tools, or keep a record of your cuts without re-exporting the video.</p>
 <div class="note">When a project is moved between VRD Next and VideoReDo, individual cut
 marks may shift by a frame or two &mdash; the two editors index frames slightly differently
-internally. The resulting cut is still frame-accurate; only the displayed mark positions
-differ.</div>
+internally. The cut each editor makes is still frame-accurate to the marks it is showing
+you. <strong>If a mark looks wrong in whichever editor you are using, correct it there
+before saving</strong> &mdash; do not assume it will cut where you originally intended.
+A mark that has drifted will cut where it now sits, which is how a stray frame of advert
+or a missing moment at the start of a scene creeps in.</div>
 
 <h2 id="saving">5. Saving video</h2>
 <p>When your scenes are ready, choose <strong>File &rarr; Save Video</strong>
@@ -217,7 +279,9 @@ source's streams are not compatible with.</p>
 the audio-description track some broadcasters transmit (Channel&nbsp;4&nbsp;HD, for
 example). The tracks are kept losslessly wherever the source allows, stay in sync with the
 picture, and the description track keeps its &ldquo;visual impaired&rdquo; label in every
-output container.</div>
+output container. <strong>DVB subtitle tracks are carried through too</strong>, cut to
+match the video, when saving to <code>.ts</code> or <code>.mkv</code> &mdash; MP4 cannot
+carry DVB subtitles, so they are dropped in that format only.</div>
 <h3>Output profiles</h3>
 <p>Manage profiles under <strong>Tools &rarr; Manage Profiles</strong>. A profile controls:</p>
 <ul>
@@ -351,6 +415,11 @@ editor.</p>
 
 <h2 id="shortcuts">9. Keyboard shortcuts</h2>
 <p>These are the defaults; all of them can be changed in Settings.</p>
+<p>The three skip distances default to 10, 30 and 120 seconds and can be changed under
+<strong>Settings &rarr; General</strong>. Note that in <code>config.json</code> these
+shortcuts keep their original names &mdash; <code>jump_back_30</code> and so on &mdash;
+whatever distance you set them to, so a &ldquo;30&rdquo; in the name reflects the default
+rather than the current setting.</p>
 <table>
   <tr><th>Action</th><th>Shortcut</th></tr>
   <tr><td>Open Video</td><td><kbd>Ctrl+O</kbd></td></tr>
@@ -360,13 +429,16 @@ editor.</p>
   <tr><td>Queue to Batch</td><td><kbd>Ctrl+B</kbd></td></tr>
   <tr><td>Play / Pause</td><td><kbd>Space</kbd></td></tr>
   <tr><td>Step one frame back / forward</td><td><kbd>Left</kbd> / <kbd>Right</kbd></td></tr>
-  <tr><td>Jump 10s back / forward</td><td><kbd>Ctrl+Shift+Left</kbd> / <kbd>Ctrl+Shift+Right</kbd></td></tr>
-  <tr><td>Jump 30s back / forward</td><td><kbd>Ctrl+Left</kbd> / <kbd>Ctrl+Right</kbd></td></tr>
-  <tr><td>Jump 120s back / forward</td><td><kbd>Shift+Left</kbd> / <kbd>Shift+Right</kbd></td></tr>
+  <tr><td>Short skip back / forward</td><td><kbd>Ctrl+Shift+Left</kbd> / <kbd>Ctrl+Shift+Right</kbd></td></tr>
+  <tr><td>Medium skip back / forward</td><td><kbd>Ctrl+Left</kbd> / <kbd>Ctrl+Right</kbd></td></tr>
+  <tr><td>Long skip back / forward</td><td><kbd>Shift+Left</kbd> / <kbd>Shift+Right</kbd></td></tr>
   <tr><td>Jump to start / end</td><td><kbd>Home</kbd> / <kbd>End</kbd></td></tr>
   <tr><td>Mark In / Mark Out</td><td><kbd>F3</kbd> / <kbd>F4</kbd></td></tr>
   <tr><td>Add Selection</td><td><kbd>Insert</kbd></td></tr>
   <tr><td>Add Unselected</td><td><kbd>Ctrl+Insert</kbd></td></tr>
+  <tr><td>Cut Selection</td><td><kbd>Ctrl+X</kbd></td></tr>
+  <tr><td>Trim Unselected</td><td><kbd>Ctrl+T</kbd></td></tr>
+  <tr><td>Select All</td><td><kbd>Ctrl+Shift+A</kbd></td></tr>
   <tr><td>Clear All Scenes</td><td><kbd>Shift+Insert</kbd></td></tr>
   <tr><td>Clear current selection</td><td><kbd>Delete</kbd></td></tr>
   <tr><td>Previous / Next scene</td><td><kbd>F5</kbd> / <kbd>F6</kbd></td></tr>

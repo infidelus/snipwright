@@ -101,6 +101,16 @@ def quick_stream_fix(
 
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        # Probe as thoroughly as _dead_audio_streams() does.  Some broadcasts
+        # carry a real audio track whose parameters only become apparent well
+        # into the file - a Film4 recording with a second audio track was
+        # failing here with "sample rate not set" because ffmpeg's default
+        # probe window gave up before finding them, so it refused to write the
+        # output header and the whole repair failed.  Matching the detection's
+        # window means the two agree: a stream we decided to keep is one
+        # ffmpeg can actually describe.  (Dropping such a stream instead would
+        # silently lose a genuine audio track.)
+        "-analyzeduration", "30M", "-probesize", "60M",
         # Regenerate missing presentation timestamps.
         "-fflags", "+genpts",
         # Preserve every stream's timing exactly, uniformly shifted so the

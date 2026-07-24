@@ -4,19 +4,51 @@
 <context>
     <name>ActionBar</name>
     <message>
-        <location filename="../ui/transport_panel.py" line="843"/>
+        <location filename="../ui/transport_panel.py" line="862"/>
+        <location filename="../ui/transport_panel.py" line="924"/>
         <source>Add Selection</source>
         <translation>Auswahl hinzufügen</translation>
     </message>
     <message>
-        <location filename="../ui/transport_panel.py" line="847"/>
+        <location filename="../ui/transport_panel.py" line="866"/>
+        <location filename="../ui/transport_panel.py" line="929"/>
         <source>Add Unselected</source>
         <translation>Nicht ausgewählte hinzufügen</translation>
     </message>
     <message>
-        <location filename="../ui/transport_panel.py" line="851"/>
+        <location filename="../ui/transport_panel.py" line="870"/>
         <source>Save Video</source>
         <translation>Video speichern</translation>
+    </message>
+    <message>
+        <location filename="../ui/transport_panel.py" line="913"/>
+        <source>Cut Selection</source>
+        <translation>Auswahl herausschneiden</translation>
+    </message>
+    <message>
+        <location filename="../ui/transport_panel.py" line="915"/>
+        <source>Cut the marked section out of the programme</source>
+        <translation>Den markierten Abschnitt aus der Sendung herausschneiden</translation>
+    </message>
+    <message>
+        <location filename="../ui/transport_panel.py" line="918"/>
+        <source>Trim Unselected</source>
+        <translation>Nicht Ausgewähltes entfernen</translation>
+    </message>
+    <message>
+        <location filename="../ui/transport_panel.py" line="920"/>
+        <source>Keep only the marked section, cutting everything outside it</source>
+        <translation>Nur den markierten Abschnitt behalten und alles außerhalb herausschneiden</translation>
+    </message>
+    <message>
+        <location filename="../ui/transport_panel.py" line="926"/>
+        <source>Keep the marked section</source>
+        <translation>Den markierten Abschnitt behalten</translation>
+    </message>
+    <message>
+        <location filename="../ui/transport_panel.py" line="931"/>
+        <source>Keep everything that isn&apos;t already selected</source>
+        <translation>Alles behalten, was noch nicht ausgewählt ist</translation>
     </message>
 </context>
 <context>
@@ -78,7 +110,7 @@
     </message>
     <message>
         <location filename="../ui/batch_manager.py" line="53"/>
-        <location filename="../ui/batch_manager.py" line="474"/>
+        <location filename="../ui/batch_manager.py" line="504"/>
         <source>Queued</source>
         <translation>In der Warteschlange</translation>
     </message>
@@ -103,7 +135,7 @@
         <translation>Überprüfung erforderlich</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="643"/>
+        <location filename="../ui/batch_manager.py" line="673"/>
         <source>Working</source>
         <translation>In Arbeit</translation>
     </message>
@@ -112,9 +144,9 @@
     <name>BatchManagerDialog</name>
     <message>
         <location filename="../ui/batch_manager.py" line="74"/>
-        <location filename="../ui/batch_manager.py" line="565"/>
-        <location filename="../ui/batch_manager.py" line="572"/>
-        <location filename="../ui/batch_manager.py" line="578"/>
+        <location filename="../ui/batch_manager.py" line="595"/>
+        <location filename="../ui/batch_manager.py" line="602"/>
+        <location filename="../ui/batch_manager.py" line="608"/>
         <source>Batch Manager</source>
         <translation>Stapelverwaltung</translation>
     </message>
@@ -170,9 +202,9 @@
     </message>
     <message>
         <location filename="../ui/batch_manager.py" line="157"/>
-        <location filename="../ui/batch_manager.py" line="312"/>
-        <location filename="../ui/batch_manager.py" line="327"/>
-        <location filename="../ui/batch_manager.py" line="335"/>
+        <location filename="../ui/batch_manager.py" line="342"/>
+        <location filename="../ui/batch_manager.py" line="357"/>
+        <location filename="../ui/batch_manager.py" line="365"/>
         <source>Add from Watch Folder</source>
         <translation>Aus Überwachungsordner hinzufügen</translation>
     </message>
@@ -183,7 +215,7 @@
     </message>
     <message>
         <location filename="../ui/batch_manager.py" line="163"/>
-        <location filename="../ui/batch_manager.py" line="366"/>
+        <location filename="../ui/batch_manager.py" line="396"/>
         <source>Remove</source>
         <translation>Entfernen</translation>
     </message>
@@ -204,8 +236,8 @@
     </message>
     <message>
         <location filename="../ui/batch_manager.py" line="201"/>
-        <location filename="../ui/batch_manager.py" line="585"/>
-        <location filename="../ui/batch_manager.py" line="596"/>
+        <location filename="../ui/batch_manager.py" line="615"/>
+        <location filename="../ui/batch_manager.py" line="626"/>
         <source>Start</source>
         <translation>Starten</translation>
     </message>
@@ -225,115 +257,141 @@
         <translation>%s (fehlt)</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="313"/>
+        <location filename="../ui/batch_manager.py" line="314"/>
+        <source>…and %d more</source>
+        <translation>…und %d weitere</translation>
+    </message>
+    <message>
+        <location filename="../ui/batch_manager.py" line="317"/>
+        <source>Add Projects</source>
+        <translation>Projekte hinzufügen</translation>
+    </message>
+    <message>
+        <location filename="../ui/batch_manager.py" line="318"/>
+        <source>%d of the selected projects are already in the queue:
+
+%s
+
+Add them again?</source>
+        <translation>%d der ausgewählten Projekte sind bereits in der Warteschlange:\n\n%s\n\nErneut hinzufügen?</translation>
+    </message>
+    <message>
+        <location filename="../ui/batch_manager.py" line="322"/>
+        <source>&quot;%s&quot; is already in the queue.
+
+Add it again?</source>
+        <translation>&quot;%s&quot; ist bereits in der Warteschlange.\n\nErneut hinzufügen?</translation>
+    </message>
+    <message>
+        <location filename="../ui/batch_manager.py" line="343"/>
         <source>The watch output folder doesn&apos;t exist yet. Set it up in the VRD Next Watcher first.</source>
         <translation>Der Überwachungs-Ausgabeordner existiert noch nicht. Richten Sie ihn zuerst im VRD Next Watcher ein.</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="328"/>
+        <location filename="../ui/batch_manager.py" line="358"/>
         <source>No new projects in the watch folder — everything there is already in the queue.</source>
         <translation>Keine neuen Projekte im Überwachungsordner — alles dort befindet sich bereits in der Warteschlange.</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="354"/>
+        <location filename="../ui/batch_manager.py" line="384"/>
         <source>Working from:  %s</source>
         <translation>Arbeitet von:  %s</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="367"/>
+        <location filename="../ui/batch_manager.py" line="397"/>
         <source>That file is being processed right now. Stop the batch first if you want to remove it.</source>
         <translation>Diese Datei wird gerade verarbeitet. Beenden Sie zuerst die Stapelverarbeitung, wenn Sie sie entfernen möchten.</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="445"/>
+        <location filename="../ui/batch_manager.py" line="475"/>
         <source>Edit…</source>
         <translation>Bearbeiten…</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="469"/>
+        <location filename="../ui/batch_manager.py" line="499"/>
         <source>Needs review — Edit to repair &amp; confirm</source>
         <translation>Überprüfung erforderlich — Bearbeiten zum Reparieren &amp; Bestätigen</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="505"/>
+        <location filename="../ui/batch_manager.py" line="535"/>
         <source>Edit</source>
         <translation>Bearbeiten</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="535"/>
+        <location filename="../ui/batch_manager.py" line="565"/>
         <source>Stop Batch</source>
         <translation>Stapelverarbeitung beenden</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="536"/>
+        <location filename="../ui/batch_manager.py" line="566"/>
         <source>Stop processing the queue?</source>
         <translation>Verarbeitung der Warteschlange beenden?</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="538"/>
+        <location filename="../ui/batch_manager.py" line="568"/>
         <source>The job that&apos;s currently running can be finished first, or stopped straight away and left unfinished.</source>
         <translation>Der gerade laufende Auftrag kann zuerst abgeschlossen oder sofort beendet und unvollendet gelassen werden.</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="542"/>
+        <location filename="../ui/batch_manager.py" line="572"/>
         <source>Finish current file, then stop</source>
         <translation>Aktuelle Datei abschließen, dann beenden</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="544"/>
+        <location filename="../ui/batch_manager.py" line="574"/>
         <source>Stop now</source>
         <translation>Sofort beenden</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="545"/>
+        <location filename="../ui/batch_manager.py" line="575"/>
         <source>Keep going</source>
         <translation>Fortfahren</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="552"/>
-        <location filename="../ui/batch_manager.py" line="604"/>
+        <location filename="../ui/batch_manager.py" line="582"/>
+        <location filename="../ui/batch_manager.py" line="634"/>
         <source>Stopping after the current file…</source>
         <translation>Beenden nach der aktuellen Datei…</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="557"/>
+        <location filename="../ui/batch_manager.py" line="587"/>
         <source>Stopping…</source>
         <translation>Wird beendet…</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="565"/>
+        <location filename="../ui/batch_manager.py" line="595"/>
         <source>Add at least one project first.</source>
         <translation>Fügen Sie zuerst mindestens ein Projekt hinzu.</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="579"/>
+        <location filename="../ui/batch_manager.py" line="609"/>
         <source>Every job is already done. Add more, or use Clear Finished.</source>
         <translation>Alle Aufträge sind bereits erledigt. Fügen Sie weitere hinzu oder nutzen Sie „Abgeschlossene leeren“.</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="585"/>
-        <location filename="../ui/batch_manager.py" line="596"/>
+        <location filename="../ui/batch_manager.py" line="615"/>
+        <location filename="../ui/batch_manager.py" line="626"/>
         <source>Stop</source>
         <translation>Stoppen</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="607"/>
+        <location filename="../ui/batch_manager.py" line="637"/>
         <source>Batch running…</source>
         <translation>Stapelverarbeitung läuft…</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="669"/>
+        <location filename="../ui/batch_manager.py" line="699"/>
         <source>Stopped</source>
         <translation>Gestoppt</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="669"/>
+        <location filename="../ui/batch_manager.py" line="699"/>
         <source>Finished</source>
         <translation>Abgeschlossen</translation>
     </message>
     <message>
-        <location filename="../ui/batch_manager.py" line="680"/>
-        <location filename="../ui/batch_manager.py" line="687"/>
+        <location filename="../ui/batch_manager.py" line="710"/>
+        <location filename="../ui/batch_manager.py" line="717"/>
         <source>Batch finished</source>
         <translation>Stapelverarbeitung abgeschlossen</translation>
     </message>
@@ -783,52 +841,92 @@
 <context>
     <name>GeneralPage</name>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="29"/>
+        <location filename="../ui/settings_pages/general.py" line="36"/>
+        <source>Editing mode:</source>
+        <translation>Bearbeitungsmodus:</translation>
+    </message>
+    <message>
+        <location filename="../ui/settings_pages/general.py" line="56"/>
         <source>Show tooltips on the transport controls</source>
         <translation>Tooltips auf den Wiedergabesteuerungen anzeigen</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="33"/>
-        <source>Hover hints on the play, skip and marker buttons. Turn off once you know the controls. Takes effect after a restart.</source>
-        <translation>Einblendbare Hinweise beim Bewegen der Maus über die Tasten für Wiedergabe, Überspringen und Markierungen. Deaktivieren Sie dies, sobald Sie die Steuerung kennen. Wird nach einem Neustart wirksam.</translation>
+        <location filename="../ui/settings_pages/general.py" line="60"/>
+        <source>Hover hints on the play, skip and marker buttons. Turn off once you know the controls.</source>
+        <translation>Kurzinfos für die Wiedergabe-, Sprung- und Markierungsschaltflächen. Schalten Sie sie aus, sobald Sie die Bedienelemente kennen.</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="38"/>
+        <location filename="../ui/settings_pages/general.py" line="50"/>
+        <source>Cut Mode starts with the whole programme selected and you cut the unwanted parts out of it. Scene Mode starts with nothing selected and you mark the parts you want to keep. Switching updates the buttons and scene list at once; the next video you open starts in the new mode.</source>
+        <translation>Im Schnittmodus ist zunächst die gesamte Sendung ausgewählt und Sie schneiden die unerwünschten Teile heraus. Im Szenenmodus ist zunächst nichts ausgewählt und Sie markieren die Teile, die Sie behalten möchten. Ein Wechsel aktualisiert die Schaltflächen und die Szenenliste sofort; das nächste geöffnete Video startet im neuen Modus.</translation>
+    </message>
+    <message>
+        <location filename="../ui/settings_pages/general.py" line="77"/>
+        <source> seconds</source>
+        <translation> Sekunden</translation>
+    </message>
+    <message>
+        <location filename="../ui/settings_pages/general.py" line="87"/>
+        <source>Reset skip distances</source>
+        <translation>Sprungweiten zurücksetzen</translation>
+    </message>
+    <message>
+        <location filename="../ui/settings_pages/general.py" line="70"/>
+        <source>Short skip (keyboard only):</source>
+        <translation>Kurzer Sprung (nur Tastatur):</translation>
+    </message>
+    <message>
+        <location filename="../ui/settings_pages/general.py" line="72"/>
+        <source>Medium skip (inner buttons):</source>
+        <translation>Mittlerer Sprung (innere Schaltflächen):</translation>
+    </message>
+    <message>
+        <location filename="../ui/settings_pages/general.py" line="74"/>
+        <source>Long skip (outer buttons):</source>
+        <translation>Langer Sprung (äußere Schaltflächen):</translation>
+    </message>
+    <message>
+        <location filename="../ui/settings_pages/general.py" line="93"/>
+        <source>How far the skip controls move through a recording. The buttons&apos; hover hints update to match. See the User Guide for the keyboard shortcuts each one uses.</source>
+        <translation>Wie weit sich die Sprungsteuerung durch eine Aufnahme bewegt. Die Kurzinfos der Schaltflächen passen sich an. Die zugehörigen Tastenkürzel finden Sie im Benutzerhandbuch.</translation>
+    </message>
+    <message>
+        <location filename="../ui/settings_pages/general.py" line="99"/>
         <source>Show frame type (I/P/B):</source>
         <translation>Bildtyp anzeigen (I/P/B):</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="51"/>
+        <location filename="../ui/settings_pages/general.py" line="112"/>
         <source>Overlay each frame&apos;s picture type (I, P or B) in the top-left corner of the thumbnail strip and/or the preview.</source>
         <translation>Blendet den Bildtyp (I, P oder B) jedes Frames in der oberen linken Ecke der Miniaturansicht und/oder der Vorschau ein.</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="56"/>
+        <location filename="../ui/settings_pages/general.py" line="117"/>
         <source>Theme:</source>
         <translation>Design:</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="69"/>
+        <location filename="../ui/settings_pages/general.py" line="130"/>
         <source>Follow the desktop&apos;s own colours, or pin a Light or Dark look for VRD Next. The editor&apos;s timeline and thumbnail bars stay dark in every theme. The change applies straight away.</source>
         <translation>Folgt den Farben des Desktops oder legt ein helles oder dunkles Erscheinungsbild für VRD Next fest. Die Zeitleiste und die Miniaturansichten des Editors bleiben in jedem Design dunkel. Die Änderung wird sofort angewendet.</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="75"/>
+        <location filename="../ui/settings_pages/general.py" line="136"/>
         <source>Language:</source>
         <translation>Sprache:</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="90"/>
+        <location filename="../ui/settings_pages/general.py" line="151"/>
         <source>The interface language. English is built in; other languages appear here once their translation file is added to the translations folder. Takes effect after a restart.</source>
         <translation>Die Benutzeroberflächensprache. Englisch ist standardmäßig integriert; andere Sprachen erscheinen hier, sobald ihre Übersetzungsdatei dem Ordner „translations“ hinzugefügt wurde. Wird nach einem Neustart wirksam.</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="95"/>
+        <location filename="../ui/settings_pages/general.py" line="156"/>
         <source>Restore default window size</source>
         <translation>Standardfenstergröße wiederherstellen</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="98"/>
+        <location filename="../ui/settings_pages/general.py" line="159"/>
         <source>Un-maximise and reset the window to its default size.</source>
         <translation>Maximierung aufheben und das Fenster auf seine Standardgröße zurücksetzen.</translation>
     </message>
@@ -1169,11 +1267,17 @@ Ja = anhängen,  Nein = aktuelle Liste ersetzen.</translation>
     <name>MainWindow</name>
     <message>
         <location filename="../main.py" line="526"/>
+        <location filename="../main.py" line="700"/>
         <source>Remove Selected Scenes</source>
         <translation>Ausgewählte Szenen entfernen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="671"/>
+        <location filename="../main.py" line="699"/>
+        <source>Remove Selected Cuts</source>
+        <translation>Ausgewählte Schnitte entfernen</translation>
+    </message>
+    <message>
+        <location filename="../main.py" line="791"/>
         <source>You have unsaved changes to the scene list.
 
 Save them as a project before continuing?</source>
@@ -1182,266 +1286,295 @@ Save them as a project before continuing?</source>
 Möchten Sie diese vor dem Fortfahren als Projekt speichern?</translation>
     </message>
     <message>
-        <location filename="../main.py" line="692"/>
+        <location filename="../main.py" line="812"/>
         <source>File</source>
         <translation>Datei</translation>
     </message>
     <message>
-        <location filename="../main.py" line="697"/>
-        <location filename="../main.py" line="2181"/>
-        <location filename="../main.py" line="2333"/>
+        <location filename="../main.py" line="817"/>
+        <location filename="../main.py" line="2361"/>
+        <location filename="../main.py" line="2513"/>
         <source>Open Video</source>
         <translation>Video öffnen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="701"/>
+        <location filename="../main.py" line="821"/>
         <source>Open Recent</source>
         <translation>Zuletzt geöffnet</translation>
     </message>
     <message>
-        <location filename="../main.py" line="708"/>
+        <location filename="../main.py" line="828"/>
         <source>Save Video…</source>
         <translation>Video speichern…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="713"/>
+        <location filename="../main.py" line="833"/>
         <source>Close Video</source>
         <translation>Video schließen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="720"/>
+        <location filename="../main.py" line="840"/>
         <source>Open Project…</source>
         <translation>Projekt öffnen…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="725"/>
+        <location filename="../main.py" line="845"/>
         <source>Save Project</source>
         <translation>Projekt speichern</translation>
     </message>
     <message>
-        <location filename="../main.py" line="730"/>
+        <location filename="../main.py" line="850"/>
         <source>Save Project As…</source>
         <translation>Projekt speichern unter…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="737"/>
-        <location filename="../main.py" line="2883"/>
-        <location filename="../main.py" line="2891"/>
-        <location filename="../main.py" line="2905"/>
-        <location filename="../main.py" line="2930"/>
+        <location filename="../main.py" line="857"/>
+        <location filename="../main.py" line="3063"/>
+        <location filename="../main.py" line="3071"/>
+        <location filename="../main.py" line="3085"/>
+        <location filename="../main.py" line="3103"/>
+        <location filename="../main.py" line="3127"/>
         <source>Queue to Batch</source>
         <translation>Zur Stapelverarbeitung</translation>
     </message>
     <message>
-        <location filename="../main.py" line="743"/>
+        <location filename="../main.py" line="863"/>
         <source>Exit</source>
         <translation>Beenden</translation>
     </message>
     <message>
-        <location filename="../main.py" line="749"/>
+        <location filename="../main.py" line="869"/>
         <source>Edit</source>
         <translation>Bearbeiten</translation>
     </message>
     <message>
-        <location filename="../main.py" line="754"/>
+        <location filename="../main.py" line="874"/>
         <source>Mark In</source>
         <translation>Anfang markieren</translation>
     </message>
     <message>
-        <location filename="../main.py" line="759"/>
+        <location filename="../main.py" line="879"/>
         <source>Mark Out</source>
         <translation>Ende markieren</translation>
     </message>
     <message>
-        <location filename="../main.py" line="766"/>
+        <location filename="../main.py" line="886"/>
         <source>Add Selection</source>
         <translation>Auswahl hinzufügen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="771"/>
+        <location filename="../main.py" line="891"/>
         <source>Add Unselected</source>
         <translation>Nicht ausgewählte hinzufügen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="776"/>
+        <location filename="../main.py" line="896"/>
+        <source>Cut Selection</source>
+        <translation>Auswahl herausschneiden</translation>
+    </message>
+    <message>
+        <location filename="../main.py" line="901"/>
+        <source>Trim Unselected</source>
+        <translation>Nicht Ausgewähltes entfernen</translation>
+    </message>
+    <message>
+        <location filename="../main.py" line="906"/>
+        <source>Select All</source>
+        <translation>Alles auswählen</translation>
+    </message>
+    <message>
+        <location filename="../main.py" line="911"/>
         <source>Clear All Scenes</source>
         <translation>Alle Szenen löschen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="783"/>
+        <location filename="../main.py" line="918"/>
         <source>Previous Scene Start</source>
         <translation>Vorheriger Szenenanfang</translation>
     </message>
     <message>
-        <location filename="../main.py" line="788"/>
+        <location filename="../main.py" line="923"/>
         <source>Next Scene End</source>
         <translation>Nächstes Szenenende</translation>
     </message>
     <message>
-        <location filename="../main.py" line="795"/>
-        <location filename="../main.py" line="1133"/>
-        <location filename="../main.py" line="1201"/>
-        <location filename="../main.py" line="1212"/>
-        <location filename="../main.py" line="1241"/>
-        <location filename="../main.py" line="1332"/>
-        <location filename="../main.py" line="1338"/>
-        <location filename="../main.py" line="1352"/>
+        <location filename="../main.py" line="930"/>
+        <location filename="../main.py" line="1268"/>
+        <location filename="../main.py" line="1301"/>
+        <location filename="../main.py" line="1375"/>
+        <location filename="../main.py" line="1386"/>
+        <location filename="../main.py" line="1415"/>
+        <location filename="../main.py" line="1506"/>
+        <location filename="../main.py" line="1512"/>
+        <location filename="../main.py" line="1526"/>
         <source>Joiner</source>
         <translation>Joiner</translation>
     </message>
     <message>
-        <location filename="../main.py" line="800"/>
+        <location filename="../main.py" line="935"/>
         <source>Add Current Project To Joiner List</source>
         <translation>Aktuelles Projekt zur Joiner-Liste hinzufügen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="805"/>
+        <location filename="../main.py" line="940"/>
         <source>Edit Joiner List…</source>
         <translation>Joiner-Liste bearbeiten…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="810"/>
+        <location filename="../main.py" line="945"/>
         <source>Create Video From Joiner List…</source>
         <translation>Video aus Joiner-Liste erstellen…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="817"/>
+        <location filename="../main.py" line="952"/>
         <source>Tools</source>
         <translation>Werkzeuge</translation>
     </message>
     <message>
-        <location filename="../main.py" line="824"/>
+        <location filename="../main.py" line="959"/>
         <source>Quick Stream Fix…</source>
         <translation>Schnelle Stream-Reparatur…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="835"/>
+        <location filename="../main.py" line="970"/>
         <source>Detect Commercials…</source>
         <translation>Werbung erkennen…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="846"/>
+        <location filename="../main.py" line="981"/>
         <source>Batch Manager…</source>
         <translation>Stapelverwaltung…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="857"/>
+        <location filename="../main.py" line="992"/>
         <source>Manage Profiles…</source>
         <translation>Profile verwalten…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="871"/>
+        <location filename="../main.py" line="1006"/>
         <source>Show Video Programme Info</source>
         <translation>Programminformationen anzeigen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="884"/>
+        <location filename="../main.py" line="1019"/>
         <source>Trim and Copy Source File…</source>
         <translation>Quelldatei zuschneiden und kopieren…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="897"/>
+        <location filename="../main.py" line="1032"/>
         <source>Open Log Folder</source>
         <translation>Protokollordner öffnen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="908"/>
+        <location filename="../main.py" line="1043"/>
         <source>Settings…</source>
         <translation>Einstellungen…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="920"/>
+        <location filename="../main.py" line="1055"/>
         <source>Extras</source>
         <translation>Extras</translation>
     </message>
     <message>
-        <location filename="../main.py" line="922"/>
+        <location filename="../main.py" line="1057"/>
         <source>TV Renamer…</source>
         <translation>TV-Umbenenner…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="925"/>
+        <location filename="../main.py" line="1060"/>
         <source>Film Renamer…</source>
         <translation>Film-Umbenenner…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="928"/>
+        <location filename="../main.py" line="1063"/>
         <source>Launch VRD Next Watcher</source>
         <translation>VRD Next Watcher starten</translation>
     </message>
     <message>
-        <location filename="../main.py" line="935"/>
+        <location filename="../main.py" line="1070"/>
         <source>Help</source>
         <translation>Hilfe</translation>
     </message>
     <message>
-        <location filename="../main.py" line="937"/>
+        <location filename="../main.py" line="1072"/>
         <source>User Guide</source>
         <translation>Benutzerhandbuch</translation>
     </message>
     <message>
-        <location filename="../main.py" line="943"/>
-        <location filename="../main.py" line="965"/>
+        <location filename="../main.py" line="1078"/>
+        <location filename="../main.py" line="1100"/>
         <source>About %s</source>
         <translation>Über %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="974"/>
+        <location filename="../main.py" line="1109"/>
         <source>Version %s</source>
         <translation>Version %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="976"/>
+        <location filename="../main.py" line="1111"/>
         <source>An open-source, Linux-native, frame-accurate video cutter, heavily inspired by VideoReDo.</source>
         <translation>Ein quelloffener, Linux-nativer, bildgenauer Videoschnitt, stark inspiriert von VideoReDo.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="998"/>
+        <location filename="../main.py" line="1133"/>
         <source>OK</source>
         <translation>OK</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1042"/>
-        <location filename="../main.py" line="1056"/>
-        <location filename="../main.py" line="1071"/>
-        <location filename="../main.py" line="1078"/>
+        <location filename="../main.py" line="1177"/>
+        <location filename="../main.py" line="1191"/>
+        <location filename="../main.py" line="1206"/>
+        <location filename="../main.py" line="1213"/>
         <source>VRD Next Watcher</source>
         <translation>VRD Next Watcher</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1043"/>
+        <location filename="../main.py" line="1178"/>
         <source>The VRD Next Watcher is already running - look for its icon in your system tray.</source>
         <translation>Der VRD Next Watcher läuft bereits – suchen Sie nach dem Symbol in Ihrer Systemleiste.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1057"/>
+        <location filename="../main.py" line="1192"/>
         <source>Couldn&apos;t find watcher.py alongside the application.</source>
         <translation>watcher.py konnte nicht neben der Anwendung gefunden werden.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1072"/>
+        <location filename="../main.py" line="1207"/>
         <source>Couldn&apos;t start the Watcher:
 %s</source>
         <translation>Der Watcher konnte nicht gestartet werden:
 %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1079"/>
+        <location filename="../main.py" line="1214"/>
         <source>The VRD Next Watcher has started and now lives in your system tray.</source>
         <translation>Der VRD Next Watcher wurde gestartet und befindet sich nun in Ihrer Systemleiste.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1134"/>
+        <location filename="../main.py" line="1269"/>
         <source>Open a recording before adding it to the joiner list.</source>
         <translation>Öffnen Sie eine Aufnahme, bevor Sie sie zur Joiner-Liste hinzufügen.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1202"/>
+        <location filename="../main.py" line="1302"/>
+        <source>The same %d scene%s from &quot;%s&quot; %s already in the joiner list.
+
+Add again?</source>
+        <translation>Dieselben %d Szene%s aus &quot;%s&quot; %s bereits in der Zusammenfüge-Liste.\n\nErneut hinzufügen?</translation>
+    </message>
+    <message>
+        <location filename="../main.py" line="1312"/>
+        <source>Already in the joiner list: %s</source>
+        <translation>Bereits in der Zusammenfüge-Liste: %s</translation>
+    </message>
+    <message>
+        <location filename="../main.py" line="1376"/>
         <source>The joiner list is empty.  Add one or more scenes first (Joiner -&gt; Add Current Project To Joiner List).</source>
         <translation>Die Joiner-Liste ist leer. Fügen Sie zuerst eine oder mehrere Szenen hinzu (Joiner -&gt; Aktuelles Projekt zur Joiner-Liste hinzufügen).</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1213"/>
+        <location filename="../main.py" line="1387"/>
         <source>Some entries refer to files that can&apos;t be found, so the video can&apos;t be created:
 
 %s</source>
@@ -1450,7 +1583,7 @@ Möchten Sie diese vor dem Fortfahren als Projekt speichern?</translation>
 %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1242"/>
+        <location filename="../main.py" line="1416"/>
         <source>Because %s, the whole video will be re-encoded to a common format:%s
 
     H.264, %d×%d, %d fps, AAC stereo
@@ -1467,26 +1600,26 @@ Szenen mit niedrigerer Auflösung werden hochskaliert, um der höchsten zu entsp
 Fortfahren?</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1311"/>
+        <location filename="../main.py" line="1485"/>
         <source>Create Joined Video</source>
         <translation>Zusammengefügtes Video erstellen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1310"/>
+        <location filename="../main.py" line="1484"/>
         <source>Preparing…</source>
         <translation>Wird vorbereitet…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1310"/>
-        <location filename="../main.py" line="1490"/>
-        <location filename="../main.py" line="2462"/>
-        <location filename="../main.py" line="3075"/>
-        <location filename="../main.py" line="3198"/>
+        <location filename="../main.py" line="1484"/>
+        <location filename="../main.py" line="1664"/>
+        <location filename="../main.py" line="2642"/>
+        <location filename="../main.py" line="3272"/>
+        <location filename="../main.py" line="3395"/>
         <source>Cancel</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1332"/>
+        <location filename="../main.py" line="1506"/>
         <source>Joined video created:
 
 %s</source>
@@ -1495,7 +1628,7 @@ Fortfahren?</translation>
 %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1339"/>
+        <location filename="../main.py" line="1513"/>
         <source>Could not create the joined video:
 
 %s</source>
@@ -1504,7 +1637,7 @@ Fortfahren?</translation>
 %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1353"/>
+        <location filename="../main.py" line="1527"/>
         <source>That entry&apos;s file could no longer be found:
 
 %s</source>
@@ -1513,37 +1646,37 @@ Fortfahren?</translation>
 %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1381"/>
+        <location filename="../main.py" line="1555"/>
         <source>Logs</source>
         <translation>Protokolle</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1382"/>
+        <location filename="../main.py" line="1556"/>
         <source>No log folder is available yet.</source>
         <translation>Es ist noch kein Protokollordner verfügbar.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1446"/>
-        <location filename="../main.py" line="1469"/>
-        <location filename="../main.py" line="1479"/>
-        <location filename="../main.py" line="1495"/>
-        <location filename="../main.py" line="1512"/>
-        <location filename="../main.py" line="1525"/>
-        <location filename="../main.py" line="1548"/>
+        <location filename="../main.py" line="1620"/>
+        <location filename="../main.py" line="1643"/>
+        <location filename="../main.py" line="1653"/>
+        <location filename="../main.py" line="1669"/>
+        <location filename="../main.py" line="1686"/>
+        <location filename="../main.py" line="1699"/>
+        <location filename="../main.py" line="1722"/>
         <source>Detect Commercials</source>
         <translation>Werbung erkennen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1447"/>
-        <location filename="../main.py" line="1694"/>
-        <location filename="../main.py" line="2733"/>
-        <location filename="../main.py" line="2883"/>
-        <location filename="../main.py" line="3002"/>
+        <location filename="../main.py" line="1621"/>
+        <location filename="../main.py" line="1868"/>
+        <location filename="../main.py" line="2913"/>
+        <location filename="../main.py" line="3063"/>
+        <location filename="../main.py" line="3199"/>
         <source>Open a video first.</source>
         <translation>Öffnen Sie zuerst ein Video.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1470"/>
+        <location filename="../main.py" line="1644"/>
         <source>The Comskip program hasn&apos;t been set yet.
 
 Add the path to Comskip (and optionally its .ini file) in Tools &gt; Settings &gt; Folders, then try again.</source>
@@ -1552,17 +1685,17 @@ Add the path to Comskip (and optionally its .ini file) in Tools &gt; Settings &g
 Fügen Sie den Pfad zu Comskip (und optional der zugehörigen .ini-Datei) unter Werkzeuge &gt; Einstellungen &gt; Ordner hinzu und versuchen Sie es erneut.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1480"/>
+        <location filename="../main.py" line="1654"/>
         <source>This will replace your current scene markers with Comskip&apos;s detected scenes. Continue?</source>
         <translation>Dies ersetzt Ihre aktuellen Szenenmarker durch die von Comskip erkannten Szenen. Fortfahren?</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1489"/>
+        <location filename="../main.py" line="1663"/>
         <source>Detecting commercials (Comskip)…</source>
         <translation>Werbung wird erkannt (Comskip)…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1513"/>
+        <location filename="../main.py" line="1687"/>
         <source>Comskip finished but its output could not be read:
 
 %s</source>
@@ -1571,17 +1704,17 @@ Fügen Sie den Pfad zu Comskip (und optional der zugehörigen .ini-Datei) unter 
 %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1526"/>
+        <location filename="../main.py" line="1700"/>
         <source>Comskip found no commercials to remove (the whole file is one scene).</source>
         <translation>Comskip hat keine zu entfernende Werbung gefunden (die gesamte Datei ist eine einzige Szene).</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1562"/>
+        <location filename="../main.py" line="1736"/>
         <source>Import Project</source>
         <translation>Projekt importieren</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1603"/>
+        <location filename="../main.py" line="1777"/>
         <source>This project file could not be read:
 
 %s</source>
@@ -1590,12 +1723,12 @@ Fügen Sie den Pfad zu Comskip (und optional der zugehörigen .ini-Datei) unter 
 %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1613"/>
+        <location filename="../main.py" line="1787"/>
         <source>Locate video file</source>
         <translation>Videodatei suchen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1615"/>
+        <location filename="../main.py" line="1789"/>
         <source>There was a problem opening the video file associated with this project.
 The original file may not exist or may be mapped to a different drive or folder.
 
@@ -1610,17 +1743,17 @@ Originaldatei: %s
 Möchten Sie manuell nach der Datei suchen?</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1640"/>
+        <location filename="../main.py" line="1814"/>
         <source>Locate video for project</source>
         <translation>Video für das Projekt suchen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1700"/>
+        <location filename="../main.py" line="1874"/>
         <source>No scenes marked to keep. Mark at least one scene before saving a project.</source>
         <translation>Keine Szenen zum Behalten markiert. Markieren Sie mindestens eine Szene, bevor Sie ein Projekt speichern.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1723"/>
+        <location filename="../main.py" line="1897"/>
         <source>The project could not be saved:
 
 %s</source>
@@ -1629,52 +1762,52 @@ Möchten Sie manuell nach der Datei suchen?</translation>
 %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1805"/>
+        <location filename="../main.py" line="1979"/>
         <source>Save Project As</source>
         <translation>Projekt speichern unter</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1887"/>
+        <location filename="../main.py" line="2067"/>
         <source>Language changed</source>
         <translation>Sprache geändert</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1889"/>
+        <location filename="../main.py" line="2069"/>
         <source>The interface language will change when VRD Next is restarted.</source>
         <translation>Die Sprache der Benutzeroberfläche ändert sich beim Neustart von VRD Next.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1891"/>
+        <location filename="../main.py" line="2071"/>
         <source>Restart now?</source>
         <translation>Jetzt neu starten?</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1893"/>
+        <location filename="../main.py" line="2073"/>
         <source>Restart now</source>
         <translation>Jetzt neu starten</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1895"/>
+        <location filename="../main.py" line="2075"/>
         <source>Later</source>
         <translation>Später</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2243"/>
+        <location filename="../main.py" line="2423"/>
         <source>Open Multiple Files</source>
         <translation>Mehrere Dateien öffnen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2244"/>
+        <location filename="../main.py" line="2424"/>
         <source>These files could not be read and were not added:</source>
         <translation>Diese Dateien konnten nicht gelesen werden und wurden nicht hinzugefügt:</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2271"/>
+        <location filename="../main.py" line="2451"/>
         <source>External tools</source>
         <translation>Externe Werkzeuge</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2272"/>
+        <location filename="../main.py" line="2452"/>
         <source>The preview works without them, but exporting, joining and showing stream info need ffmpeg and ffprobe.
 
 </source>
@@ -1683,39 +1816,39 @@ Möchten Sie manuell nach der Datei suchen?</translation>
 </translation>
     </message>
     <message>
-        <location filename="../main.py" line="2334"/>
+        <location filename="../main.py" line="2514"/>
         <source>That file no longer exists:
 %s</source>
         <translation>Diese Datei existiert nicht mehr:
 %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2413"/>
+        <location filename="../main.py" line="2593"/>
         <source>(no recent files)</source>
         <translation>(keine zuletzt geöffneten Dateien)</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2435"/>
+        <location filename="../main.py" line="2615"/>
         <source>Clear Recent</source>
         <translation>Liste leeren</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2461"/>
+        <location filename="../main.py" line="2641"/>
         <source>Quick Stream Fix on open (remuxing)…</source>
         <translation>Schnelle Stream-Reparatur beim Öffnen (Remuxing)…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2467"/>
+        <location filename="../main.py" line="2647"/>
         <source>Opening</source>
         <translation>Wird geöffnet</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2490"/>
+        <location filename="../main.py" line="2670"/>
         <source>Quick Stream Fix on open failed</source>
         <translation>Schnelle Stream-Reparatur beim Öffnen fehlgeschlagen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2491"/>
+        <location filename="../main.py" line="2671"/>
         <source>%s
 
 Opening the original file instead.</source>
@@ -1724,29 +1857,29 @@ Opening the original file instead.</source>
 Es wird stattdessen die Originaldatei geöffnet.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2552"/>
+        <location filename="../main.py" line="2732"/>
         <source>Indexing video…</source>
         <translation>Video wird indiziert…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2732"/>
-        <location filename="../main.py" line="2746"/>
+        <location filename="../main.py" line="2912"/>
+        <location filename="../main.py" line="2926"/>
         <source>Export</source>
         <translation>Exportieren</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2747"/>
+        <location filename="../main.py" line="2927"/>
         <source>No segments marked to keep. Mark at least one green segment before exporting.</source>
         <translation>Keine Segmente zum Behalten markiert. Markieren Sie mindestens ein grünes Segment vor dem Exportieren.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1291"/>
-        <location filename="../main.py" line="2800"/>
+        <location filename="../main.py" line="1465"/>
+        <location filename="../main.py" line="2980"/>
         <source>mkvmerge not found</source>
         <translation>mkvmerge nicht gefunden</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2801"/>
+        <location filename="../main.py" line="2981"/>
         <source>mkvmerge (mkvtoolnix) isn&apos;t installed or set in Settings.
 
 MKV export still works and stays lossless, but the audio is stored in a less-portable wrapper rather than native AAC.  It plays in Plex/Jellyfin and other ffmpeg-based players.
@@ -1763,12 +1896,12 @@ Die Installation von mkvtoolnix – oder das Verweisen unter Einstellungen &gt; 
 Trotzdem als MKV exportieren?</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2892"/>
+        <location filename="../main.py" line="3072"/>
         <source>No segments marked to keep. Mark at least one green segment before queueing.</source>
         <translation>Keine Segmente zum Behalten markiert. Markieren Sie mindestens ein grünes Segment, bevor Sie es in die Warteschlange einreihen.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2906"/>
+        <location filename="../main.py" line="3086"/>
         <source>Couldn&apos;t create the batch queue folder:
 
 %s</source>
@@ -1777,7 +1910,7 @@ Trotzdem als MKV exportieren?</translation>
 %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2931"/>
+        <location filename="../main.py" line="3128"/>
         <source>The project couldn&apos;t be saved for batching:
 
 %s</source>
@@ -1786,12 +1919,24 @@ Trotzdem als MKV exportieren?</translation>
 %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2966"/>
+        <location filename="../main.py" line="3104"/>
+        <source>&quot;%s&quot; is already in the batch queue.
+
+Add it again?</source>
+        <translation>&quot;%s&quot; ist bereits in der Stapel-Warteschlange.\n\nErneut hinzufügen?</translation>
+    </message>
+    <message>
+        <location filename="../main.py" line="3111"/>
+        <source>Already in the batch queue: %s</source>
+        <translation>Bereits in der Stapel-Warteschlange: %s</translation>
+    </message>
+    <message>
+        <location filename="../main.py" line="3163"/>
         <source>Already Quick Stream Fixed</source>
         <translation>Bereits mit Schneller Stream-Reparatur verarbeitet</translation>
     </message>
     <message>
-        <location filename="../main.py" line="2967"/>
+        <location filename="../main.py" line="3164"/>
         <source>This file appears to have already been processed by Quick Stream Fix.
 
 Run Quick Stream Fix on it again anyway?</source>
@@ -1800,20 +1945,20 @@ Run Quick Stream Fix on it again anyway?</source>
 Möchten Sie die Schnelle Stream-Reparatur trotzdem erneut ausführen?</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3001"/>
-        <location filename="../main.py" line="3012"/>
-        <location filename="../main.py" line="3080"/>
-        <location filename="../main.py" line="3203"/>
+        <location filename="../main.py" line="3198"/>
+        <location filename="../main.py" line="3209"/>
+        <location filename="../main.py" line="3277"/>
+        <location filename="../main.py" line="3400"/>
         <source>Quick Stream Fix</source>
         <translation>Schnelle Stream-Reparatur</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3014"/>
+        <location filename="../main.py" line="3211"/>
         <source>How would you like to run Quick Stream Fix?</source>
         <translation>Wie möchten Sie die schnelle Stream-Reparatur ausführen?</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3016"/>
+        <location filename="../main.py" line="3213"/>
         <source>Repair and reload: repair to temporary storage and reload it now, carrying your current scene markers across (recommended when editing).
 
 Repair and save a copy: write a permanently-fixed copy to a location you choose, without changing what&apos;s currently open.</source>
@@ -1822,40 +1967,40 @@ Repair and save a copy: write a permanently-fixed copy to a location you choose,
 Reparieren und Kopie speichern: eine dauerhaft reparierte Kopie an einem Ort Ihrer Wahl ablegen, ohne das aktuell Geöffnete zu verändern.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3023"/>
+        <location filename="../main.py" line="3220"/>
         <source>Repair and reload</source>
         <translation>Reparieren und neu laden</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3024"/>
+        <location filename="../main.py" line="3221"/>
         <source>Repair and save a copy…</source>
         <translation>Reparieren und Kopie speichern…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3074"/>
-        <location filename="../main.py" line="3197"/>
+        <location filename="../main.py" line="3271"/>
+        <location filename="../main.py" line="3394"/>
         <source>Repairing stream (remuxing)…</source>
         <translation>Stream wird repariert (Remuxing)…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3093"/>
-        <location filename="../main.py" line="3435"/>
+        <location filename="../main.py" line="3290"/>
+        <location filename="../main.py" line="3632"/>
         <source>Re-indexing repaired stream…</source>
         <translation>Reparierter Stream wird neu indiziert…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3133"/>
+        <location filename="../main.py" line="3330"/>
         <source>Stream repaired and reloaded - check your scene markers.</source>
         <translation>Stream repariert und neu geladen - prüfen Sie Ihre Szenenmarkierungen.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3138"/>
-        <location filename="../main.py" line="3492"/>
+        <location filename="../main.py" line="3335"/>
+        <location filename="../main.py" line="3689"/>
         <source>Stream repaired</source>
         <translation>Stream repariert</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3139"/>
+        <location filename="../main.py" line="3336"/>
         <source>The stream has been repaired and reloaded.
 
 Your scene markers have been carried over, but the repair can shift them slightly. Please check each scene (double-click a scene to jump to its start) and adjust if needed.</source>
@@ -1864,35 +2009,35 @@ Your scene markers have been carried over, but the repair can shift them slightl
 Ihre Szenenmarker wurden übernommen, aber die Reparatur kann sie leicht verschieben. Bitte überprüfen Sie jede Szene (Doppelklick auf eine Szene, um zu deren Anfang zu springen) und passen Sie sie bei Bedarf an.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3147"/>
+        <location filename="../main.py" line="3344"/>
         <source>Stream repaired and reloaded.</source>
         <translation>Stream repariert und neu geladen.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3158"/>
-        <location filename="../main.py" line="3230"/>
+        <location filename="../main.py" line="3355"/>
+        <location filename="../main.py" line="3427"/>
         <source>Quick Stream Fix failed</source>
         <translation>Schnelle Stream-Reparatur fehlgeschlagen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3188"/>
+        <location filename="../main.py" line="3385"/>
         <source>Quick Stream Fix - Save As</source>
         <translation>Schnelle Stream-Reparatur - Speichern unter</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3221"/>
+        <location filename="../main.py" line="3418"/>
         <source>Quick Stream Fix complete</source>
         <translation>Schnelle Stream-Reparatur abgeschlossen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3222"/>
+        <location filename="../main.py" line="3419"/>
         <source>Saved:
 %s</source>
         <translation>Gespeichert:
 %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="1292"/>
+        <location filename="../main.py" line="1466"/>
         <source>mkvmerge (mkvtoolnix) isn&apos;t installed or set in Settings.
 
 MKV export will still work and stays lossless, but the audio is stored in a less-portable wrapper that some video players may reject, rather than native AAC.
@@ -1909,12 +2054,12 @@ Die Installation von mkvtoolnix – oder das Verweisen unter Einstellungen &gt; 
 Trotzdem als MKV exportieren?</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3327"/>
+        <location filename="../main.py" line="3524"/>
         <source>Export produced no video</source>
         <translation>Export hat kein Video erzeugt</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3328"/>
+        <location filename="../main.py" line="3525"/>
         <source>The export contained no usable video. This can happen with some broadcast recordings whose streams need repairing first.
 
 Would you like to run Quick Stream Fix on the source? The repaired file will be reloaded with your scene markers so you can check them before saving.</source>
@@ -1923,27 +2068,27 @@ Would you like to run Quick Stream Fix on the source? The repaired file will be 
 Möchten Sie die Schnelle Stream-Reparatur auf der Quelle ausführen? Die reparierte Datei wird mit Ihren Szenenmarkern neu geladen, sodass Sie diese vor dem Speichern überprüfen können.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3345"/>
+        <location filename="../main.py" line="3542"/>
         <source>Export failed</source>
         <translation>Export fehlgeschlagen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3415"/>
+        <location filename="../main.py" line="3612"/>
         <source>Repairing the stream (Quick Stream Fix)…</source>
         <translation>Der Stream wird repariert (schnelle Stream-Reparatur)…</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3421"/>
+        <location filename="../main.py" line="3618"/>
         <source>Repairing</source>
         <translation>Reparatur läuft</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3486"/>
+        <location filename="../main.py" line="3683"/>
         <source>Stream repaired and reloaded - check your scene markers, then Save Video.</source>
         <translation>Stream repariert und neu geladen - prüfen Sie Ihre Szenenmarkierungen und speichern Sie dann das Video.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3493"/>
+        <location filename="../main.py" line="3690"/>
         <source>The stream has been repaired and reloaded.
 
 Your scene markers have been carried over, but the repair can shift them slightly. Please check each scene (double-click a scene to jump to its start) and adjust if needed, then click Save Video when you&apos;re happy.</source>
@@ -1952,12 +2097,12 @@ Your scene markers have been carried over, but the repair can shift them slightl
 Ihre Szenenmarker wurden übernommen, aber die Reparatur kann sie leicht verschieben. Bitte überprüfen Sie jede Szene (Doppelklick auf eine Szene, um zu deren Anfang zu springen), passen Sie sie bei Bedarf an und klicken Sie auf Video speichern, wenn Sie zufrieden sind.</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3508"/>
+        <location filename="../main.py" line="3705"/>
         <source>Repair failed</source>
         <translation>Reparatur fehlgeschlagen</translation>
     </message>
     <message>
-        <location filename="../main.py" line="3509"/>
+        <location filename="../main.py" line="3706"/>
         <source>The stream could not be repaired automatically:
 
 %s</source>
@@ -1966,12 +2111,22 @@ Ihre Szenenmarker wurden übernommen, aber die Reparatur kann sie leicht verschi
 %s</translation>
     </message>
     <message>
-        <location filename="../main.py" line="5074"/>
+        <location filename="../main.py" line="4523"/>
+        <source>Mark IN and OUT first, then cut.</source>
+        <translation>Zuerst IN und OUT markieren, dann schneiden.</translation>
+    </message>
+    <message>
+        <location filename="../main.py" line="4553"/>
+        <source>Mark IN and OUT first, then trim.</source>
+        <translation>Zuerst IN und OUT markieren, dann zuschneiden.</translation>
+    </message>
+    <message>
+        <location filename="../main.py" line="5408"/>
         <source>Batch running</source>
         <translation>Stapelverarbeitung läuft</translation>
     </message>
     <message>
-        <location filename="../main.py" line="5075"/>
+        <location filename="../main.py" line="5409"/>
         <source>A batch is still running. Quitting will stop it after the current job.
 
 Quit anyway?</source>
@@ -3121,18 +3276,32 @@ Trotzdem verwenden?</translation>
     <name>SceneList</name>
     <message>
         <location filename="../ui/scene_list.py" line="37"/>
+        <location filename="../ui/scene_list.py" line="125"/>
         <source>Scene Start</source>
         <translation>Szenenanfang</translation>
     </message>
     <message>
         <location filename="../ui/scene_list.py" line="38"/>
+        <location filename="../ui/scene_list.py" line="126"/>
         <source>Scene End</source>
         <translation>Szenenende</translation>
     </message>
     <message>
         <location filename="../ui/scene_list.py" line="39"/>
+        <location filename="../ui/scene_list.py" line="121"/>
+        <location filename="../ui/scene_list.py" line="127"/>
         <source>Duration</source>
         <translation>Dauer</translation>
+    </message>
+    <message>
+        <location filename="../ui/scene_list.py" line="119"/>
+        <source>Cut Start</source>
+        <translation>Schnitt Anfang</translation>
+    </message>
+    <message>
+        <location filename="../ui/scene_list.py" line="120"/>
+        <source>Cut End</source>
+        <translation>Schnitt Ende</translation>
     </message>
 </context>
 <context>
@@ -3143,42 +3312,52 @@ Trotzdem verwenden?</translation>
         <translation>Dateien &amp; Ordner</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="10"/>
+        <location filename="../ui/settings_pages/general.py" line="11"/>
         <source>None</source>
         <translation>Keine</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="11"/>
+        <location filename="../ui/settings_pages/general.py" line="12"/>
         <source>Thumbnails</source>
         <translation>Vorschaubilder</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="12"/>
+        <location filename="../ui/settings_pages/general.py" line="13"/>
         <source>Preview</source>
         <translation>Vorschau</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="13"/>
+        <location filename="../ui/settings_pages/general.py" line="14"/>
         <source>Both</source>
         <translation>Beide</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="17"/>
+        <location filename="../ui/settings_pages/general.py" line="18"/>
+        <source>Cut Mode</source>
+        <translation>Schnittmodus</translation>
+    </message>
+    <message>
+        <location filename="../ui/settings_pages/general.py" line="19"/>
+        <source>Scene Mode</source>
+        <translation>Szenenmodus</translation>
+    </message>
+    <message>
+        <location filename="../ui/settings_pages/general.py" line="23"/>
         <source>Follow system</source>
         <translation>Systemeinstellung folgen</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="18"/>
+        <location filename="../ui/settings_pages/general.py" line="24"/>
         <source>Light</source>
         <translation>Hell</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="19"/>
+        <location filename="../ui/settings_pages/general.py" line="25"/>
         <source>Dark</source>
         <translation>Dunkel</translation>
     </message>
     <message>
-        <location filename="../ui/settings_pages/general.py" line="24"/>
+        <location filename="../ui/settings_pages/general.py" line="30"/>
         <source>General</source>
         <translation>Allgemein</translation>
     </message>
@@ -3355,38 +3534,30 @@ Ihre Aufnahmen und Projekte sind davon nicht betroffen. Fortfahren?</translation
     <name>TransportControls</name>
     <message>
         <location filename="../ui/transport_panel.py" line="660"/>
-        <source>Back 2 minutes</source>
-        <translation>2 Minuten zurück</translation>
-    </message>
-    <message>
-        <location filename="../ui/transport_panel.py" line="661"/>
-        <source>Back 30 seconds</source>
-        <translation>30 Sekunden zurück</translation>
-    </message>
-    <message>
-        <location filename="../ui/transport_panel.py" line="662"/>
         <source>Previous frame</source>
         <translation>Vorheriges Bild</translation>
     </message>
     <message>
-        <location filename="../ui/transport_panel.py" line="663"/>
+        <location filename="../ui/transport_panel.py" line="661"/>
         <source>Play / Pause</source>
         <translation>Wiedergabe / Pause</translation>
     </message>
     <message>
-        <location filename="../ui/transport_panel.py" line="664"/>
+        <location filename="../ui/transport_panel.py" line="662"/>
         <source>Next frame</source>
         <translation>Nächstes Bild</translation>
     </message>
     <message>
-        <location filename="../ui/transport_panel.py" line="665"/>
-        <source>Forward 30 seconds</source>
-        <translation>30 Sekunden vor</translation>
+        <location filename="../ui/transport_panel.py" line="752"/>
+        <location filename="../ui/transport_panel.py" line="754"/>
+        <source>Back %s</source>
+        <translation>%s zurück</translation>
     </message>
     <message>
-        <location filename="../ui/transport_panel.py" line="666"/>
-        <source>Forward 2 minutes</source>
-        <translation>2 Minuten vor</translation>
+        <location filename="../ui/transport_panel.py" line="753"/>
+        <location filename="../ui/transport_panel.py" line="755"/>
+        <source>Forward %s</source>
+        <translation>%s vorwärts</translation>
     </message>
 </context>
 <context>

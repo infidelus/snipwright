@@ -15,6 +15,7 @@ Output:
   - "match" -> same container as the source (e.g. .ts)
   - "mkv"   -> Matroska, always with a chapter per kept segment
   - "mp4"   -> MP4 (cannot carry DVB subtitles; they are dropped)
+  - ".ts" and "mkv" keep any DVB subtitle track, cut to match the video
 
 Frame->time conversion uses smartcut's own scheme so cuts land exactly on the
 requested frames.  Runs on a worker thread.
@@ -197,6 +198,13 @@ def _usable_audio_tracks(source_path, n_audio):
         out = subprocess.run(
             [
                 "ffprobe", "-hide_banner", "-loglevel", "error",
+                # Probe deeply.  A sparse audio-description track can go a long
+                # way into a recording before its parameters become apparent -
+                # a Film4 recording carried a genuine mono AD track that a
+                # default probe reported as "mp3, 0 channels, 0 Hz" and this
+                # function then discarded, silently losing it.  With a longer
+                # window the same stream reads correctly as mp2 48000 Hz mono.
+                "-analyzeduration", "30M", "-probesize", "60M",
                 "-select_streams", "a",
                 "-show_entries", "stream=index,codec_name,channels,sample_rate",
                 "-of", "default=noprint_wrappers=1",
@@ -255,6 +263,57 @@ def _usable_audio_tracks(source_path, n_audio):
         return [0] if n_audio > 0 else []
 
     return usable
+
+
+def _empty_audio_tracks(source_path):
+    """How many audio streams the source declares but never usefully carries.
+
+    A broadcaster can register an audio PID that is transmitted with no sample
+    rate or channel count - a phantom track.  Nothing is lost by skipping one,
+    so it shouldn't be reported like missing main audio.
+    """
+    out = subprocess.run(
+        [
+            "ffprobe", "-hide_banner", "-loglevel", "error",
+            # Same deep probe as _usable_audio_tracks, so the two agree about
+            # which tracks really carry audio.
+            "-analyzeduration", "30M", "-probesize", "60M",
+            "-select_streams", "a",
+            "-show_entries", "stream=index,channels,sample_rate",
+            "-of", "csv=p=0",
+            source_path,
+        ],
+        capture_output=True, text=True,
+    ).stdout
+
+    seen = set()
+    empty = 0
+
+    for line in out.strip().splitlines():
+        parts = [p for p in line.rstrip(",").split(",") if p != ""]
+        if not parts:
+            continue
+        try:
+            idx = int(parts[0])
+        except ValueError:
+            continue
+        if idx in seen:                     # .ts lists streams per program
+            continue
+        seen.add(idx)
+
+        def _num(value):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return 0
+
+        channels = _num(parts[1]) if len(parts) > 1 else 0
+        rate = _num(parts[2]) if len(parts) > 2 else 0
+
+        if channels <= 0 or rate <= 0:
+            empty += 1
+
+    return empty
 
 
 def _passthru_for_indices(n_audio, usable_indices):
@@ -1073,7 +1132,6 @@ def _write_mkv_chapters_mkvmerge(ts_path, mkv_path, segment_durations, exe,
             exe,
             "-o", mkv_path,
             "--chapters", chapter_path,
-            "--no-subtitles",            # drop DVB subtitles, as before
         ]
         dar = _aspect_dar(aspect)
         if dar:
@@ -2744,6 +2802,10 @@ def export_ranges(
         except Exception:
             sbr = 0
         plural = "s" if dropped != 1 else ""
+        try:
+            phantom = _empty_audio_tracks(source_path)
+        except Exception:
+            phantom = 0
         if dropped <= sbr:
             notes.append((
                 "%d audio-description track%s not carried over" % (dropped, plural),
@@ -2751,9 +2813,32 @@ def export_ranges(
                 "from a mid-stream cut, so they are dropped on purpose "
                 "(VideoReDo drops them too).",
             ))
+        elif dropped <= sbr + phantom:
+            # The source declares a track it never usefully transmits (no
+            # sample rate, no channels).  Skipping it loses nothing, so say so
+            # plainly rather than implying the main audio might be missing.
+            notes.append((
+                "%d empty audio track%s skipped" % (dropped, plural),
+                "The recording declares %s audio track%s that carries no actual "
+                "audio (no sample rate or channel count) - broadcasters "
+                "sometimes register a track and never transmit on it. Nothing "
+                "was lost; the main audio is unaffected."
+                % ("an" if dropped == 1 else "%d" % dropped, plural),
+            ))
         else:
-            full = ("%d audio track%s could not be carried over - the output "
-                    "may be missing its main audio." % (dropped, plural))
+            # Only claim the main audio may be missing when it actually could
+            # be - i.e. when nothing survived.  Losing a secondary track (an
+            # audio description, say) while the main audio came through fine is
+            # worth reporting, but not in alarming terms.
+            kept = n_audio - dropped if n_audio else 0
+            if kept > 0:
+                full = ("%d audio track%s could not be carried over. The main "
+                        "audio is present; the missing track%s likely a "
+                        "secondary one such as audio description."
+                        % (dropped, plural, " is" if dropped == 1 else "s are"))
+            else:
+                full = ("%d audio track%s could not be carried over - the output "
+                        "may be missing its main audio." % (dropped, plural))
             errors.append(("%d audio track%s missing" % (dropped, plural), full))
             logger.warning(full)
 

@@ -79,6 +79,12 @@ class SceneBar(QWidget):
             painter.end()
             return
 
+        mode = getattr(
+            self.window,
+            "_edit_mode",
+            lambda: "scene",
+        )()
+
         for index, (
                 start,
                 end,
@@ -106,7 +112,12 @@ class SceneBar(QWidget):
                 "#2f8f3c"
             )
 
+            # In Scene Mode the list rows are these kept scenes, so the
+            # selected row highlights here.  In Cut Mode the rows are the cuts
+            # instead, and the highlight is drawn after this loop.
             if (
+                    mode != "cut"
+                    and
                     self.window.selected_scene
                     ==
                     index
@@ -125,6 +136,56 @@ class SceneBar(QWidget):
                 h,
                 colour
             )
+
+        #
+        # Cut Mode: highlight the selected cut - a red section - since that's
+        # what the list is showing.
+        #
+
+        if mode == "cut" and self.window.selected_scene is not None:
+
+            frames = getattr(self.window, "frames", None)
+
+            if frames:
+
+                cuts = selection.cut_ranges(
+                    len(frames) - 1
+                )
+
+                if 0 <= self.window.selected_scene < len(cuts):
+
+                    start, end = cuts[
+                        self.window.selected_scene
+                    ]
+
+                    x1 = int(
+                        start
+                        /
+                        total
+                        *
+                        w
+                    )
+
+                    x2 = int(
+                        end
+                        /
+                        total
+                        *
+                        w
+                    )
+
+                    painter.fillRect(
+                        x1,
+                        0,
+                        max(
+                            2,
+                            x2 - x1
+                        ),
+                        h,
+                        QColor(
+                            "#d0b000"
+                        )
+                    )
 
         #
         # Scene markers

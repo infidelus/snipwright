@@ -103,7 +103,7 @@
 <div class="note">VRD Next benötigt <code>ffmpeg</code> und <code>ffprobe</code> auf Ihrem System. Comskip ist optional, wird für die automatische Werbeerkennung jedoch dringend empfohlen (siehe Abschnitt 4).</div>
 
 <h2 id="start">2. Erste Schritte</h2>
-<p>Öffnen Sie eine Aufnahme über <strong>Datei &rarr; Video öffnen</strong> (<kbd>Ctrl+O</kbd>) oder wählen Sie eine kürzlich verwendete Datei unter <strong>Datei &rarr; Zuletzt geöffnet</strong> aus. VRD Next unterstützt gängige TV-Broadcast- und Videotypen &mdash; <code>.ts</code>, <code>.mkv</code>, <code>.mp4</code>, <code>.m2ts</code>, <code>.mov</code> und <code>.avi</code> &mdash; und Sie können jede andere Datei über den Filter <strong>Alle Dateien</strong> aufrufen. Sie können auch eine <strong>Datei auf das Fenster ziehen</strong>, um sie zu öffnen &mdash; werden mehrere Videos gleichzeitig abgelegt, landen sie in der Joiner-Liste (siehe <a href="#joiner">Aufnahmen zusammenfügen</a>), und ein <code>.vprj</code>-Projekt wird direkt im Editor geöffnet. Wenn Sie <em>mehrere</em> Dateien auf einmal auswählen, wird angeboten, sie alle &mdash; jeweils als ganze Datei &mdash; zur Joiner-Liste hinzuzufügen; siehe <a href="#saving">Aufnahmen zusammenfügen</a>. Das Editor-Fenster ist in vier Hauptbereiche unterteilt:</p>
+<p>Öffnen Sie eine Aufnahme über <strong>Datei &rarr; Video öffnen</strong> (<kbd>Ctrl+O</kbd>) oder wählen Sie eine kürzlich verwendete Datei unter <strong>Datei &rarr; Zuletzt geöffnet</strong> aus. VRD Next unterstützt gängige TV-Broadcast- und Videotypen &mdash; <code>.ts</code>, <code>.mkv</code>, <code>.mp4</code>, <code>.m2ts</code>, <code>.mov</code> und <code>.avi</code> &mdash; und Sie können jede andere Datei über den Filter <strong>Alle Dateien</strong> aufrufen. Sie können auch eine <strong>Datei auf das Fenster ziehen</strong>, um sie zu öffnen, und ein <code>.vprj</code>-Projekt wird direkt im Editor geöffnet. Wenn Sie <em>mehrere</em> Videos auf einmal auswählen &mdash; im Öffnen-Dialog oder durch gemeinsames Ablegen &mdash; wird angeboten, sie alle jeweils als ganze Datei zur Joiner-Liste hinzuzufügen (siehe <a href="#joiner">Aufnahmen zusammenfügen</a>). Das Editor-Fenster ist in vier Hauptbereiche unterteilt:</p>
 <ul>
   <li><strong>Vorschau</strong> &mdash; Das aktuelle Videobild.</li>
   <li><strong>Vorschaubilder-Leiste (Thumbnails)</strong> &mdash; Eine Reihe von Einzelbildern rund um den Cursor, um Schnittpunkte präzise zu bestimmen. Klicken Sie auf ein Vorschaubild, um direkt dorthin zu springen.</li>
@@ -116,10 +116,34 @@
 <div class="note">VRD Next liefert im Ordner <code>packaging</code> unkomplizierte Installations-Skripte mit &mdash; <code>install-linux.sh</code> für Debian/Ubuntu/Mint und <code>install-windows.ps1</code> für Windows. Diese richten alle Abhängigkeiten, eine virtuelle Umgebung sowie Menü- und Desktop-Verknüpfungen ein, sodass Sie die Anwendung wie jedes andere Programm direkt über Ihr Startmenü aufrufen können. Details finden Sie in der dortigen <code>README</code>-Datei.</div>
 
 <h2 id="cutting">3. Markieren und Schneiden</h2>
-<p>VRD Next arbeitet nach dem Prinzip, die Teile zu markieren, die Sie <strong>behalten</strong> möchten &mdash; nicht die Teile, die entfernt werden sollen. Wenn Sie beispielsweise Werbung herausschneiden, markieren Sie die eigentliche Sendung; die Werbeblöcke sind dann einfach die Lücken zwischen den behaltenen Szenen.</p>
+<h3>Zwei Arbeitsweisen: Schnittmodus und Szenenmodus</h3>
+<p>VRD Next bietet dieselben zwei Bearbeitungsmodi wie VideoReDo. Sie wählen ihn unter
+<strong>Einstellungen &rarr; Allgemein &rarr; Bearbeitungsmodus</strong>. Die Auswahl wird beim nächsten Öffnen eines Videos wirksam.</p>
+<ul>
+  <li><strong>Schnittmodus</strong> (die Voreinstellung) beginnt mit der vollständig ausgewählten Sendung, und Sie schneiden die unerwünschten Teile heraus. Die Navigationsleiste ist zunächst grün, und jeder Schnitt färbt einen Abschnitt rot. Das ist meist der schnellste Weg, Werbung zu entfernen.</li>
+  <li><strong>Szenenmodus</strong> beginnt ohne Auswahl, und Sie markieren die Teile, die Sie <strong>behalten</strong> möchten; diese werden grün. Das eignet sich, um die guten Teile einer Aufnahme zusammenzustellen, oder für jede Aufgabe, bei der sich leichter beschreiben lässt, was Sie behalten wollen, als was nicht.</li>
+</ul>
+<p>Beide Modi nutzen dieselbe zugrundeliegende Schnittliste und erzeugen identische Ergebnisse &mdash; nur der Weg dorthin unterscheidet sich. Die Schaltflächen unter den Wiedergabetasten passen sich dem Modus an, und die Liste rechts zeigt entsprechend entweder die Schnitte oder die behaltenen Szenen.</p>
+<p>Die automatische Werbeerkennung (siehe <a href="#detect">Automatische Werbeerkennung</a>) funktioniert in beiden Modi: Comskip markiert, wo es die Werbeblöcke vermutet, sodass Sie einen Ausgangspunkt zum Verfeinern haben statt einer leeren Zeitleiste. Wie genau diese Marken sitzen, hängt von Ihren Comskip-<code>.ini</code>-Einstellungen und vom Sender ab &mdash; prüfen Sie sie daher vor dem Speichern.</p>
 <h3>Navigieren</h3>
+<p>Es gibt drei Sprungweiten, standardmäßig 10, 30 und 120 Sekunden:</p>
+<ul>
+  <li>Der <strong>kurze Sprung</strong> (10 Sekunden) hat keine Schaltfläche &mdash; er liegt nur auf der Tastatur, standardmäßig <kbd>Ctrl+Shift+Left</kbd> und <kbd>Ctrl+Shift+Right</kbd>.</li>
+  <li>Der <strong>mittlere Sprung</strong> (30 Sekunden) sind die inneren Sprungschaltflächen oder <kbd>Ctrl+Left</kbd> / <kbd>Ctrl+Right</kbd>.</li>
+  <li>Der <strong>lange Sprung</strong> (120 Sekunden) sind die äußeren Schaltflächen oder <kbd>Shift+Left</kbd> / <kbd>Shift+Right</kbd>.</li>
+</ul>
+<p>Alle drei Weiten lassen sich unter <strong>Einstellungen &rarr; Allgemein</strong> ändern; die Kurzinfos der Schaltflächen passen sich an. In <code>config.json</code> behalten die zugehörigen Tastenkürzel ihre ursprünglichen Namen (etwa <code>jump_back_30</code>), unabhängig von der eingestellten Weite.</p>
 <p>Nutzen Sie die Wiedergabetasten oder die Tastatur, um sich durch die Aufnahme zu bewegen: Gehen Sie einzelne Frames vor oder zurück, springen Sie um 10, 30 oder 120 Sekunden oder springen Sie direkt an den Anfang oder das Ende. Behalten Sie dabei die Vorschaubilder-Leiste im Auge &mdash; sie macht das Finden des exakten Schnittbilds spürbar einfacher. Um zu einem bestimmten Zeitstempel zu springen, verwenden Sie <strong>Gehe zu</strong> (<kbd>Ctrl+G</kbd>).</p>
-<h3>Eine Szene markieren</h3>
+<h3>Schneiden im Schnittmodus</h3>
+<ol>
+  <li>Bewegen Sie sich an den Anfang des unerwünschten Abschnitts und drücken Sie <strong>In-Punkt setzen</strong> (<kbd>F3</kbd>).</li>
+  <li>Bewegen Sie sich an dessen Ende und drücken Sie <strong>Out-Punkt setzen</strong> (<kbd>F4</kbd>).</li>
+  <li>Drücken Sie <strong>Auswahl herausschneiden</strong> (<kbd>Ctrl+X</kbd>), um ihn zu entfernen.</li>
+</ol>
+<p>Wiederholen Sie das für jeden Werbeblock. Ein Schnitt mitten in der Sendung teilt diese in zwei Teile, sodass Sie eine Aufnahme Block für Block bearbeiten können. Um eine Aufnahme in einem Schritt vorn und hinten zu kürzen, markieren Sie die eigentliche Sendung und drücken <strong>Nicht Ausgewähltes entfernen</strong> (<kbd>Ctrl+T</kbd>); damit wird alles außerhalb des markierten Abschnitts herausgeschnitten.</p>
+<p>Die Liste rechts zeigt die vorgenommenen Schnitte. Wenn Sie eine Zeile auswählen und entfernen, wird dieser Teil der Sendung wieder eingefügt. <strong>Alle Szenen löschen</strong> (<kbd>Shift+Insert</kbd>) entfernt sämtliche Schnitte und stellt die vollständige Aufnahme wieder her.</p>
+
+<h3>Eine Szene im Szenenmodus markieren</h3>
 <ol>
   <li>Bewegen Sie sich an die Stelle, an der Ihr gewünschter Abschnitt beginnt, und drücken Sie <strong>In-Punkt setzen</strong> (<kbd>F3</kbd>).</li>
   <li>Bewegen Sie sich dorthin, wo der Abschnitt endet, und drücken Sie <strong>Out-Punkt setzen</strong> (<kbd>F4</kbd>).</li>
@@ -128,6 +152,15 @@
 <p>Wiederholen Sie das für jedes Segment, das Sie behalten möchten. Wenn Sie In-/Out-Punkte über eine bereits existierende Szene hinweg markieren, wird sie durch die neue Auswahl ersetzt. Einen Schnitt zu korrigieren ist also so einfach wie ein kurzes Neumarkieren.</p>
 <p><strong>Nicht ausgewähltes hinzufügen</strong> (<kbd>Ctrl+Insert</kbd>) bewirkt das Gegenteil: Es füllt jede Lücke als behaltene Szene aus &mdash; das ist praktisch, wenn es schneller geht, die zu entfernenden Teile zu markieren und die Auswahl anschließend zu invertieren. Mit <strong>Alle Szenen leeren</strong> (<kbd>Shift+Insert</kbd>) fangen Sie wieder von vorne an.</p>
 
+<h3>Die Navigationsleiste lesen</h3>
+<p>Die farbige Leiste unter den Vorschaubildern zeigt auf einen Blick, wie Ihr Schnitt aussieht:</p>
+<ul>
+  <li><strong style="color:#2f8f3c">Grün</strong> &mdash; wird behalten.</li>
+  <li><strong style="color:#8a2a2a">Rot</strong> &mdash; wird nicht behalten.</li>
+  <li><strong style="color:#d0b000">Gelb</strong> &mdash; die aktuell in der Liste ausgewählte Szene. Das ist lediglich eine Hervorhebung, damit Sie erkennen, welche Zeile welchem Teil der Aufnahme entspricht; es weist nicht auf ein Problem mit dem Video hin.</li>
+  <li><strong style="color:#00d8ff">Cyan</strong> &mdash; Szenenmarkierungen.</li>
+</ul>
+
 <h2 id="detect">4. Automatische Werbeerkennung und Projekte</h2>
 <h3>Comskip</h3>
 <p>Anstatt alles von Hand zu markieren, können Sie <strong>Comskip</strong> die Werbung suchen lassen. Starten Sie es über das Menü <strong>Werkzeuge</strong> (<kbd>Ctrl+A</kbd>); es analysiert die Aufnahme im Hintergrund und wandelt die Ergebnisse in behaltene Szenen um, die Sie anschließend visuell nachjustieren können.</p>
@@ -135,7 +168,7 @@
 <div class="note">Wenn Ihr Aufnahmegerät den Sendernamen in den Dateinamen schreibt (wie z.&nbsp;B. Tvheadend über das Format-Tag <code>$c</code>), können Sie pro Sender eine eigene <code>.ini</code>-Datei verwenden. Aktivieren Sie dafür die Option <strong>&bdquo;Die .ini-Datei anhand des Kanalnamens im Dateinamen auswählen&ldquo;</strong> unter <strong>Einstellungen &rarr; Externe Werkzeuge</strong>. Platzieren Sie dann Dateien mit dem Namen <code>Comskip_&lt;Sender&gt;.ini</code> (wie etwa <code>Comskip_ZDF.ini</code> oder <code>Comskip_RTL.ini</code>) im selben Ordner wie Ihre Haupt-<code>.ini</code>. Wenn der Sendername im Dateinamen einer Aufnahme auftaucht, wird diese Datei bevorzugt verwendet (wobei der längste, präziseste Treffer gewinnt) &mdash; andernfalls greift die Haupt-<code>.ini</code>. Die Erkennung unterscheidet nicht zwischen Groß- und Kleinschreibung und funktioniert sowohl für den Watcher als auch für die manuelle Erkennung. Rekorder, die den Sendernamen nicht in den Dateinamen einbetten (wie Plex oder Jellyfin), nutzen einfach durchgehend die Haupt-<code>.ini</code>.</div>
 <h3>Projekte</h3>
 <p>Ihre Schnitte lassen sich als Projekt speichern und später wieder laden. <strong>Projekt importieren</strong> liest VideoReDo-<code>.vprj</code>-Dateien (sowohl das V5-VRD- als auch das V3-Comskip-Format) sowie EDL-Dateien ein; <strong>Projekt exportieren</strong> schreibt sie wieder heraus. Dadurch können Sie Edits nahtlos zwischen VRD Next und anderen Tools austauschen oder Ihre Schnittpunkte sichern, ohne das Video jedes Mal neu exportieren zu müssen.</p>
-<div class="note">Wenn ein Projekt zwischen VRD Next und VideoReDo übertragen wird, können sich einzelne Schnittmarken um ein bis zwei Frames verschieben &mdash; die beiden Editoren indizieren Frames intern minimal unterschiedlich. Der finale Schnitt bleibt dennoch bildgenau; lediglich die angezeigten Positionen der Marken weichen leicht ab.</div>
+<div class="note">Wenn ein Projekt zwischen VRD Next und VideoReDo übertragen wird, können sich einzelne Schnittmarken um ein bis zwei Frames verschieben &mdash; die beiden Editoren indizieren Frames intern minimal unterschiedlich. Der Schnitt bleibt in jedem Editor bildgenau zu den dort angezeigten Marken. <strong>Wenn eine Marke im gerade verwendeten Editor falsch aussieht, korrigieren Sie sie dort vor dem Speichern</strong> &mdash; verlassen Sie sich nicht darauf, dass trotzdem an der ursprünglich gewünschten Stelle geschnitten wird. Eine verschobene Marke schneidet dort, wo sie nun liegt; so entstehen einzelne Werbeframes oder fehlende Momente am Szenenanfang.</div>
 
 <h2 id="saving">5. Video speichern</h2>
 <p>Sobald Ihre Szenen fertig sind, wählen Sie <strong>Datei &rarr; Video speichern</strong> (<kbd>Ctrl+S</kbd>). Sie bestimmen das <strong>Ausgabeprofil</strong> und den Zielordner in einem einzigen Schritt.</p>
@@ -146,7 +179,7 @@
 einschließlich der Audiodeskriptionsspur, die manche Sender ausstrahlen (zum Beispiel
 Channel&nbsp;4&nbsp;HD). Die Spuren bleiben verlustfrei erhalten, wo die Quelle es
 zulässt, laufen synchron zum Bild, und die Audiodeskriptionsspur behält in jedem
-Ausgabecontainer ihre Kennzeichnung &bdquo;visual impaired&ldquo;.</div>
+Ausgabecontainer ihre Kennzeichnung &bdquo;visual impaired&ldquo;. <strong>Auch DVB-Untertitelspuren werden übernommen</strong> und passend zum Video geschnitten, wenn Sie nach <code>.ts</code> oder <code>.mkv</code> speichern &mdash; MP4 kann keine DVB-Untertitel enthalten, dort entfallen sie.</div>
 <h3>Ausgabeprofile</h3>
 <p>Sie können Profile unter <strong>Werkzeuge &rarr; Profile verwalten</strong> konfigurieren. Ein Profil steuert Folgendes:</p>
 <ul>
@@ -248,6 +281,9 @@ das etwas Geschwindigkeit und Qualität.</p>
   <tr><td>An den Anfang / das Ende springen</td><td><kbd>Home</kbd> / <kbd>End</kbd></td></tr>
   <tr><td>In-Punkt / Out-Punkt setzen</td><td><kbd>F3</kbd> / <kbd>F4</kbd></td></tr>
   <tr><td>Auswahl hinzufügen</td><td><kbd>Insert</kbd></td></tr>
+  <tr><td>Auswahl herausschneiden</td><td><kbd>Ctrl+X</kbd></td></tr>
+  <tr><td>Nicht Ausgewähltes entfernen</td><td><kbd>Ctrl+T</kbd></td></tr>
+  <tr><td>Alles auswählen</td><td><kbd>Ctrl+Shift+A</kbd></td></tr>
   <tr><td>Nicht ausgewähltes hinzufügen</td><td><kbd>Ctrl+Insert</kbd></td></tr>
   <tr><td>Alle Szenen leeren</td><td><kbd>Shift+Insert</kbd></td></tr>
   <tr><td>Aktuelle Auswahl löschen</td><td><kbd>Delete</kbd></td></tr>

@@ -614,14 +614,14 @@ class TransportControls(QWidget):
         self.back_120_btn.clicked.connect(
             lambda:
             self.window.jump_frames(
-                -(self.window.fps * 120)
+                -(self.window.fps * self.window.jump_seconds("large"))
             )
         )
 
         self.back_30_btn.clicked.connect(
             lambda:
             self.window.jump_frames(
-                -(self.window.fps * 30)
+                -(self.window.fps * self.window.jump_seconds("medium"))
             )
         )
 
@@ -646,24 +646,21 @@ class TransportControls(QWidget):
         self.forward_30_btn.clicked.connect(
             lambda:
             self.window.jump_frames(
-                self.window.fps * 30
+                self.window.fps * self.window.jump_seconds("medium")
             )
         )
 
         self.forward_120_btn.clicked.connect(
             lambda:
             self.window.jump_frames(
-                self.window.fps * 120
+                self.window.fps * self.window.jump_seconds("large")
             )
         )
 
-        self.back_120_btn.setToolTip(self.tr("Back 2 minutes"))
-        self.back_30_btn.setToolTip(self.tr("Back 30 seconds"))
         self.frame_back_btn.setToolTip(self.tr("Previous frame"))
         self.play_btn.setToolTip(self.tr("Play / Pause"))
         self.frame_forward_btn.setToolTip(self.tr("Next frame"))
-        self.forward_30_btn.setToolTip(self.tr("Forward 30 seconds"))
-        self.forward_120_btn.setToolTip(self.tr("Forward 2 minutes"))
+        self.refresh_jump_tooltips()
 
         #
         # Centre the play buttons with pure stretches - identical to how the
@@ -742,6 +739,21 @@ class TransportControls(QWidget):
         self.volume.raise_()
         self._position_volume()
 
+    def refresh_jump_tooltips(self):
+        """Make the skip buttons' hints match the configured distances, so a
+        button that moves 45 seconds doesn't claim to move 30."""
+        window = self.window
+        try:
+            medium = window.format_jump_label(window.jump_seconds("medium"))
+            large = window.format_jump_label(window.jump_seconds("large"))
+        except Exception:
+            medium, large = "30 seconds", "2 minutes"
+
+        self.back_30_btn.setToolTip(self.tr("Back %s") % medium)
+        self.forward_30_btn.setToolTip(self.tr("Forward %s") % medium)
+        self.back_120_btn.setToolTip(self.tr("Back %s") % large)
+        self.forward_120_btn.setToolTip(self.tr("Forward %s") % large)
+
     def toggle_play(self):
 
         self.window.playing = (
@@ -813,7 +825,14 @@ class TransportControls(QWidget):
         self.update_buttons()          # play/pause reflects the current state
 
 class ActionBar(QWidget):
-    """Bottom row: Add Selection, Add Unselected, Save Video."""
+    """Bottom row of actions, whose labels follow the editing mode.
+
+    Scene Mode: Add Selection, Add Unselected, Save Video.
+    Cut Mode:   Cut Selection, Trim Unselected, Save Video.
+
+    The same two buttons serve both modes - only their text and what they're
+    connected to changes - so the layout never shifts when the mode does.
+    """
 
     def __init__(
             self,
@@ -868,17 +887,49 @@ class ActionBar(QWidget):
 
         layout.addStretch()
 
-        self.add_selection_btn.clicked.connect(
-            self.window.commit_selection
-        )
-
-        self.add_unselected_btn.clicked.connect(
-            self.window.add_unselected
-        )
-
         self.save_video_btn.clicked.connect(
             self.window.export_video
         )
+
+        # The first two buttons are wired by apply_mode(), since what they do
+        # depends on the mode.
+        self._mode = None
+        self.apply_mode(getattr(window, "_edit_mode", lambda: "scene")())
+
+    def apply_mode(self, mode):
+        """Relabel and rewire the two editing buttons for `mode`."""
+        if mode == self._mode:
+            return
+
+        self._mode = mode
+
+        for button in (self.add_selection_btn, self.add_unselected_btn):
+            try:
+                button.clicked.disconnect()
+            except (TypeError, RuntimeError):
+                pass    # nothing connected yet
+
+        if mode == "cut":
+            self.add_selection_btn.setText(self.tr("Cut Selection"))
+            self.add_selection_btn.setToolTip(
+                self.tr("Cut the marked section out of the programme"))
+            self.add_selection_btn.clicked.connect(self.window.cut_selection)
+
+            self.add_unselected_btn.setText(self.tr("Trim Unselected"))
+            self.add_unselected_btn.setToolTip(
+                self.tr("Keep only the marked section, cutting everything "
+                        "outside it"))
+            self.add_unselected_btn.clicked.connect(self.window.trim_unselected)
+        else:
+            self.add_selection_btn.setText(self.tr("Add Selection"))
+            self.add_selection_btn.setToolTip(
+                self.tr("Keep the marked section"))
+            self.add_selection_btn.clicked.connect(self.window.commit_selection)
+
+            self.add_unselected_btn.setText(self.tr("Add Unselected"))
+            self.add_unselected_btn.setToolTip(
+                self.tr("Keep everything that isn't already selected"))
+            self.add_unselected_btn.clicked.connect(self.window.add_unselected)
 
     def set_enabled(self, on):
         """Enable/disable the action buttons (used when no video is loaded)."""

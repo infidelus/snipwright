@@ -21,6 +21,15 @@ DEFAULT_CONFIG = {
 
     "settings": {
 
+        # How editing works, mirroring VideoReDo's two modes.  Applied when a
+        # video is opened (as VideoReDo does), not retrospectively.
+        #   "cut"   - the whole programme starts selected (green) and you cut
+        #             the unwanted parts out of it.  VideoReDo's default, and
+        #             ours, since that's what most people arrive expecting.
+        #   "scene" - nothing starts selected (red) and you mark the parts you
+        #             want to keep.
+        "edit_mode": "cut",
+
         "qsf_on_open": False,
 
         "qsf_no_rewarn": False,
@@ -78,6 +87,13 @@ DEFAULT_CONFIG = {
         # while you're learning the controls; turn off once they're second
         # nature and you don't want hints popping up.  Read once at startup.
         "show_tooltips": True,
+
+        # How far the skip buttons and their keyboard shortcuts move, in
+        # seconds.  "small" is keyboard-only; "medium" and "large" are the two
+        # pairs of skip buttons either side of the frame-step controls.
+        "jump_small_seconds": 10,
+        "jump_medium_seconds": 30,
+        "jump_large_seconds": 120,
 
     },
 
@@ -148,6 +164,14 @@ DEFAULT_CONFIG = {
 
         "add_unselected": "Ctrl+Insert",
 
+        # Cut Mode's operations.  Available in either mode - the mode only
+        # decides which pair the on-screen buttons show.
+        "cut_selection": "Ctrl+X",
+
+        "trim_unselected": "Ctrl+T",
+
+        "select_all": "Ctrl+Shift+A",
+
         "clear_all_scenes": "Shift+Insert",
 
         "goto_selection_start": "S",
@@ -169,6 +193,9 @@ DEFAULT_CONFIG = {
         "jump_back_10": "Ctrl+Shift+Left",
         "jump_forward_10": "Ctrl+Shift+Right",
 
+        # The jump shortcut names keep their original distances (10/30/120)
+        # whatever "jump_small/medium/large_seconds" is set to - renaming them
+        # would break every existing config.  Read them as short/medium/long.
         "jump_back_30": "Ctrl+Left",
         "jump_forward_30": "Ctrl+Right",
 

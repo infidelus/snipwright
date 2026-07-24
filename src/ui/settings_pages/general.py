@@ -1,6 +1,7 @@
 """General page: the editor's interface basics."""
 
-from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel,
+                               QPushButton, QSpinBox)
 
 from ui.settings_pages import SettingsPage
 from ui.settings_widgets import hint
@@ -11,6 +12,11 @@ _FRAME_TYPE_OPTIONS = [
     (QT_TRANSLATE_NOOP("Settings", "Thumbnails"), "thumbnails"),
     (QT_TRANSLATE_NOOP("Settings", "Preview"), "preview"),
     (QT_TRANSLATE_NOOP("Settings", "Both"), "both"),
+]
+
+_EDIT_MODE_OPTIONS = [
+    (QT_TRANSLATE_NOOP("Settings", "Cut Mode"), "cut"),
+    (QT_TRANSLATE_NOOP("Settings", "Scene Mode"), "scene"),
 ]
 
 _THEME_OPTIONS = [
@@ -26,12 +32,67 @@ class GeneralPage(SettingsPage):
     def build(self):
         s = self._settings()
 
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel(self.tr("Editing mode:")))
+        self._edit_mode = QComboBox()
+        for label_text, _val in _EDIT_MODE_OPTIONS:
+            self._edit_mode.addItem(
+                QCoreApplication.translate("Settings", label_text))
+        current_mode = s.get("edit_mode", "cut")
+        for i, (_label, val) in enumerate(_EDIT_MODE_OPTIONS):
+            if val == current_mode:
+                self._edit_mode.setCurrentIndex(i)
+                break
+        mode_row.addStretch(1)
+        mode_row.addWidget(self._edit_mode)
+        self.add_layout(mode_row)
+        self.add(hint(
+            self.tr("Cut Mode starts with the whole programme selected and you cut "
+            "the unwanted parts out of it. Scene Mode starts with nothing selected "
+            "and you mark the parts you want to keep. Switching updates the buttons "
+            "and scene list at once; the next video you open starts in the new mode.")
+        ))
+
         self._show_tooltips = QCheckBox(self.tr("Show tooltips on the transport controls"))
         self._show_tooltips.setChecked(s.get("show_tooltips", True))
         self.add(self._show_tooltips)
         self.add(hint(
             self.tr("Hover hints on the play, skip and marker buttons. Turn off once "
-            "you know the controls. Takes effect after a restart.")
+            "you know the controls.")
+        ))
+
+        self._jump_small = QSpinBox()
+        self._jump_medium = QSpinBox()
+        self._jump_large = QSpinBox()
+
+        for spin, key, default, label in (
+                (self._jump_small, "jump_small_seconds", 10,
+                 self.tr("Short skip (keyboard only):")),
+                (self._jump_medium, "jump_medium_seconds", 30,
+                 self.tr("Medium skip (inner buttons):")),
+                (self._jump_large, "jump_large_seconds", 120,
+                 self.tr("Long skip (outer buttons):")),
+        ):
+            spin.setRange(1, 3600)
+            spin.setSuffix(self.tr(" seconds"))
+            spin.setValue(int(self._settings().get(key, default)))
+            row = QHBoxLayout()
+            row.addWidget(QLabel(label))
+            row.addStretch(1)
+            row.addWidget(spin)
+            self.add_layout(row)
+
+        reset_row = QHBoxLayout()
+        reset_row.addStretch(1)
+        reset_jumps = QPushButton(self.tr("Reset skip distances"))
+        reset_jumps.clicked.connect(self._reset_jump_distances)
+        reset_row.addWidget(reset_jumps)
+        self.add_layout(reset_row)
+
+        self.add(hint(
+            self.tr("How far the skip controls move through a recording. The buttons' "
+            "hover hints update to match. See the User Guide for the keyboard shortcuts "
+            "each one uses.")
         ))
 
         ft_row = QHBoxLayout()
@@ -97,9 +158,21 @@ class GeneralPage(SettingsPage):
         self.add(self._restore_size_btn)
         self.add(hint(self.tr("Un-maximise and reset the window to its default size.")))
 
+    def _reset_jump_distances(self):
+        """Put the three skip distances back to 10 / 30 / 120 seconds."""
+        self._jump_small.setValue(10)
+        self._jump_medium.setValue(30)
+        self._jump_large.setValue(120)
+
     def save(self, config):
         settings = config.setdefault("settings", {})
+        settings["edit_mode"] = _EDIT_MODE_OPTIONS[
+            self._edit_mode.currentIndex()
+        ][1]
         settings["show_tooltips"] = self._show_tooltips.isChecked()
+        settings["jump_small_seconds"] = self._jump_small.value()
+        settings["jump_medium_seconds"] = self._jump_medium.value()
+        settings["jump_large_seconds"] = self._jump_large.value()
         settings["frame_type_display"] = _FRAME_TYPE_OPTIONS[
             self._frame_type_display.currentIndex()
         ][1]

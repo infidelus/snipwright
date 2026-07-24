@@ -155,6 +155,59 @@ class BatchController(QObject):
     # Queue editing
     # ------------------------------------------------------------------ #
 
+    def jobs_for_source(self, source_path):
+        """How many queued jobs already cut this recording.
+
+        Queue-to-Batch writes each project into a staging file stamped with the
+        time, so two entries for the same recording never share a .vprj path -
+        comparing those would never spot a duplicate.  What matters is the
+        recording each project refers to, so that's what's compared, read from
+        the project files themselves.
+        """
+        if not source_path:
+            return 0
+
+        from project.vprj import read_source_filename
+
+        def norm(p):
+            return os.path.normcase(os.path.normpath(os.path.abspath(p)))
+
+        target = norm(source_path)
+        count = 0
+
+        for job in self.jobs:
+            if not job.vprj_path:
+                continue
+            try:
+                embedded = read_source_filename(job.vprj_path)
+            except Exception:
+                continue
+            if embedded and norm(embedded) == target:
+                count += 1
+
+        return count
+
+    def jobs_for_path(self, vprj_path):
+        """How many queued jobs already point at this project file.
+
+        Lets the UI ask before adding the same project twice - which is
+        usually an accidental double-click, but is a legitimate thing to want
+        when comparing output settings, so it's a question rather than a
+        refusal.
+        """
+        if not vprj_path:
+            return 0
+
+        target = os.path.normcase(os.path.normpath(os.path.abspath(vprj_path)))
+
+        return sum(
+            1 for j in self.jobs
+            if j.vprj_path
+            and os.path.normcase(
+                os.path.normpath(os.path.abspath(j.vprj_path))
+            ) == target
+        )
+
     def add_job(self, vprj_path, profile_name=None):
         self.jobs.append(BatchJob(vprj_path, profile_name or self.default_profile))
         self.save_queue()

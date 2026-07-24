@@ -101,13 +101,51 @@ class SceneList(
             Qt.StrongFocus
         )
 
+    def _mode(self):
+        return getattr(self.window, "_edit_mode", lambda: "scene")()
+
+    def apply_mode(self, mode=None):
+        """Set the column headings for the current mode.
+
+        Scene Mode lists the scenes being kept; Cut Mode lists the cuts, which
+        is how VideoReDo presents it and what makes the mode obvious at a
+        glance.
+        """
+        if mode is None:
+            mode = self._mode()
+
+        if mode == "cut":
+            headings = (
+                self.tr("Cut Start"),
+                self.tr("Cut End"),
+                self.tr("Duration"),
+            )
+        else:
+            headings = (
+                self.tr("Scene Start"),
+                self.tr("Scene End"),
+                self.tr("Duration"),
+            )
+
+        self.setHorizontalHeaderLabels(list(headings))
+
+    def displayed_ranges(self):
+        """The ranges this list is showing: the cuts in Cut Mode, the kept
+        scenes otherwise.  The kept ranges remain the single source of truth -
+        the cuts are derived on demand - so the two can never drift apart."""
+        if self._mode() == "cut" and self.window.frames:
+            return self.window.selection.cut_ranges(
+                len(self.window.frames) - 1)
+
+        return list(self.window.selection.ranges)
+
     def refresh(
             self,
     ):
 
-        ranges = (
-            self.window.selection.ranges
-        )
+        self.apply_mode()
+
+        ranges = self.displayed_ranges()
 
         self.setRowCount(
             len(
