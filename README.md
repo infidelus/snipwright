@@ -143,23 +143,26 @@ Everything else lives in two places worth a look early on:
 VRD Next was built for, and tested mainly against, UK Freeview HD and SD
 recordings on Linux Mint — that's the path that's had the most real-world use.
 Other sources and distributions may well work, but haven't been exercised as
-thoroughly.
+thoroughly, so reports from them are welcome.
 
 It's had basic testing on Windows — it installs (via the installer above) and
 runs — though it hasn't been through extensive functionality testing there. The
 core is cross-platform Python (PySide6 and PyAV), so the editor and cutting work
 as expected. One convenience differs on Windows: the settings land in a
 `.config` folder under your user profile rather than the usual location. The
-Watcher's **start-on-login** checkbox works on Windows as well as Linux — it
-places a small launcher in your Startup folder (and removes it when you untick
-the option), so no manual setup is needed.
+Watcher's start-on-login checkbox works on Windows as well as Linux — it places
+a small launcher in your Startup folder (and removes it when you untick the
+option), so no manual setup is needed.
 
-It's shared as-is, in the hope that others find it useful. The issue tracker is
-turned off, and updates are likely to be occasional — chiefly the odd bug fix
-and refinement. I dip into
-[r/videoredo](https://www.reddit.com/r/videoredo/) now and then, but if you hit
-a problem or want it to do more, the best thing you can do is **fork it and make
-it your own** — exactly what the licence is here to allow.
+It's shared as-is, in the hope that others find it useful.
+[Discussions](https://github.com/infidelus/vrd-next/discussions) is the place
+for questions, problems and suggestions — the issue tracker stays off. Bug
+reports are welcome, especially with a sample recording, since almost every fix
+so far has come from someone sending me a file that broke it. Feature requests
+I'll read and consider, but I'm promising nothing: this is a hobby project
+maintained by one person, and it already does what I need it to. Replies may
+take a while. If you want VRD Next to go further than I'm likely to take it,
+fork it and make it your own — exactly what the licence is here to allow.
 
 ## Acknowledgements
 
