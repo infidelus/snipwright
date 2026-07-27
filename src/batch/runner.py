@@ -108,6 +108,18 @@ def process_job(
             "open Edit to run Quick Stream Fix and confirm the cuts, then it "
             "will process on the next run."
         )
+    # The cut worked but the finishing re-encode didn't, so the file on disk is
+    # in the source codec rather than the one the profile asked for.  Shipping
+    # it as Done would quietly hand back an H.264 file where HEVC was wanted -
+    # and in a batch nobody is watching, that goes unnoticed until someone
+    # checks the file size months later.  Hold it instead.
+    if isinstance(stats, dict) and stats.get("recode_failed"):
+        _delete_quietly(job.dest_path)
+        raise NeedsReview(
+            "The cut worked but the video couldn't be re-encoded, so the "
+            "output wasn't in the format this profile asks for. Try again, "
+            "or pick a profile that doesn't re-encode."
+        )
     return stats
 
 
@@ -135,10 +147,18 @@ def _index_and_export(
     # usable rather than orphaning the job.
     profile = resolve_profile(config, job.profile_name)
 
-    dest = build_dest_path(
-        out_folder, modifier, job.source_path,
-        container_to_fmt(profile.container), taken,
-    )
+    dest = getattr(job, "fixed_dest", None)
+    if dest:
+        # An adopted export carries the destination the user chose in the Save
+        # Video dialog.  If it ever has to be re-run - after a crash, say - it
+        # must land in the same place under the same name, not somewhere
+        # derived from the batch output folder.
+        os.makedirs(os.path.dirname(dest) or out_folder, exist_ok=True)
+    else:
+        dest = build_dest_path(
+            out_folder, modifier, job.source_path,
+            container_to_fmt(profile.container), taken,
+        )
     job.dest_path = dest
     taken.add(dest)
 
@@ -162,6 +182,9 @@ def _index_and_export(
         encoder_preset=getattr(profile, "preset", "faster"),
         encoder_crf=(profile.effective_crf()
                      if hasattr(profile, "effective_crf") else None),
+        encoder_gop_seconds=(profile.effective_gop_seconds()
+                             if hasattr(profile, "effective_gop_seconds")
+                             else None),
     )
 
 
@@ -257,6 +280,17 @@ class BatchRunner(QThread):
             job = self._jobs[self._cursor]
             i = self._cursor + 1
             self._cursor += 1
+
+            # An export handed over by the editor is already being written by
+            # its own worker.  Processing it here would start a second encode
+            # writing to the same output file, so it is left strictly alone -
+            # not counted as completed either, since it hasn't finished yet.
+            if job.externally_running:
+                log.info(
+                    "Skipping %s - already being exported by the editor.",
+                    job.name,
+                )
+                continue
 
             if job.status in _SKIP_STATUSES:
                 if job.status == DONE:

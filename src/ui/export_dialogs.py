@@ -10,8 +10,6 @@ a scene counter, and an estimated time remaining.  It exposes Pause is omitted
 ExportCompleteDialog shows a VideoReDo-style stats table.
 """
 
-import time
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
@@ -21,6 +19,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
+
+from utils.eta import EtaTracker, RECODE_PHASES, format_seconds as _fmt_secs
 
 
 _PHASE_LABELS = {
@@ -35,17 +35,6 @@ _PHASE_LABELS = {
     "graft_audio": "Copying audio…",
     "done": "Finishing",
 }
-
-
-def _fmt_secs(secs):
-    secs = int(round(secs))
-    if secs < 60:
-        return f"{secs}s"
-    m, s = divmod(secs, 60)
-    if m < 60:
-        return f"{m}m {s:02d}s"
-    h, m = divmod(m, 60)
-    return f"{h}h {m:02d}m {s:02d}s"
 
 
 def _fmt_size(num_bytes):
@@ -89,8 +78,8 @@ class ExportProgressDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(420)
 
-        self._start_time = None
-        self._recode_start = None
+        self._eta = EtaTracker()
+        self._phase = ""
         self._aborted = False
 
         layout = QVBoxLayout(self)
@@ -117,6 +106,16 @@ class ExportProgressDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
+        self._batch_btn = QPushButton(self.tr("Send to Batch"))
+        self._batch_btn.setFocusPolicy(Qt.NoFocus)
+        self._batch_btn.setToolTip(
+            self.tr("Hand this export to the Batch Manager and carry on working. "
+            "It keeps running from where it is - nothing restarts, and the "
+            "file still goes where you asked.")
+        )
+        self._batch_btn.clicked.connect(self._on_send_to_batch)
+        self._batch_btn.hide()          # shown only when a handler is set
+        btn_row.addWidget(self._batch_btn)
         self._abort_btn = QPushButton(self.tr("Abort"))
         self._abort_btn.setFocusPolicy(Qt.NoFocus)
         self._abort_btn.clicked.connect(self._on_abort)
@@ -124,9 +123,46 @@ class ExportProgressDialog(QDialog):
         layout.addLayout(btn_row)
 
         self._abort_callback = None
+        self._batch_callback = None
+
+    def current_percent(self):
+        """The percentage last reported, or 0 during an indeterminate phase."""
+        if self._bar.maximum() == 0:
+            return 0
+        return max(0, self._bar.value())
+
+    def current_phase(self):
+        """The phase last reported, for seeding the Batch Manager's row."""
+        return self._phase
+
+    def eta_tracker(self):
+        """The live estimate for this export.
+
+        Handed to the Batch Manager along with the worker when an export is
+        sent to the background.  Transferring the tracker rather than starting a
+        new one matters: a fresh tracker would time the remaining work from the
+        moment of handover while reading a percentage that started much
+        earlier, and conclude that a job at 40% was nearly finished.
+        """
+        return self._eta
 
     def set_abort_callback(self, cb):
         self._abort_callback = cb
+
+    def set_batch_callback(self, cb):
+        """Offer 'Send to Batch'.  The callback hands the running export over
+        to the Batch Manager; this dialog just closes afterwards."""
+        self._batch_callback = cb
+        self._batch_btn.setVisible(cb is not None)
+
+    def _on_send_to_batch(self):
+        if self._batch_callback is None:
+            return
+        self._batch_btn.setEnabled(False)
+        if self._batch_callback():
+            self.close()
+        else:
+            self._batch_btn.setEnabled(True)
 
     def _on_abort(self):
         self._aborted = True
@@ -141,6 +177,9 @@ class ExportProgressDialog(QDialog):
         scene = info.get("scene", 1)
         total_scenes = info.get("total_scenes", 1)
 
+        remaining = self._eta.update(info)
+        self._phase = phase
+
         # A negative percent means "busy, but with no measurable progress" - the
         # mkvmerge mux and audio verify/rebuild, which can take 20-30s with
         # nothing to count.  Show a pulsing indeterminate bar and a clear phase
@@ -152,54 +191,27 @@ class ExportProgressDialog(QDialog):
             self._eta_label.setText(self.tr("Estimated time remaining: …"))
             return
 
-        if self._start_time is None and percent > 0:
-            self._start_time = time.perf_counter()
-
-        # The MP4 recode is its own phase with its own progress (driven by
-        # ffmpeg) and its own clock, so the bar climbs again and the ETA is
-        # measured from when the recode actually started - not from the much
-        # faster cut that preceded it.
-        recoding = phase in (
-            "recode_audio", "recode_full", "rebuild_audio", "crop"
-        )
-
         if self._bar.maximum() == 0:
             self._bar.setRange(0, 100)
         self._bar.setValue(percent)
 
-        if recoding:
-            if self._recode_start is None and percent > 0:
-                self._recode_start = time.perf_counter()
-        else:
-            self._recode_start = None
-
         self._phase_label.setText(_PHASE_LABELS.get(phase, "Working…"))
 
+        recoding = phase in RECODE_PHASES
         if recoding or phase in ("verify", "done"):
             self._scene_label.setText("")
         else:
             self._scene_label.setText(f"Scene {scene} of {total_scenes}")
 
         # Estimated time remaining.
-        if recoding:
-            if self._recode_start is not None and 0 < percent < 100:
-                elapsed = time.perf_counter() - self._recode_start
-                est_total = elapsed / (percent / 100.0)
-                remaining = max(0.0, est_total - elapsed)
-                self._eta_label.setText(
-                    f"Estimated time remaining: {_fmt_secs(remaining)}"
-                )
-            else:
-                self._eta_label.setText(self.tr("Estimated time remaining: …"))
-        elif self._start_time is not None and 0 < percent < 100:
-            elapsed = time.perf_counter() - self._start_time
-            est_total = elapsed / (percent / 100.0)
-            remaining = max(0.0, est_total - elapsed)
+        if remaining is not None:
             self._eta_label.setText(
                 f"Estimated time remaining: {_fmt_secs(remaining)}"
             )
         elif percent >= 100:
             self._eta_label.setText(self.tr("Estimated time remaining: done"))
+        else:
+            self._eta_label.setText(self.tr("Estimated time remaining: …"))
 
 
 class ExportCompleteDialog(QDialog):

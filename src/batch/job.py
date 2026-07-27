@@ -151,11 +151,37 @@ class BatchJob:
         self.percent = 0             # 0-100 within the current job
         self.phase = ""              # last progress phase (for seeding the UI)
 
+        # An export the editor started and handed over mid-flight: it is
+        # already running under its own worker, so the batch shows its progress
+        # but must not process it a second time.  Deliberately NOT persisted -
+        # a job interrupted by a crash comes back as an ordinary queued job and
+        # re-runs from the beginning, which is the only honest recovery.
+        self.external = False
+
+        # A destination chosen by the user rather than derived from the batch
+        # output folder.  Set when an export is adopted, so the file lands
+        # exactly where the Save Video dialog said it would - and still does if
+        # the job has to be re-run after a crash.
+        self.fixed_dest = None
+
+        # An adopted export that has been asked to stop but hasn't finished
+        # unwinding yet.  Encoders don't stop the instant they're told, so the
+        # row says so rather than continuing to report progress.  Not persisted:
+        # a cancellation in flight when the application closes is moot.
+        self.cancelling = False
+
+    @property
+    def externally_running(self):
+        """True while this job is being processed by someone else's worker."""
+        return bool(self.external) and self.status == RUNNING
+
     # -- persistence -------------------------------------------------------- #
 
     def to_dict(self):
         # A job that was mid-flight when we persisted didn't actually finish,
-        # so record it as queued rather than running.
+        # so record it as queued rather than running.  This is also what makes
+        # an adopted export recover sanely: its worker doesn't survive the app,
+        # so it comes back as an ordinary queued job and runs from the start.
         status = QUEUED if self.status == RUNNING else self.status
         return {
             "vprj_path": self.vprj_path,
@@ -163,6 +189,7 @@ class BatchJob:
             "status": status,
             "message": self.message,
             "dest_path": self.dest_path or "",
+            "fixed_dest": self.fixed_dest or "",
         }
 
     @classmethod
@@ -185,6 +212,7 @@ class BatchJob:
         ) else QUEUED
         job.message = data.get("message", "")
         job.dest_path = data.get("dest_path") or None
+        job.fixed_dest = data.get("fixed_dest") or None
         if job.status == DONE:
             job.percent = 100
         return job

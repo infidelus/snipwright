@@ -128,7 +128,8 @@ VIDEO_SAVE_FILTER = _vf("Videos", ".ts", ".m2ts", ".mkv", ".mp4", ".mpg", ".mpeg
 # formats, with the others offered for convenience and "All files" as a
 # fall-back so nothing is ever blocked from opening.  ".avi" is old but still
 # turns up in older recordings, so it's included too.
-VIDEO_OPEN_FILTER = _vf("Videos", ".ts", ".m2ts", ".mkv", ".mp4", ".mov", ".avi")
+VIDEO_OPEN_FILTER = _vf("Videos", ".ts", ".m2ts", ".mkv", ".mp4", ".mov",
+                        ".avi", ".mpg", ".mpeg", ".vob", ".m2v")
 
 
 log = logging.getLogger("vrd-next")
@@ -225,6 +226,10 @@ class MainWindow(QMainWindow):
         self.transport_timer = QTimer()
         self.transport_started = False
         self.playing = False
+
+        # Part-notches of mouse wheel not yet acted on, so trackpads and
+        # high-resolution wheels scrub smoothly rather than in leaps.
+        self._wheel_accum = 0
 
         self.fps = DEFAULT_FPS
 
@@ -2299,20 +2304,35 @@ class MainWindow(QMainWindow):
 
     def _qsf_temp_path(self, ext):
         """A /tmp path named '<original> - QSF<ext>' for an internal QSF working
-        copy.  Guards the one collision that matters - it never returns the
-        path of the file that's currently open (which a re-QSF would clobber)."""
+        copy.  Guards the collisions that matter - it never returns the path of
+        the file that's currently open (which a re-QSF would clobber), nor of
+        one a background export is still reading."""
         import tempfile
         name = f"{self._original_base()} - QSF{ext}"
         path = os.path.join(tempfile.gettempdir(), name)
-        cur = (
+
+        busy = {
             os.path.abspath(self.current_filename)
             if getattr(self, "current_filename", None) else ""
-        )
-        if os.path.abspath(path) == cur:
+        }
+        controller = getattr(self, "batch_controller", None)
+        if controller is not None:
+            # An adopted export reads its source for the whole run, so
+            # overwriting it half way through would corrupt the output.
+            busy |= set(controller.external_sources())
+        busy.discard("")
+
+        from batch.controller import norm_path
+        if norm_path(path) in {norm_path(p) for p in busy}:
             root, e = os.path.splitext(name)
-            path = os.path.join(
-                tempfile.gettempdir(), f"{root} (2){e}"
-            )
+            n = 2
+            while True:
+                candidate = os.path.join(
+                    tempfile.gettempdir(), f"{root} ({n}){e}"
+                )
+                if norm_path(candidate) not in {norm_path(p) for p in busy}:
+                    return candidate
+                n += 1
         return path
 
     def _log_source_info(self, filename):
@@ -3017,6 +3037,9 @@ class MainWindow(QMainWindow):
             encoder_preset=getattr(profile, "preset", "faster"),
             encoder_crf=(profile.effective_crf()
                          if hasattr(profile, "effective_crf") else None),
+            encoder_gop_seconds=(profile.effective_gop_seconds()
+                                 if hasattr(profile, "effective_gop_seconds")
+                                 else None),
         )
 
     def open_profile_manager(self):
@@ -3040,6 +3063,45 @@ class MainWindow(QMainWindow):
             self._batch_dialog = None
         dlg.destroyed.connect(_forget)
         dlg.show()
+
+    def _write_queue_project(self, keep_ranges, source, base):
+        """Write a staging .vprj into the queue folder for `keep_ranges` against
+        `source`, and return its path - or None, having explained why not.
+
+        Shared by Queue to Batch and by handing a running export over to the
+        Batch Manager, so both stage projects the same way.
+        """
+        from project.vprj import save_vprj
+        from config.loader import CONFIG_DIR
+
+        queue_dir = os.path.join(str(CONFIG_DIR), "queue")
+        try:
+            os.makedirs(queue_dir, exist_ok=True)
+        except OSError as exc:
+            QMessageBox.warning(
+                self, self.tr("Queue to Batch"),
+                self.tr("Couldn't create the batch queue folder:\n\n%s") % exc,
+            )
+            return None
+
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        vprj_path = os.path.join(queue_dir, f"{base} - {stamp}.vprj")
+
+        try:
+            save_vprj(
+                vprj_path,
+                keep_ranges,
+                self.scenes.markers,
+                source,
+                self.index,
+            )
+        except Exception as exc:
+            QMessageBox.warning(
+                self, self.tr("Queue to Batch"),
+                self.tr("The project couldn't be saved for batching:\n\n%s") % exc,
+            )
+            return None
+        return vprj_path
 
     def queue_to_batch(self):
         """Save the current edit as a project and add it to the batch queue
@@ -3077,16 +3139,6 @@ class MainWindow(QMainWindow):
         from project.vprj import save_vprj
         from config.loader import CONFIG_DIR
 
-        queue_dir = os.path.join(str(CONFIG_DIR), "queue")
-        try:
-            os.makedirs(queue_dir, exist_ok=True)
-        except OSError as exc:
-            QMessageBox.warning(
-                self, self.tr("Queue to Batch"),
-                self.tr("Couldn't create the batch queue folder:\n\n%s") % exc,
-            )
-            return
-
         # Reference the file we're working from: the QSF'd /tmp copy when one is
         # loaded, else the original recording.  The cut points are in this file's
         # timeline, so the batch must cut THIS file - not the raw original, whose
@@ -3111,22 +3163,8 @@ class MainWindow(QMainWindow):
                     self.tr("Already in the batch queue: %s") % base, 6000)
                 return
 
-        stamp = time.strftime("%Y%m%d-%H%M%S")
-        vprj_path = os.path.join(queue_dir, f"{base} - {stamp}.vprj")
-
-        try:
-            save_vprj(
-                vprj_path,
-                keep_ranges,
-                self.scenes.markers,
-                source,
-                self.index,
-            )
-        except Exception as exc:
-            QMessageBox.warning(
-                self, self.tr("Queue to Batch"),
-                self.tr("The project couldn't be saved for batching:\n\n%s") % exc,
-            )
+        vprj_path = self._write_queue_project(keep_ranges, source, base)
+        if vprj_path is None:
             return
 
         # The controller owns the queue and persists it; if a batch is already
@@ -3460,6 +3498,7 @@ class MainWindow(QMainWindow):
             video_mode="copy",
             encoder_preset="faster",
             encoder_crf=None,
+            encoder_gop_seconds=None,
     ):
         from ui.export_dialogs import (
             ExportProgressDialog,
@@ -3485,6 +3524,7 @@ class MainWindow(QMainWindow):
             video_mode=video_mode,
             encoder_preset=encoder_preset,
             encoder_crf=encoder_crf,
+            encoder_gop_seconds=encoder_gop_seconds,
         )
 
         # Keep a reference so the thread isn't garbage-collected.
@@ -3555,8 +3595,78 @@ class MainWindow(QMainWindow):
 
         progress.set_abort_callback(worker.cancel)
 
+        # Offer to hand the export over to the Batch Manager.  Captured now,
+        # because the chosen profile is cleared once the export finishes.
+        chosen_profile = getattr(self, "_pending_profile_name", None)
+        progress.set_batch_callback(
+            lambda: self._hand_export_to_batch(
+                worker, out_path, keep_ranges, chosen_profile, progress
+            )
+        )
+
         worker.start()
         progress.show()
+
+    def _hand_export_to_batch(self, worker, out_path, keep_ranges,
+                              profile_name, progress=None):
+        """Give a running export to the Batch Manager and let go of it.
+
+        The worker is left completely alone - it carries on encoding to the
+        same destination - so nothing is lost and nothing restarts.  All that
+        changes is who is listening: the editor's handlers come off, the
+        controller's go on, and the work gains a row in the queue.
+
+        Returns True if the handover happened, so the dialog knows to close.
+        """
+        controller = getattr(self, "batch_controller", None)
+        if controller is None:
+            return False
+
+        source = self.current_filename or self.original_source
+        base = self._original_base()
+
+        vprj_path = self._write_queue_project(keep_ranges, source, base)
+        if vprj_path is None:
+            return False
+
+        # Take the editor's handlers off first: the completion dialog and the
+        # save-point bookkeeping belong to a foreground export, and firing them
+        # ten minutes later - very likely over a different recording - would be
+        # both wrong and startling.
+        for signal in (worker.progress, worker.finished_ok,
+                       worker.failed, worker.cancelled):
+            try:
+                signal.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+
+        # Carry across where the export has got to, and the estimate itself.
+        # A fresh tracker would time the remainder from now while reading a
+        # percentage that started minutes ago, and report nonsense.
+        percent, phase, eta = 0, "", None
+        if progress is not None:
+            percent = progress.current_percent()
+            phase = progress.current_phase()
+            eta = progress.eta_tracker()
+
+        controller.adopt_export(
+            worker, vprj_path, profile_name, out_path,
+            percent=percent, phase=phase, eta=eta,
+        )
+        # The controller owns the worker now; dropping our reference here would
+        # otherwise be the only thing keeping the thread alive.
+        self._export_worker = None
+
+        log.info(
+            "Export handed to the Batch Manager: %s -> %s",
+            base, out_path,
+        )
+        self.statusBar().showMessage(
+            self.tr("Export moved to the Batch Manager - it carries on in the "
+                    "background. Tools → Batch Manager to watch it."),
+            8000,
+        )
+        return True
 
     def _refresh_scenes_from_selection(self):
         """Push the current selection.ranges out to all the scene UI widgets.
@@ -4485,6 +4595,78 @@ class MainWindow(QMainWindow):
 
         self.update_display()
 
+    def _wheel_scrub(self, frames):
+        """Move the playhead by `frames`, as the wheel asks.
+
+        Stops playback first, the same as any other deliberate navigation.
+        Single-frame moves go through step_display(), which keeps the preview
+        and the thumbnail strip in lockstep - the same path the arrow keys use.
+        Bigger jumps use the normal display update.
+        """
+        if not self.frames:
+            return
+        frames = int(frames)
+        if not frames:
+            return
+
+        self.playing = False
+        self.transport_timer.stop()
+        self.transport_direction = 0
+        self.transport_started = False
+
+        target = max(0, min(len(self.frames) - 1, self.current_frame + frames))
+        if target == self.current_frame:
+            return
+        self.current_frame = target
+
+        if abs(frames) == 1:
+            self.step_display()
+        else:
+            self.update_display()
+
+    def wheelEvent(self, event):
+        """Scrub with the mouse wheel: a notch per frame, Ctrl for a bigger
+        jump.
+
+        Only reached for widgets that don't want the wheel themselves.  The
+        preview is a QLabel and the thumbnail strip a plain QWidget, so both
+        let the event through to here; the scene list and the volume slider
+        consume it and keep scrolling and adjusting volume respectively.  That
+        division is Qt's own event propagation rather than anything special, so
+        it stays correct as the interface changes.
+        """
+        if not self.frames:
+            super().wheelEvent(event)
+            return
+
+        delta = event.angleDelta().y()
+        if not delta:
+            # Horizontal-only (tilt) wheels have nothing to say about time.
+            super().wheelEvent(event)
+            return
+
+        # Reversing direction starts a fresh count, so a jitter in one
+        # direction can't cancel out a deliberate turn in the other.
+        if (delta > 0) != (self._wheel_accum > 0):
+            self._wheel_accum = 0
+
+        # A conventional wheel reports 120 units per notch; trackpads and
+        # high-resolution wheels send much smaller amounts, so accumulate and
+        # act once a full notch's worth has arrived.  Without this, a trackpad
+        # would either do nothing or fly off down the timeline.
+        self._wheel_accum += delta
+        notches = int(self._wheel_accum / 120)
+        if notches:
+            self._wheel_accum -= notches * 120
+            if event.modifiers() & Qt.ControlModifier:
+                step = max(1, int(self.fps * self.jump_seconds("small")))
+            else:
+                step = 1
+            # Wheel away from you moves forward through the recording.
+            self._wheel_scrub(notches * step)
+
+        event.accept()
+
     def commit_selection(self):
         """Save the pending IN/OUT as a kept (green) range."""
         if self.selection.commit_range():
@@ -5399,10 +5581,8 @@ class MainWindow(QMainWindow):
             return
 
         # A background batch can't survive the app closing - warn, then stop it.
-        if (
-            getattr(self, "batch_controller", None) is not None
-            and self.batch_controller.is_running()
-        ):
+        controller = getattr(self, "batch_controller", None)
+        if controller is not None and controller.is_running():
             choice = QMessageBox.question(
                 self,
                 self.tr("Batch running"),
@@ -5414,8 +5594,27 @@ class MainWindow(QMainWindow):
             if choice != QMessageBox.Yes:
                 event.ignore()
                 return
-            self.batch_controller.stop()
-            self.batch_controller.wait(10000)
+            controller.stop()
+            controller.wait(10000)
+
+        # An export handed to the Batch Manager runs under its own worker,
+        # which the batch's stop() doesn't touch.  Until exports could be sent
+        # to the background this was covered by accident - the progress dialog
+        # was modal, so Quit couldn't be reached while one was running.
+        if controller is not None and controller.has_external_running():
+            choice = QMessageBox.question(
+                self,
+                self.tr("Export running"),
+                self.tr("An export is still being written in the background. "
+                "Quitting will stop it, and the part-finished file will be "
+                "discarded.\n\nQuit anyway?"),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if choice != QMessageBox.Yes:
+                event.ignore()
+                return
+            controller.cancel_external(10000)
 
         # Remember the window size for next launch (use the normal, non-
         # maximised geometry so a maximised session doesn't save a giant size),

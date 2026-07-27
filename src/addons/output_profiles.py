@@ -40,6 +40,25 @@ CRF_AUTO = -1                           # -1 == pick a sensible value for the co
 CRF_MIN, CRF_MAX = 0, 51
 DEFAULT_CRF = {"hevc": 24, "copy": 20}  # "copy" here means an H.264 crop re-encode
 
+# How far apart keyframes (I-frames) are placed in a re-encode, in seconds.
+# I-frames are several times the size of the frames between them and they reset
+# the prediction chain the encoder relies on, so placing them further apart makes
+# a meaningfully smaller file at the same quality.  Placing them closer together
+# makes seeking finer and re-cutting the result cheaper.
+#
+# Broadcast uses about a second (fast channel changes); encoders default to ten
+# for file playback.  Five is the middle ground: most of the size saving, still
+# responsive to seek, and comfortably inside streaming conventions if a server
+# ever repackages the file.  The H.264 crop path keeps the one second VRD Next
+# has always used, since a cropped broadcast recording is the kind of file
+# somebody is most likely to cut again.
+# 0 rather than -1 (which is what CRF_AUTO uses): a CRF of 0 is meaningful
+# (lossless), whereas a keyframe every zero seconds is not, so 0 is free to mean
+# "automatic" and the spin box has no dead value between it and one second.
+GOP_AUTO = 0                            # 0 == pick a sensible value for the codec
+GOP_MIN, GOP_MAX = 1, 15                # seconds
+DEFAULT_GOP_SECONDS = {"hevc": 5, "copy": 1}
+
 ASPECT_MODES = ("source", "4:3", "16:9")
 CROP_MODES = ("none", "auto", "fixed")  # off | auto-detect bars | fixed pixels
 AAC_AUTO = 0                            # 0 == let the bitrate follow the source
@@ -52,6 +71,7 @@ class OutputProfile:
     def __init__(self, name, container, *, audio="copy", audio_bitrate=AAC_AUTO,
                  aspect="source", crop_mode="none", crop=(0, 0, 0, 0),
                  video="copy", preset=DEFAULT_PRESET, crf=CRF_AUTO,
+                 gop_seconds=GOP_AUTO,
                  output_dir="", favourite=False, enabled=True, builtin=False):
         self.name = name
         self.container = container          # "match" | "mkv" | "mp4"
@@ -67,6 +87,9 @@ class OutputProfile:
         # VRD Next did before these were configurable.
         self.preset = preset if preset in ENCODER_PRESETS else DEFAULT_PRESET
         self.crf = self._clean_crf(crf)
+        # Keyframe spacing for the re-encode, in seconds.  GOP_AUTO resolves
+        # per codec at export time.
+        self.gop_seconds = self._clean_gop(gop_seconds)
         # Cropping re-encodes the video.  "none" leaves the lossless path alone;
         # "auto" detects the black bars per file at export time; "fixed" uses the
         # pixel amounts in ``crop`` = (top, bottom, left, right).
@@ -145,6 +168,22 @@ class OutputProfile:
             return CRF_AUTO
         return max(CRF_MIN, min(CRF_MAX, value))
 
+    @staticmethod
+    def _clean_gop(value):
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            return GOP_AUTO
+        if value == GOP_AUTO:
+            return GOP_AUTO
+        return max(GOP_MIN, min(GOP_MAX, value))
+
+    def effective_gop_seconds(self):
+        """Keyframe spacing actually handed to the encoder, in seconds."""
+        if self.gop_seconds != GOP_AUTO:
+            return self.gop_seconds
+        return DEFAULT_GOP_SECONDS["hevc" if self.video == "hevc" else "copy"]
+
     def effective_crf(self):
         """The CRF actually handed to the encoder.
 
@@ -167,6 +206,7 @@ class OutputProfile:
             "video": self.video,
             "preset": self.preset,
             "crf": self.crf,
+            "gop_seconds": self.gop_seconds,
             "output_dir": self.output_dir,
             "favourite": self.favourite,
             "enabled": self.enabled,
@@ -188,6 +228,10 @@ class OutputProfile:
             # exactly what those profiles used to do.
             preset=d.get("preset", DEFAULT_PRESET),
             crf=d.get("crf", CRF_AUTO),
+            # Profiles written before this existed get the automatic value,
+            # which for HEVC is a longer gap than the one second VRD Next used
+            # to hard-code - so they produce smaller files at the same quality.
+            gop_seconds=d.get("gop_seconds", GOP_AUTO),
             output_dir=d.get("output_dir", ""),
             favourite=bool(d.get("favourite", False)),
             enabled=bool(d.get("enabled", True)),

@@ -209,6 +209,32 @@ class SceneList(
         if hasattr(self.window, "_update_title"):
             self.window._update_title()
 
+    def wheelEvent(
+            self,
+            event,
+    ):
+
+        #
+        # Scroll the list, and stop there.
+        #
+        # Qt hands a wheel event to the parent when a scroll area has run out
+        # of room, which for this list means the main window picks it up and
+        # scrubs the video.  The effect was that scrolling up through the
+        # scenes worked normally until the list hit the top, at which point the
+        # preview started jumping about instead.  A short list, with nothing to
+        # scroll at all, scrubbed from the very first notch.
+        #
+        # Accepting unconditionally keeps the wheel's job over this list purely
+        # local: it scrolls while there's somewhere to go and does nothing
+        # otherwise, which is what every other list in the application does.
+        #
+
+        super().wheelEvent(
+            event
+        )
+
+        event.accept()
+
     def keyPressEvent(
             self,
             event,

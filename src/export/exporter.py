@@ -25,6 +25,8 @@ import bisect
 import os
 import shutil
 import subprocess
+
+from utils.proc import popen_progress, read_stderr
 import time
 import logging
 import json
@@ -1325,12 +1327,8 @@ def _transcode_to_mp4(
         part_path,
     ]
 
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    # stderr to a temp file, never a pipe - see utils/proc.py.
+    proc, err_file = popen_progress(cmd)
 
     try:
         for line in proc.stdout:
@@ -1362,7 +1360,7 @@ def _transcode_to_mp4(
                     "scene": 1,
                     "total_scenes": 1,
                 })
-        err = proc.stderr.read()
+        err = read_stderr(err_file)
     finally:
         proc.wait()
 
@@ -2099,12 +2097,8 @@ def _rebuild_audio_from_source(video_path, source_path, scene_times,
     cmd += ["-progress", "pipe:1", tmp]
 
     try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        # stderr to a temp file, never a pipe - see utils/proc.py.
+        proc, err_file = popen_progress(cmd)
         try:
             for line in proc.stdout:
                 if cancel_cb is not None and cancel_cb():
@@ -2135,7 +2129,7 @@ def _rebuild_audio_from_source(video_path, source_path, scene_times,
                         "scene": 1,
                         "total_scenes": 1,
                     })
-            err = proc.stderr.read()
+            err = read_stderr(err_file)
         finally:
             proc.wait()
 
@@ -2261,6 +2255,7 @@ def export_ranges(
         video_mode="copy",
         encoder_preset="faster",
         encoder_crf=None,
+        encoder_gop_seconds=None,
 ):
     """Cut and export the kept ranges.
 
@@ -2663,7 +2658,11 @@ def export_ranges(
     # crop and HEVC share one encode, so a cropped HEVC output is a single pass.
     # Only when the cut itself succeeded; any failure keeps the previous file.
     reencode_hevc = video_mode == "hevc"
+    # Set when a requested re-encode didn't happen, so the caller can say so
+    # rather than presenting a source-codec file as the finished article.
+    recode_failed = False
     if success and (crop_mode in ("auto", "fixed") or reencode_hevc):
+        tmp_re = None
         try:
             from export import crop as _crop
             cw, ch = _crop.source_dimensions(out_path)
@@ -2702,6 +2701,7 @@ def export_ranges(
                     codec=codec,
                     preset=encoder_preset,
                     crf=encoder_crf,
+                    gop_seconds=encoder_gop_seconds,
                     cap_kbps=_crop.target_cap_kbps(out_path),
                     fps=_crop.source_fps(out_path),
                     field_order=field_order,
@@ -2725,12 +2725,38 @@ def export_ranges(
                         )
                 else:
                     _safe_remove(tmp_re)
+                    # A cancelled encoder is killed, so it exits non-zero and
+                    # looks exactly like a failure from here.  Ask whether the
+                    # user pulled the plug before concluding anything, because
+                    # the two need opposite handling: a cancellation abandons
+                    # the whole export, while a real failure keeps what was
+                    # already cut.
+                    if cancel_cb is not None and cancel_cb():
+                        raise _Cancelled()
+                    # A genuine failure.  The file already at out_path is the
+                    # finished cut in the SOURCE codec, not what was asked for,
+                    # so this must not pass for success further up.
+                    recode_failed = True
                     logger.warning(
-                        "Finishing re-encode failed; kept the previous output."
+                        "Finishing re-encode failed; kept the previous output "
+                        "- it is NOT in the requested codec."
                     )
+        except _Cancelled:
+            if tmp_re:
+                _safe_remove(tmp_re)
+            # The cut itself had already finished and written to out_path, so
+            # the earlier cleanup (which only fires when the cut fails) has
+            # been and gone.  Abandoning the export here has to remove it: a
+            # cancelled HEVC job would otherwise leave the source-codec cut
+            # sitting under the name the finished file was going to have.
+            _safe_remove(out_path)
+            logger.info("Export cancelled during re-encode; output removed.")
+            raise
         except Exception as exc:
+            recode_failed = True
             logger.warning(
-                "Finishing re-encode error (%s); kept the previous output.", exc
+                "Finishing re-encode error (%s); kept the previous output "
+                "- it is NOT in the requested codec.", exc
             )
 
     # Stop the clock here, after the crop re-encode, so the reported time and
@@ -2890,6 +2916,18 @@ def export_ranges(
     # Stats for the completion dialog.
     #
 
+    if recode_failed:
+        # The cut succeeded but the requested re-encode didn't, so the file is
+        # in the source codec.  It goes in `errors` rather than the log alone:
+        # a silent "Export complete" here means someone files an H.264 recording
+        # away believing it's the HEVC they asked for.
+        errors.append((
+            "video could not be re-encoded - the file is in the original "
+            "codec, not the one the profile asked for",
+            "The cut completed, but the finishing re-encode failed. The "
+            "output is the cut recording in its original codec.",
+        ))
+
     total_frames = sum(b - a + 1 for a, b in keep_ranges)
 
     # Fall back to size/duration if the container didn't report a bitrate.
@@ -2912,6 +2950,7 @@ def export_ranges(
         "dropped_audio": dropped,
         "video_bitrate": video_bitrate,
         "audio_needs_repair": audio_needs_repair,
+        "recode_failed": recode_failed,
     }
 
     # The completion figures, one per line (like the dialog) so the summary is
@@ -2956,7 +2995,8 @@ class ExportWorker(QThread):
                  frame_index, out_format, parent=None,
                  audio_mode="copy", audio_bitrate=0, aspect="source",
                  crop_mode="none", crop=(0, 0, 0, 0), video_mode="copy",
-                 encoder_preset="faster", encoder_crf=None):
+                 encoder_preset="faster", encoder_crf=None,
+                 encoder_gop_seconds=None):
         super().__init__(parent)
         self.source_path = source_path
         self.out_path = out_path
@@ -2971,6 +3011,7 @@ class ExportWorker(QThread):
         self.video_mode = video_mode
         self.encoder_preset = encoder_preset
         self.encoder_crf = encoder_crf
+        self.encoder_gop_seconds = encoder_gop_seconds
         self._cancel = False
 
     def cancel(self):
@@ -2992,6 +3033,7 @@ class ExportWorker(QThread):
                 video_mode=self.video_mode,
                 encoder_preset=self.encoder_preset,
                 encoder_crf=self.encoder_crf,
+                encoder_gop_seconds=self.encoder_gop_seconds,
                 progress_cb=self.progress.emit,
                 cancel_cb=lambda: self._cancel,
             )

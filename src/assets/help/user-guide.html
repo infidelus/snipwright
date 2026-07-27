@@ -95,6 +95,7 @@ by VideoReDo.</p>
   <a href="#settings">8. Settings reference</a>
   <a href="#shortcuts">9. Keyboard shortcuts</a>
   <a href="#tips">10. Tips and troubleshooting</a>
+  <a href="#videoredo">11. Coming from VideoReDo</a>
 </div>
 
 <h2 id="intro">1. Introduction</h2>
@@ -120,7 +121,9 @@ system. Comskip is optional but recommended for automatic ad detection (see sect
 <p>Open a recording with <strong>File &rarr; Open Video</strong> (<kbd>Ctrl+O</kbd>),
 or pick a recent one from <strong>File &rarr; Open Recent</strong>. VRD Next opens the
 common broadcast and file types &mdash; <code>.ts</code>, <code>.mkv</code>,
-<code>.mp4</code>, <code>.m2ts</code>, <code>.mov</code> and <code>.avi</code> &mdash;
+<code>.mp4</code>, <code>.m2ts</code>, <code>.mov</code>, <code>.avi</code> and the
+MPEG program-stream family (<code>.mpg</code>, <code>.mpeg</code>, <code>.vob</code>)
+&mdash;
 and you can pick any other file with the <strong>All files</strong> filter. You can also
 <strong>drag a file onto the window</strong> to open it, and a <code>.vprj</code> project
 opens straight into the editor. Choosing <em>several</em> videos at once &mdash; whether
@@ -186,6 +189,14 @@ To jump to a specific timecode, use <strong>Goto</strong> (<kbd>Ctrl+G</kbd>).</
 <p>All three distances can be changed under <strong>Settings &rarr; General</strong>, and
 the buttons&rsquo; hover hints update to match. The shortcuts themselves are listed in
 <a href="#shortcuts">Keyboard shortcuts</a>.</p>
+<p>The <strong>mouse wheel</strong> scrubs as well. Over the picture, the thumbnail strip or
+the navigation bar, one notch moves one frame &mdash; handy for settling on an exact cut
+point without taking your hand off the mouse. Hold <kbd>Ctrl</kbd> and each notch moves by
+the short skip distance instead (ten seconds unless you have changed it), so you can cover
+ground quickly and then fine-tune. Scrolling up moves forward through the recording,
+scrolling down moves back.</p>
+<div class="note">The wheel keeps its usual job everywhere it already had one: over the
+scene list it scrolls the list, and over the volume control it changes the volume.</div>
 <h3>Cutting in Cut Mode</h3>
 <ol>
   <li>Move to where the unwanted section starts and press <strong>Mark In</strong>
@@ -277,13 +288,38 @@ choose a profile that re-encodes to HEVC (see below), or save to a container tha
 source's streams are not compatible with.</p>
 <div class="note">Recordings with more than one audio track keep them all &mdash; including
 the audio-description track some broadcasters transmit (Channel&nbsp;4&nbsp;HD, for
-example). The tracks are kept losslessly wherever the source allows, stay in sync with the
-picture, and the description track keeps its &ldquo;visual impaired&rdquo; label in every
-output container. <strong>DVB subtitle tracks are carried through too</strong>, cut to
+example). The tracks are kept losslessly wherever the source allows and stay in sync with
+the picture. Where the source marks a track as audio description, that marking is carried
+across to <code>.ts</code>, <code>.mkv</code> and <code>.mp4</code> alike &mdash; MP4 needs
+a little help, as its players do not read the flag directly, so the track is additionally
+named &ldquo;visual impaired&rdquo;. Carrying the flag into MKV needs MKVToolNix&nbsp;52 or
+newer; with an older version the track is still exported, just without the marking. <strong>DVB subtitle tracks are carried through too</strong>, cut to
 match the video, when saving to <code>.ts</code> or <code>.mkv</code> &mdash; MP4 cannot
 carry DVB subtitles, so they are dropped in that format only.</div>
+<h3>If an export is taking longer than you expected</h3>
+<p>A lossless save is usually over in seconds, but a full re-encode &mdash; HEVC, or a crop
+&mdash; can run for a long time, and the export window keeps the editor locked while it
+does. If you would rather get on with something else, press <strong>Send to Batch</strong>
+in the export window.</p>
+<p>Nothing restarts and nothing is lost. The export carries on from exactly where it had
+reached, still writing to the file you chose, under the name you gave it &mdash; the only
+thing that changes is that it now reports its progress as a row in the Batch Manager instead
+of holding the editor. You get the editor straight back and can open another recording, cut
+it, and even save that one while the first is still encoding.</p>
+<div class="note">The Batch Manager shows a handed-over export as
+<em>Exporting&hellip;&nbsp;47%</em> rather than <em>Running</em>, and will not touch it
+&mdash; pressing <strong>Start</strong> runs the other queued jobs and leaves that one to
+finish on its own. If you change your mind, select its row and press <strong>Remove</strong>
+&mdash; that offers to stop the export and discard the part-finished file, and the row goes
+once the encoder has actually stopped. If you quit VRD Next before it finishes you will be
+warned, because closing the application does stop it.</div>
 <h3>Output profiles</h3>
-<p>Manage profiles under <strong>Tools &rarr; Manage Profiles</strong>. A profile controls:</p>
+<p>Manage profiles under <strong>Tools &rarr; Manage Profiles</strong>. The settings below
+are the fields <em>inside</em> a profile, not the profile names you choose from when saving
+&mdash; VRD Next ships with three profiles (<strong>Match Source</strong>, <strong>Matroska
+MKV</strong> and <strong>MP4</strong>), and each of them is simply a saved combination of
+these fields. Note that &ldquo;Match Source&rdquo; is both the name of a built-in profile and
+one of the Container choices, which is worth keeping straight. A profile controls:</p>
 <ul>
   <li><strong>Container</strong> &mdash; match the source, or force MKV or MP4.</li>
   <li><strong>Video</strong> &mdash; <strong>Copy&nbsp;(lossless)</strong> keeps the video
@@ -299,6 +335,14 @@ carry DVB subtitles, so they are dropped in that format only.</div>
   size, at the cost of time. A lower CRF means better quality and a bigger file.
   <strong>Automatic</strong> picks a sensible CRF for the codec, and the defaults are what
   VRD Next has always used &mdash; so there's no need to touch either unless you want to.</li>
+  <li><strong>Keyframes every</strong> &mdash; how far apart keyframes are placed in a
+  re-encode. Keyframes are complete pictures and are several times the size of the frames
+  between them, so spacing them further apart makes a noticeably smaller file at the same
+  quality; spacing them closer makes seeking finer and makes the result quicker to cut
+  again later. <strong>Automatic</strong> uses five seconds for HEVC (broadcast recordings
+  use about one, which is wasteful for a file you are going to watch rather than re-edit)
+  and one second when cropping. Like the settings above, it only applies when the video is
+  actually re-encoded.</li>
   <li><strong>Display aspect</strong> &mdash; leave as the source, or stamp 4:3 or 16:9.
   This is applied losslessly by correcting the aspect signalling, without re-encoding.</li>
   <li><strong>Cropping</strong> &mdash; remove black bars (see below).</li>
@@ -380,6 +424,23 @@ to process as-is.</p>
 <div class="note">The watcher runs in the system tray and works <strong>completely
 independently</strong> of the main editor &mdash; you do not need VRD Next open for it to do
 its job.</div>
+<h3>Ignoring programmes you do not want</h3>
+<p>Not every recording in the folder is yours to worry about. Right-click the tray icon and
+choose <strong>Edit ignore list</strong>, then add one programme title per line: any recording
+whose file name contains one of those lines is skipped, so a housemate's soaps never go near
+Comskip. Matching is not case-sensitive, and lines beginning with <code>#</code> are
+comments.</p>
+<p>Over the years such a list fills up with programmes that finished long ago. Under
+<strong>Housekeeping</strong> you can have the watcher drop entries that no new recording has
+matched for a set period &mdash; twelve months suits most series, which return annually if
+they return at all. This is off by default. <strong>Review and prune now</strong> lists every
+title with the date it was last seen, oldest first, so you can see at a glance what has gone
+stale and untick anything you want to keep.</p>
+<div class="note">&ldquo;Last seen&rdquo; is the date of the most recent recording that
+matched, not the date of the last scan &mdash; so old episodes left sitting in the folder do
+not keep an entry looking fresh. When an entry is pruned, any matching recordings still in the
+folder are marked as already done, so tidying the list never sends a back-catalogue through
+Comskip. New recordings are picked up as normal.</div>
 <h3>Batch manager</h3>
 <p>The Batch Manager is where the actual cutting happens for several files at once. Queue the
 current recording from the editor with <strong>Queue to Batch</strong> (<kbd>Ctrl+B</kbd>), or
@@ -388,7 +449,10 @@ feed it the project files the watcher has prepared, then run the queue from
 options such as cropping apply here too. (Renaming is a separate step, handled by the
 renamers &mdash; the Batch Manager itself does not rename.) You can close the Batch Manager
 window while a batch is running &mdash; the batch keeps going in the background, and reopening
-it from <strong>Tools &rarr; Batch Manager</strong> shows the live progress.</p>
+it from <strong>Tools &rarr; Batch Manager</strong> shows the live progress. <strong>Add from
+Watch Folder</strong> only brings in recordings that are not already queued &mdash; including
+ones you sent over yourself with Queue to Batch &mdash; so you can press it as often as you
+like.</p>
 <div class="note">If the Batch Manager runs into a problem with a file &mdash; most often one
 that needs a Quick Stream Fix &mdash; it pauses that job and waits for you. Open the project,
 sort it out (for example run QSF), save it again, and it is requeued the next time you open
@@ -476,6 +540,94 @@ rather than the current setting.</p>
   itself is still lossless. This is expected for that class of file; VRD Next is aimed at
   broadcast TV recordings, which cut quickly and lightly.</li>
 </ul>
+
+<h2 id="videoredo">11. Coming from VideoReDo</h2>
+<p>VRD Next covers the parts of VideoReDo most people used day to day, but it does not always
+use the same words for them. If you are looking for a familiar setting and cannot find it,
+it is probably here under another name.</p>
+<table>
+  <tr><th>VideoReDo</th><th>VRD Next</th><th>Notes</th></tr>
+  <tr>
+    <td>Intelligent Recode</td>
+    <td>The default &mdash; no setting to change</td>
+    <td>Frames are copied wherever possible and re-encoded only where a cut falls
+    mid-GOP. This is how every export works unless you ask for a full re-encode, and it
+    is why a lossless save of an hour-long recording finishes in seconds. The log records
+    the split for each export, for example
+    <code>1145 segment(s) - 1145 copied, 0 re-encoded</code>.</td>
+  </tr>
+  <tr>
+    <td>Force Recode</td>
+    <td>Output profile &rarr; <strong>Video: HEVC</strong></td>
+    <td>Re-encodes the whole file rather than just the joins. Cropping does the same,
+    because black bars cannot be removed without re-encoding.</td>
+  </tr>
+  <tr>
+    <td>Max GOP length</td>
+    <td>Output profile &rarr; <strong>Keyframes every</strong></td>
+    <td>Expressed in seconds rather than frames, so it does not need changing when the
+    frame rate does. <strong>Automatic</strong> uses five seconds for HEVC.</td>
+  </tr>
+  <tr>
+    <td>Quality Factor Adjustment</td>
+    <td>Output profile &rarr; <strong>Quality (CRF)</strong></td>
+    <td>A quality target for the encoder rather than a percentage of the source. Lower
+    means better quality and a larger file; <strong>Automatic</strong> picks a sensible
+    value for the codec.</td>
+  </tr>
+  <tr>
+    <td>Cropping and Resizing</td>
+    <td>Output profile &rarr; <strong>Cropping</strong></td>
+    <td>Automatic black-bar detection or fixed pixel amounts, with a preview against a
+    real frame from the recording.</td>
+  </tr>
+  <tr>
+    <td>Aspect correction</td>
+    <td>Output profile &rarr; <strong>Display aspect</strong></td>
+    <td>Applied by correcting the aspect signalling, so it costs nothing and does not
+    re-encode.</td>
+  </tr>
+  <tr>
+    <td>Output profiles</td>
+    <td>Output profiles</td>
+    <td>Same idea: named sets of output settings, chosen when you save or per batch job.
+    <strong>Tools &rarr; Manage Profiles</strong>.</td>
+  </tr>
+  <tr>
+    <td>QuickStream Fix</td>
+    <td><strong>Tools &rarr; Quick Stream Fix</strong></td>
+    <td>Repairs broken broadcast streams by remuxing them. VRD Next also offers it
+    automatically when a recording will not open cleanly.</td>
+  </tr>
+  <tr>
+    <td>Ad-Detective</td>
+    <td><a href="https://github.com/erikkaashoek/Comskip">Comskip</a>, plus the Watcher</td>
+    <td>A different tool, not a rebadged one. Ad-Detective was built into VideoReDo and
+    tuned through its own parameters dialogue; Comskip is a separate program that VRD Next
+    calls, and it is configured through an <code>.ini</code> file rather than a GUI. There
+    is no equivalent of the Ad-Detective parameters window. What VRD Next does with the
+    result is the same idea: the detected breaks become ready-to-review cuts you confirm
+    before saving, and the Watcher can run the whole thing over new recordings unattended.
+    Comskip repays being tuned to your source &mdash; its frame rate especially &mdash; and
+    a good <code>.ini</code> makes a large difference to detection quality.</td>
+  </tr>
+  <tr>
+    <td>Batch Manager</td>
+    <td>Batch Manager</td>
+    <td>Same idea, and an export already running in the editor can be handed to it
+    mid-flight with <strong>Send to Batch</strong>.</td>
+  </tr>
+</table>
+<div class="note">Not everything has an equivalent. VRD Next cannot <em>convert</em> a
+recording to MPEG-2 &mdash; its full re-encode options are H.264 and HEVC &mdash; so there
+is nothing here for producing DVD-compliant output, and no DVD authoring. Nor are there
+joiner-side title cards beyond what is described above. It was written to replace the parts
+of VideoReDo its author used, not the whole product.</div>
+<div class="note">To be clear about MPEG-2, since SD Freeview recordings use it: cutting
+them works exactly as it does for H.264. The cutter re-encodes MPEG-2 where a cut lands
+mid-GOP, in MPEG-2, so the result is a normal MPEG-2 file that plays anywhere its source
+did. The only thing missing is choosing MPEG-2 as an output format for a file that is not
+already MPEG-2.</div>
 
 <p class="lead">VRD Next is open source &mdash;
 <a href="https://github.com/infidelus/vrd-next">github.com/infidelus/vrd-next</a>.</p>

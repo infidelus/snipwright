@@ -17,6 +17,8 @@ import os
 import json
 import shutil
 import subprocess
+
+from utils.proc import popen_progress, read_stderr
 import tempfile
 
 from PySide6.QtCore import QThread, Signal
@@ -478,8 +480,8 @@ class JoinerRenderWorker(QThread):
         """Run an ffmpeg command that emits -progress, moving the bar via the
         out_time it reports.  The final slot of the overall bar (90-99%) tracks
         the encode."""
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        # stderr to a temp file, never a pipe - see utils/proc.py.
+        proc, err_file = popen_progress(cmd)
         try:
             for line in proc.stdout:
                 if self._cancel:
@@ -495,10 +497,11 @@ class JoinerRenderWorker(QThread):
                         pass
         finally:
             proc.wait()
+        err_text = read_stderr(err_file)
         if self._cancel:
             raise _Cancelled()
         if proc.returncode != 0:
-            err = (proc.stderr.read() or "").strip().splitlines()[-6:]
+            err = (err_text or "").strip().splitlines()[-6:]
             raise RuntimeError(
                 "Re-encoding the joined video failed.\n\n" + "\n".join(err))
 
@@ -666,6 +669,9 @@ class JoinerRenderWorker(QThread):
             encoder_preset=getattr(p, "preset", "faster"),
             encoder_crf=(p.effective_crf()
                          if hasattr(p, "effective_crf") else None),
+            encoder_gop_seconds=(p.effective_gop_seconds()
+                                 if hasattr(p, "effective_gop_seconds")
+                                 else None),
         )
 
     def _finalize(self, joined_ts, durations):

@@ -11,9 +11,25 @@ import os
 
 from PySide6.QtCore import QObject, Signal
 
-from batch.job import BatchJob, QUEUED, RUNNING, DONE, NEEDS_REVIEW
+from batch.job import (
+    BatchJob, QUEUED, RUNNING, DONE, FAILED, CANCELLED, NEEDS_REVIEW,
+)
 from batch.runner import BatchRunner
 from addons.output_profiles import default_profile_name
+from utils.eta import EtaTracker
+
+
+def norm_path(path):
+    """A path in the one form every comparison here uses.
+
+    Absolute, normalised and case-folded where the platform is case-insensitive.
+    Kept as one shared function precisely because duplicate checks that each
+    rolled their own normalisation were how the same recording managed to get
+    queued twice.
+    """
+    if not path:
+        return ""
+    return os.path.normcase(os.path.normpath(os.path.abspath(path)))
 
 
 class BatchController(QObject):
@@ -36,6 +52,17 @@ class BatchController(QObject):
         self.config = config
         self.jobs = []
         self.runner = None
+        # The estimate lives here rather than on the dialog because a batch
+        # keeps running with the Batch Manager closed - if the tracker were
+        # rebuilt when the window reopened, it would time the remaining work
+        # from the moment you looked at it and promise something absurd.
+        self._eta = EtaTracker()
+        # Exports adopted from the editor: id(job) -> {"worker", "eta"}.  Keyed
+        # by identity because rows move as the queue is edited.
+        self._external = {}
+        # Adopted exports whose row should disappear once the worker confirms
+        # it has stopped, rather than the instant we ask it to.
+        self._remove_when_cancelled = set()
         self._load_queue()
 
     # ------------------------------------------------------------------ #
@@ -155,6 +182,28 @@ class BatchController(QObject):
     # Queue editing
     # ------------------------------------------------------------------ #
 
+    def queued_sources(self):
+        """The recordings every queued job refers to, normalised.
+
+        Read from the project files rather than taken from the jobs, because a
+        job only resolves its source when it runs.  Built once so a caller
+        checking a folderful of projects doesn't re-read the whole queue for
+        each one.
+        """
+        from project.vprj import read_source_filename
+
+        sources = set()
+        for job in self.jobs:
+            if not job.vprj_path:
+                continue
+            try:
+                embedded = read_source_filename(job.vprj_path)
+            except Exception:
+                continue
+            if embedded:
+                sources.add(norm_path(embedded))
+        return sources
+
     def jobs_for_source(self, source_path):
         """How many queued jobs already cut this recording.
 
@@ -169,10 +218,7 @@ class BatchController(QObject):
 
         from project.vprj import read_source_filename
 
-        def norm(p):
-            return os.path.normcase(os.path.normpath(os.path.abspath(p)))
-
-        target = norm(source_path)
+        target = norm_path(source_path)
         count = 0
 
         for job in self.jobs:
@@ -182,7 +228,7 @@ class BatchController(QObject):
                 embedded = read_source_filename(job.vprj_path)
             except Exception:
                 continue
-            if embedded and norm(embedded) == target:
+            if embedded and norm_path(embedded) == target:
                 count += 1
 
         return count
@@ -198,14 +244,11 @@ class BatchController(QObject):
         if not vprj_path:
             return 0
 
-        target = os.path.normcase(os.path.normpath(os.path.abspath(vprj_path)))
+        target = norm_path(vprj_path)
 
         return sum(
             1 for j in self.jobs
-            if j.vprj_path
-            and os.path.normcase(
-                os.path.normpath(os.path.abspath(j.vprj_path))
-            ) == target
+            if j.vprj_path and norm_path(j.vprj_path) == target
         )
 
     def add_job(self, vprj_path, profile_name=None):
@@ -220,6 +263,210 @@ class BatchController(QObject):
             self.save_queue()
             self.jobs_changed.emit()
 
+    def eta_seconds(self, row=None):
+        """Seconds remaining on a job, or None when there's no meaningful
+        estimate.  With no row, the job the batch runner is processing."""
+        if row is None:
+            return self._eta.remaining if self.runner is not None else None
+        if 0 <= row < len(self.jobs):
+            job = self.jobs[row]
+            tracker = self._external.get(id(job))
+            if tracker is not None:
+                return tracker["eta"].remaining
+            if self.runner is not None and row == self.running_row():
+                return self._eta.remaining
+        return None
+
+    # ------------------------------------------------------------------ #
+    # Adopting an export the editor already has in flight
+    # ------------------------------------------------------------------ #
+
+    def adopt_export(self, worker, vprj_path, profile_name, dest_path,
+                     percent=0, phase="", eta=None):
+        """Take over an export that is already running in the editor.
+
+        The worker keeps going untouched - nothing is cancelled and nothing
+        restarts - so no encoding time is lost and the file still lands where
+        the Save Video dialog said it would.  All this does is give the work a
+        row in the queue and re-point the worker's signals here, so the Batch
+        Manager can report it and the editor can let go.
+
+        `percent`, `phase` and `eta` carry across where the export had already
+        reached, so the row doesn't appear to restart from zero and the time
+        remaining stays continuous.
+
+        Returns the BatchJob standing in for the export.
+        """
+        job = BatchJob(vprj_path, profile_name or self.default_profile)
+        job.status = RUNNING
+        job.external = True
+        job.dest_path = dest_path
+        job.fixed_dest = dest_path
+        job.percent = int(percent) if isinstance(percent, (int, float)) \
+            and percent > 0 else 0
+        job.phase = phase or ""
+
+        self.jobs.append(job)
+        self._external[id(job)] = {
+            "worker": worker,
+            "eta": eta if eta is not None else EtaTracker(),
+        }
+        self.save_queue()
+        self.jobs_changed.emit()
+
+        # Bound to the job object rather than a row number: rows shift as other
+        # jobs are added or removed, and an index captured now would end up
+        # reporting against the wrong one.
+        worker.progress.connect(
+            lambda info, j=job: self._on_external_progress(j, info)
+        )
+        worker.finished_ok.connect(
+            lambda stats, j=job: self._on_external_done(j, stats)
+        )
+        worker.failed.connect(
+            lambda message, j=job: self._on_external_failed(j, message)
+        )
+        worker.cancelled.connect(
+            lambda j=job: self._on_external_cancelled(j)
+        )
+        return job
+
+    def has_external_running(self):
+        """True while an adopted export is still being written."""
+        return any(j.externally_running for j in self.jobs)
+
+    def external_sources(self):
+        """The files adopted exports are currently reading, so nothing else
+        overwrites one mid-export."""
+        out = set()
+        for job in self.jobs:
+            if not job.externally_running:
+                continue
+            entry = self._external.get(id(job))
+            worker = entry.get("worker") if entry else None
+            path = getattr(worker, "source_path", "")
+            if path:
+                out.add(norm_path(path))
+        return out
+
+    def cancel_export(self, row, remove_after=True):
+        """Stop one adopted export.
+
+        Encoders don't stop the moment they're asked, so this can't be
+        synchronous: the worker is told to cancel and the row is marked as
+        stopping.  When the worker confirms, the part-finished file is discarded
+        (the export's own cancel path does that) and the row is removed if that
+        was the point of asking.
+
+        Returns True if there was an export here to stop.
+        """
+        if not (0 <= row < len(self.jobs)):
+            return False
+        job = self.jobs[row]
+        if not job.externally_running or job.cancelling:
+            return False
+        entry = self._external.get(id(job))
+        worker = entry.get("worker") if entry else None
+        if worker is None:
+            return False
+
+        job.cancelling = True
+        if remove_after:
+            self._remove_when_cancelled.add(id(job))
+        try:
+            worker.cancel()
+        except Exception:
+            log.exception("Couldn't cancel adopted export %s", job.name)
+            job.cancelling = False
+            self._remove_when_cancelled.discard(id(job))
+            return False
+        self.jobs_changed.emit()
+        return True
+
+    def cancel_external(self, ms=10000):
+        """Stop every adopted export and wait for the workers to unwind.
+        Used when the application is closing, since the threads can't outlive
+        it and a half-written file is no use to anyone."""
+        self._remove_when_cancelled.clear()
+        workers = [entry.get("worker") for entry in self._external.values()]
+        for worker in workers:
+            if worker is None:
+                continue
+            try:
+                worker.cancel()
+            except Exception:
+                pass
+        for worker in workers:
+            if worker is None:
+                continue
+            try:
+                worker.wait(ms)
+            except Exception:
+                pass
+
+    def _row_of(self, job):
+        try:
+            return self.jobs.index(job)
+        except ValueError:
+            return -1
+
+    def _finish_external(self, job, status, message=""):
+        self._external.pop(id(job), None)
+        job.external = False
+        job.cancelling = False
+        job.status = status
+        job.message = message
+        if status == DONE:
+            job.percent = 100
+        self.save_queue()
+
+    def _on_external_progress(self, job, info):
+        entry = self._external.get(id(job))
+        if entry is not None:
+            entry["eta"].update(info)
+        percent = info.get("percent")
+        if isinstance(percent, (int, float)) and percent >= 0:
+            job.percent = int(percent)
+        job.phase = info.get("phase", job.phase)
+        row = self._row_of(job)
+        if row >= 0:
+            self.job_progress.emit(row, info)
+
+    def _on_external_done(self, job, stats):
+        self._finish_external(job, DONE)
+        row = self._row_of(job)
+        if row >= 0:
+            self.job_done.emit(row, stats if isinstance(stats, dict) else {})
+        self.jobs_changed.emit()
+
+    def _on_external_failed(self, job, message):
+        self._finish_external(job, FAILED, message)
+        row = self._row_of(job)
+        if row >= 0:
+            self.job_failed.emit(row, message)
+        self.jobs_changed.emit()
+
+    def _on_external_cancelled(self, job):
+        # Cancelled on the user's behalf via Remove: now the encoder has
+        # actually stopped and its part-finished file is gone, the row can go
+        # too.  Doing it here rather than when Remove was pressed means the row
+        # never vanishes while its encoder is still shutting down.
+        drop = id(job) in self._remove_when_cancelled
+        self._remove_when_cancelled.discard(id(job))
+
+        self._finish_external(job, CANCELLED)
+        row = self._row_of(job)
+
+        if drop and row >= 0:
+            del self.jobs[row]
+            self.save_queue()
+            self.jobs_changed.emit()
+            return
+
+        if row >= 0:
+            self.job_failed.emit(row, "")
+        self.jobs_changed.emit()
+
     def running_row(self):
         """The row currently being processed, or -1 if none.  Used to protect
         the active job from being removed while the queue runs."""
@@ -227,12 +474,25 @@ class BatchController(QObject):
             return -1
         return getattr(self.runner, "current_index", -1)
 
+    def protected_rows(self):
+        """Rows that must not be removed: the job the runner is processing, and
+        any export running under the editor's own worker.  Without the second,
+        an actively-encoding row could be deleted out from under its worker."""
+        rows = set()
+        active = self.running_row()
+        if active >= 0:
+            rows.add(active)
+        for i, job in enumerate(self.jobs):
+            if job.externally_running:
+                rows.add(i)
+        return rows
+
     def remove(self, rows):
         """Remove the given rows.  The job that's currently being processed is
         never removed - stop the batch first - but anything waiting can go, even
         while the queue is running."""
-        active = self.running_row()
-        rows = [r for r in rows if r != active]
+        protected = self.protected_rows()
+        rows = [r for r in rows if r not in protected]
         if not rows:
             return
         for r in sorted(rows, reverse=True):
@@ -304,7 +564,8 @@ class BatchController(QObject):
         # Jobs that Start would actually process: not already done, and not
         # held for review (those wait for the user to release them via Edit).
         return sum(
-            1 for j in self.jobs if j.status not in (DONE, NEEDS_REVIEW)
+            1 for j in self.jobs
+            if j.status not in (DONE, NEEDS_REVIEW) and not j.externally_running
         )
 
     def held_count(self):
@@ -322,11 +583,12 @@ class BatchController(QObject):
     def start(self):
         if self.runner is not None:
             return
+        self._eta.reset()
         self.runner = BatchRunner(
             self.jobs, self.out_folder, self.modifier, self.config, self
         )
-        self.runner.job_started.connect(self.job_started)
-        self.runner.job_progress.connect(self.job_progress)
+        self.runner.job_started.connect(self._on_job_started)
+        self.runner.job_progress.connect(self._on_job_progress)
         self.runner.job_done.connect(self._on_job_done)
         self.runner.job_failed.connect(self._on_job_failed)
         self.runner.job_held.connect(self._on_job_held)
@@ -343,20 +605,34 @@ class BatchController(QObject):
             self.runner.wait(ms)
 
     # Runner signal handlers - persist as we go, then re-emit for the dialog.
+    def _on_job_started(self, index):
+        # Each job is timed on its own: the one before it may have been a
+        # stream copy finishing in seconds while this one is a full re-encode.
+        self._eta.reset()
+        self.job_started.emit(index)
+
+    def _on_job_progress(self, index, info):
+        self._eta.update(info)
+        self.job_progress.emit(index, info)
+
     def _on_job_done(self, index, stats):
+        self._eta.reset()
         self.save_queue()
         self.job_done.emit(index, stats)
 
     def _on_job_failed(self, index, message):
+        self._eta.reset()
         self.save_queue()
         self.job_failed.emit(index, message)
 
     def _on_job_held(self, index, reason):
+        self._eta.reset()
         self.save_queue()
         self.job_held.emit(index, reason)
 
     def _on_batch_finished(self, completed, failed, held, cancelled):
         self.runner = None
+        self._eta.reset()
         self.save_queue()
         self.running_changed.emit(False)
         self.batch_finished.emit(completed, failed, held, cancelled)

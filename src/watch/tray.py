@@ -9,8 +9,8 @@ If the desktop has no usable system tray, it degrades to a normal control
 window instead of failing.
 """
 
+import datetime
 import logging
-import os
 import os
 import subprocess
 import sys
@@ -24,10 +24,16 @@ from PySide6.QtWidgets import (
     QApplication, QSystemTrayIcon, QMenu, QDialog, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLabel, QPushButton, QListWidget, QLineEdit, QSpinBox,
     QCheckBox, QFileDialog, QMessageBox, QGroupBox, QPlainTextEdit,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
 
-from watch.config import WatchConfig, PROCESSED_FILE, IGNORE_FILE
-from watch.engine import scan_once, ProcessedLog, load_ignore_patterns
+from watch.config import (
+    WatchConfig, PROCESSED_FILE, IGNORE_FILE, IGNORE_SEEN_FILE,
+)
+from watch.engine import (
+    scan_once, ProcessedLog, load_ignore_patterns, IgnoreSeenLog,
+    prune_ignore_list, months_between,
+)
 from watch import autostart
 
 log = logging.getLogger("vrd-next.watch.tray")
@@ -85,6 +91,7 @@ class WatchScanWorker(QThread):
     def run(self):
         processed = ProcessedLog(PROCESSED_FILE)
         ignore_patterns = load_ignore_patterns(IGNORE_FILE)
+        ignore_seen = IgnoreSeenLog(IGNORE_SEEN_FILE)
 
         def on_event(kind, r):
             self.event.emit(kind, {
@@ -102,22 +109,217 @@ class WatchScanWorker(QThread):
                 cancel_cb=lambda: self._cancel,
                 pause_cb=lambda: self._pause,
                 ignore_patterns=ignore_patterns,
+                ignore_seen=ignore_seen,
+            )
+            summary["pruned"] = self._auto_prune(
+                processed, ignore_patterns, ignore_seen, summary
             )
         except Exception as exc:        # never let the worker die silently
             log.exception("watch scan crashed")
             summary = {"error": str(exc)}
         self.finished_scan.emit(summary)
 
+    def _auto_prune(self, processed, ignore_patterns, ignore_seen, summary):
+        """Drop stale ignore entries once a scan has finished.
+
+        Only after a *complete* pass: a scan that was cancelled or paused may
+        not have reached the folders holding a programme's recordings, so an
+        entry could look stale purely because we stopped early.  Returns the
+        titles removed, for the status message.
+        """
+        if not self._cfg.ignore_prune_enabled:
+            return []
+        if self._cancel or self._pause or summary.get("paused"):
+            return []
+
+        stale = ignore_seen.stale(
+            ignore_patterns, self._cfg.ignore_prune_months
+        )
+        if not stale:
+            return []
+
+        titles = [row[0] for row in stale]
+        removed, _marked = prune_ignore_list(
+            IGNORE_FILE, ignore_seen, titles,
+            processed=processed, cfg=self._cfg,
+        )
+        return titles if removed else []
+
+
+class IgnorePruneDialog(QDialog):
+    """Review the ignore list by age and remove the entries that have gone
+    stale.
+
+    Deliberately a review rather than a silent sweep: the list is somebody's
+    settings, and seeing when each title was last seen is half the value - it
+    shows at a glance which programmes have quietly stopped airing.
+    """
+
+    def __init__(self, cfg, parent=None):
+        super().__init__(parent)
+        self.cfg = cfg
+        self.setWindowTitle(self.tr("Prune ignore list"))
+        self.setModal(True)
+        self.resize(560, 420)
+
+        self._patterns = load_ignore_patterns(IGNORE_FILE)
+        self._seen = IgnoreSeenLog(IGNORE_SEEN_FILE)
+        self._seen.sync(self._patterns)
+        self._seen.save()
+        self._removed_any = False
+
+        layout = QVBoxLayout(self)
+        info = QLabel(
+            self.tr("\"Last seen\" is the date of the most recent recording that "
+            "matched each title. Entries older than the chosen period are "
+            "ticked ready to remove — untick anything you want to keep.")
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels([
+            self.tr("Programme"), self.tr("Last seen"), self.tr("Months"),
+        ])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        layout.addWidget(self.table, 1)
+
+        self.count_label = QLabel()
+        self.count_label.setWordWrap(True)
+        layout.addWidget(self.count_label)
+
+        row = QHBoxLayout()
+        tick_all = QPushButton(self.tr("Tick all"))
+        tick_all.clicked.connect(lambda: self._set_all(True))
+        row.addWidget(tick_all)
+        tick_none = QPushButton(self.tr("Tick none"))
+        tick_none.clicked.connect(lambda: self._set_all(False))
+        row.addWidget(tick_none)
+        row.addStretch(1)
+        close = QPushButton(self.tr("Close"))
+        close.clicked.connect(self.reject)
+        row.addWidget(close)
+        self.remove_btn = QPushButton(self.tr("Remove ticked"))
+        self.remove_btn.setDefault(True)
+        self.remove_btn.clicked.connect(self._remove)
+        row.addWidget(self.remove_btn)
+        layout.addLayout(row)
+
+        self._populate()
+
+    # --- helpers ---------------------------------------------------------- #
+
+    @property
+    def removed_any(self):
+        """Whether anything was actually removed, so the caller can reload."""
+        return self._removed_any
+
+    def _populate(self):
+        today = datetime.date.today()
+        stale = {row[0] for row in
+                 self._seen.stale(self._patterns, self.cfg.ignore_prune_months,
+                                  today)}
+        rows = self._seen.aged(self._patterns, today)
+
+        self.table.setRowCount(len(rows))
+        for r, (pattern, seen, _days) in enumerate(rows):
+            name = QTableWidgetItem(pattern)
+            name.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            name.setCheckState(
+                Qt.Checked if pattern in stale else Qt.Unchecked
+            )
+            self.table.setItem(r, 0, name)
+
+            when = QTableWidgetItem(seen.isoformat())
+            self.table.setItem(r, 1, when)
+
+            months = QTableWidgetItem(str(months_between(seen, today)))
+            months.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.table.setItem(r, 2, months)
+
+        if not rows:
+            self.count_label.setText(self.tr("The ignore list is empty."))
+        else:
+            self.count_label.setText(
+                self.tr("%d entries, %d not seen for %d months or more.")
+                % (len(rows), len(stale), self.cfg.ignore_prune_months)
+            )
+        self.remove_btn.setEnabled(bool(rows))
+
+    def _set_all(self, checked):
+        state = Qt.Checked if checked else Qt.Unchecked
+        for r in range(self.table.rowCount()):
+            item = self.table.item(r, 0)
+            if item is not None:
+                item.setCheckState(state)
+
+    def _ticked(self):
+        out = []
+        for r in range(self.table.rowCount()):
+            item = self.table.item(r, 0)
+            if item is not None and item.checkState() == Qt.Checked:
+                out.append(item.text())
+        return out
+
+    def _remove(self):
+        ticked = self._ticked()
+        if not ticked:
+            QMessageBox.information(
+                self, self.tr("Prune ignore list"),
+                self.tr("Nothing is ticked, so there's nothing to remove."),
+            )
+            return
+
+        listed = "\n".join("\u2022 %s" % p for p in ticked[:10])
+        if len(ticked) > 10:
+            listed += "\n" + self.tr("…and %d more") % (len(ticked) - 10)
+        answer = QMessageBox.question(
+            self, self.tr("Prune ignore list"),
+            self.tr("Remove %d entry/entries from the ignore list?\n\n%s\n\n"
+                    "Recordings already in your watched folders that matched "
+                    "these titles are marked as done, so removing them here "
+                    "won't send a back-catalogue through Comskip. New "
+                    "recordings will be picked up as normal.")
+            % (len(ticked), listed),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        processed = ProcessedLog(PROCESSED_FILE)
+        removed, marked = prune_ignore_list(
+            IGNORE_FILE, self._seen, ticked,
+            processed=processed, cfg=self.cfg,
+        )
+        if removed:
+            self._removed_any = True
+        self._patterns = load_ignore_patterns(IGNORE_FILE)
+        self._populate()
+        QMessageBox.information(
+            self, self.tr("Prune ignore list"),
+            self.tr("Removed %d entry/entries. %d existing recording(s) were "
+                    "marked as already done.") % (removed, marked),
+        )
+
 
 class IgnoreListDialog(QDialog):
     """A plain text editor for the ignore list - one programme title per line.
     Recordings whose file name contains any line are skipped by the watcher."""
 
-    def __init__(self, parent=None):
+    def __init__(self, cfg, tray=None, parent=None):
         super().__init__(parent)
+        self.cfg = cfg
+        self.tray = tray
         self.setWindowTitle(self.tr("Edit ignore list"))
         self.setModal(True)
-        self.setMinimumSize(480, 460)
+        self.setMinimumSize(480, 560)
 
         layout = QVBoxLayout(self)
         info = QLabel(
@@ -131,6 +333,39 @@ class IgnoreListDialog(QDialog):
         self._editor = QPlainTextEdit()
         self._editor.setLineWrapMode(QPlainTextEdit.NoWrap)
         layout.addWidget(self._editor, 1)
+
+        # --- housekeeping: age entries out once a programme stops airing ---
+        house = QGroupBox(self.tr("Housekeeping"))
+        hv = QVBoxLayout(house)
+        self.prune_chk = QCheckBox(
+            self.tr("Remove entries that haven't been seen for:")
+        )
+        self.prune_chk.setToolTip(
+            self.tr("After each complete scan, drop titles that no new recording "
+            "has matched for this long — handy when a list built up over "
+            "years is full of programmes that finished.")
+        )
+        self.prune_chk.toggled.connect(self._refresh_prune_enabled)
+        hv.addWidget(self.prune_chk)
+
+        prow = QHBoxLayout()
+        self.prune_spin = QSpinBox()
+        self.prune_spin.setRange(1, 120)
+        self.prune_spin.setSuffix(self.tr(" months"))
+        self.prune_spin.setToolTip(
+            self.tr("Most series return within a year, so 12 months is a safe "
+            "starting point.")
+        )
+        prow.addWidget(self.prune_spin)
+        prow.addStretch(1)
+        review_btn = QPushButton(self.tr("Review and prune now…"))
+        review_btn.setToolTip(
+            self.tr("See when each title was last seen, and choose which to remove.")
+        )
+        review_btn.clicked.connect(self._review)
+        prow.addWidget(review_btn)
+        hv.addLayout(prow)
+        layout.addWidget(house)
 
         row = QHBoxLayout()
         row.addStretch(1)
@@ -151,17 +386,52 @@ class IgnoreListDialog(QDialog):
                 self._editor.setPlainText(f.read())
         except OSError:
             self._editor.setPlainText("")
+        self.prune_chk.setChecked(self.cfg.ignore_prune_enabled)
+        self.prune_spin.setValue(self.cfg.ignore_prune_months)
+        self._refresh_prune_enabled()
 
-    def _save(self):
-        text = self._editor.toPlainText()
+    def _refresh_prune_enabled(self):
+        self.prune_spin.setEnabled(self.prune_chk.isChecked())
+
+    def _write_list(self):
+        """Write the editor's contents to the ignore file.  Returns False (and
+        complains) if it couldn't be written."""
         try:
             os.makedirs(os.path.dirname(IGNORE_FILE), exist_ok=True)
             with open(IGNORE_FILE, "w", encoding="utf-8") as f:
-                f.write(text)
+                f.write(self._editor.toPlainText())
         except OSError as exc:
             QMessageBox.warning(self, self.tr("Ignore list"),
                                 self.tr("Couldn't save the ignore list:\n\n%s") % exc)
+            return False
+        return True
+
+    def _review(self):
+        # A scan owns the processed list while it runs; pruning writes to it
+        # too, so don't let the two overlap.
+        if self.tray is not None and getattr(self.tray, "worker", None):
+            QMessageBox.information(
+                self, self.tr("Prune ignore list"),
+                self.tr("A scan is running. Wait for it to finish, then try again."),
+            )
             return
+
+        # Save any edits first, so the review reflects what's on screen.
+        if not self._write_list():
+            return
+        self.cfg.ignore_prune_months = self.prune_spin.value()
+
+        dialog = IgnorePruneDialog(self.cfg, self)
+        dialog.exec()
+        if dialog.removed_any:
+            self._load()
+
+    def _save(self):
+        if not self._write_list():
+            return
+        self.cfg.ignore_prune_enabled = self.prune_chk.isChecked()
+        self.cfg.ignore_prune_months = self.prune_spin.value()
+        self.cfg.save()
         self.accept()
 
 
@@ -418,6 +688,7 @@ class WatcherTray:
         self.cfg.paused = False
         self.worker = None
         self.dialog = None
+        self.ignore_dialog = None
 
         self.no_tray = not QSystemTrayIcon.isSystemTrayAvailable()
 
@@ -572,8 +843,23 @@ class WatcherTray:
             self._notify(self.tr("Launch VRD Next"), self.tr("Couldn't launch the editor:\n%s") % exc)
 
     def open_ignore_editor(self):
+        # The tray's context menu is a popup owned by the tray rather than an
+        # application window, so the dialog's modality doesn't stop the menu
+        # item being chosen again while it's open.  Without this guard every
+        # click stacked up another copy of the editor, each with its own nested
+        # event loop, and whichever one was saved last quietly won.
+        if self.ignore_dialog is not None:
+            self.ignore_dialog.show()
+            self.ignore_dialog.raise_()
+            self.ignore_dialog.activateWindow()
+            return
+
         parent = self.dialog if self.dialog is not None else None
-        IgnoreListDialog(parent).exec()
+        self.ignore_dialog = IgnoreListDialog(self.cfg, self, parent)
+        try:
+            self.ignore_dialog.exec()
+        finally:
+            self.ignore_dialog = None
 
     def open_settings(self):
         if self.dialog is None:
@@ -627,8 +913,15 @@ class WatcherTray:
         msg = self.tr(
             "Last scan: %s new recording(s), %s with commercials."
         ) % (scanned, projects)
+        pruned = summary.get("pruned") or []
+        if pruned:
+            # Worth saying out loud - the watcher has just edited a list the
+            # user maintains by hand.
+            msg += " " + self.tr(
+                "Removed %d stale ignore entry/entries: %s."
+            ) % (len(pruned), ", ".join(sorted(pruned)))
         self._set_status(msg)
-        if projects:
+        if projects or pruned:
             self._notify(self.tr("VRD Next Watcher"), msg)
 
     # --- helpers ---------------------------------------------------------- #

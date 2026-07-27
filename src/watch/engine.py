@@ -11,7 +11,10 @@ recording - the produced project is a starting point the user reviews and
 confirms in the editor (via the Batch Manager) before anything is cut.
 """
 
+import calendar
+import datetime
 import fnmatch
+import json
 import logging
 import os
 import shutil
@@ -106,11 +109,254 @@ def load_ignore_patterns(path):
     return patterns
 
 
+def matching_ignore_patterns(filename, patterns):
+    """The ignore patterns this recording's file name contains
+    (case-insensitive substring match).  A name can match more than one."""
+    name = os.path.basename(filename).lower()
+    return [p for p in patterns if p.strip() and p.lower() in name]
+
+
 def matches_ignore(filename, patterns):
     """True if the recording's file name contains any ignore pattern
     (case-insensitive substring match)."""
-    name = os.path.basename(filename).lower()
-    return any(p.lower() in name for p in patterns if p.strip())
+    return bool(matching_ignore_patterns(filename, patterns))
+
+
+def rewrite_ignore_file(path, drop):
+    """Remove the given entries from the ignore file, leaving everything else -
+    comments, blank lines, ordering - exactly as it was.
+
+    Matching is case-insensitive and ignores surrounding whitespace, so an
+    entry removed here is the same entry the matcher would have used.  Returns
+    the number of lines dropped.
+    """
+    wanted = {p.strip().lower() for p in drop if p and p.strip()}
+    if not wanted:
+        return 0
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError:
+        return 0
+
+    kept = []
+    removed = 0
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") \
+                and stripped.lower() in wanted:
+            removed += 1
+            continue
+        kept.append(line)
+
+    if not removed:
+        return 0
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(kept)
+    except OSError:
+        return 0
+    return removed
+
+
+# --------------------------------------------------------------------------- #
+# Ignore-list ageing
+# --------------------------------------------------------------------------- #
+
+def recording_date(path, today=None):
+    """The date a recording was made, taken from its modification time.
+
+    Clamped so a file with a clock-skewed future timestamp can't push an ignore
+    entry's last-seen date beyond today.  Returns None if unreadable.
+    """
+    try:
+        stamp = datetime.date.fromtimestamp(os.path.getmtime(path))
+    except (OSError, OverflowError, ValueError):
+        return None
+    today = today or datetime.date.today()
+    return min(stamp, today)
+
+
+def months_before(when, months):
+    """The date `months` calendar months before `when`.
+
+    Calendar arithmetic rather than an approximate number of days, so "12
+    months" means the same date last year regardless of month lengths.
+    """
+    months = max(0, int(months))
+    year = when.year
+    month = when.month - months
+    while month <= 0:
+        month += 12
+        year -= 1
+    day = min(when.day, calendar.monthrange(year, month)[1])
+    return datetime.date(year, month, day)
+
+
+def months_between(earlier, later):
+    """Whole calendar months from `earlier` to `later` (never negative)."""
+    months = (later.year - earlier.year) * 12 + (later.month - earlier.month)
+    if later.day < earlier.day:
+        months -= 1
+    return max(0, months)
+
+
+class IgnoreSeenLog:
+    """Remembers when each ignore entry last matched a *new* recording.
+
+    The date stored is the recording's own timestamp, not the date of the scan
+    that noticed it.  That distinction is the whole trick: recordings a
+    housemate leaves sitting in the folder are re-matched on every scan, so
+    stamping "now" would keep every entry looking permanently fresh and nothing
+    would ever age out.  A recording's own date only moves forward when a
+    genuinely new episode appears, which is exactly what "still being watched"
+    means.
+
+    An entry seen for the first time is stamped with today, so a title added
+    this morning doesn't look a decade stale because the only matching
+    recordings are old ones.
+    """
+
+    def __init__(self, path):
+        self.path = str(path)
+        self._seen = {}
+        self.load()
+
+    # --- persistence ------------------------------------------------------ #
+
+    def load(self):
+        self._seen = {}
+        try:
+            with open(self.path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return
+        if not isinstance(data, dict):
+            return
+        for pattern, text in data.items():
+            parsed = self._parse(text)
+            if parsed is not None:
+                self._seen[pattern] = parsed
+
+    def save(self):
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            payload = {p: d.isoformat() for p, d in sorted(self._seen.items())}
+            with open(self.path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+        except OSError:
+            pass
+
+    @staticmethod
+    def _parse(text):
+        try:
+            return datetime.date.fromisoformat(str(text))
+        except (TypeError, ValueError):
+            return None
+
+    # --- queries ---------------------------------------------------------- #
+
+    def last_seen(self, pattern):
+        return self._seen.get(pattern)
+
+    def __len__(self):
+        return len(self._seen)
+
+    # --- updates ---------------------------------------------------------- #
+
+    def sync(self, patterns, today=None):
+        """Stamp entries we haven't met before with today, and forget entries
+        for titles that are no longer on the list.  Returns True if anything
+        changed, so the caller can skip a pointless write."""
+        today = today or datetime.date.today()
+        current = {p for p in patterns if p and p.strip()}
+        changed = False
+        for pattern in current:
+            if pattern not in self._seen:
+                self._seen[pattern] = today
+                changed = True
+        for gone in [p for p in self._seen if p not in current]:
+            del self._seen[gone]
+            changed = True
+        return changed
+
+    def note(self, pattern, when):
+        """Record that `pattern` matched a recording dated `when`, keeping the
+        most recent date seen.  Older recordings never drag the date back."""
+        if when is None or not pattern:
+            return False
+        existing = self._seen.get(pattern)
+        if existing is None or when > existing:
+            self._seen[pattern] = when
+            return True
+        return False
+
+    def forget(self, patterns):
+        for pattern in patterns:
+            self._seen.pop(pattern, None)
+
+    # --- staleness -------------------------------------------------------- #
+
+    def aged(self, patterns, today=None):
+        """[(pattern, last_seen_date, age_in_days), …] for every entry, oldest
+        first.  Entries with no record yet are reported as last seen today."""
+        today = today or datetime.date.today()
+        rows = []
+        for pattern in patterns:
+            if not pattern or not pattern.strip():
+                continue
+            seen = self._seen.get(pattern, today)
+            rows.append((pattern, seen, (today - seen).days))
+        rows.sort(key=lambda row: (row[1], row[0].lower()))
+        return rows
+
+    def stale(self, patterns, months, today=None):
+        """The entries not seen for at least `months` calendar months."""
+        today = today or datetime.date.today()
+        cutoff = months_before(today, months)
+        return [row for row in self.aged(patterns, today) if row[1] < cutoff]
+
+
+def prune_ignore_list(ignore_path, seen, patterns, processed=None,
+                      cfg=None):
+    """Remove `patterns` from the ignore file and forget their seen-dates.
+
+    When a `processed` log and `cfg` are supplied, any recording still sitting
+    in the watched folders that matched one of the removed titles is marked as
+    already processed first.  Without that, dropping a title would hand the
+    watcher a back-catalogue of old episodes it had been deliberately skipping
+    and it would dutifully Comskip the lot - which is not what anyone means by
+    tidying up a list.  Genuinely new episodes are unaffected: they aren't on
+    the processed log, so they're picked up as normal.
+
+    Returns (lines_removed, recordings_marked).
+    """
+    patterns = [p for p in patterns if p and p.strip()]
+    if not patterns:
+        return 0, 0
+
+    marked = 0
+    if processed is not None and cfg is not None:
+        for source in iter_recordings(cfg.input_roots, cfg.pattern):
+            if processed.contains(source):
+                continue
+            if matching_ignore_patterns(source, patterns):
+                processed.add(source)
+                marked += 1
+        if marked:
+            processed.save()
+
+    removed = rewrite_ignore_file(ignore_path, patterns)
+    seen.forget(patterns)
+    seen.save()
+    if removed:
+        log.info(
+            "Pruned %d ignore entry/entries (%s); %d existing recording(s) "
+            "marked as already processed so they aren't picked up now.",
+            removed, ", ".join(sorted(patterns)), marked,
+        )
+    return removed, marked
 
 
 # --------------------------------------------------------------------------- #
@@ -216,7 +462,8 @@ def process_recording(source, comskip_binary, comskip_ini, output_dir,
 
 def scan_once(cfg, processed, comskip_binary=None, comskip_ini=None,
               on_event=None, cancel_cb=None, pause_cb=None,
-              ignore_patterns=None, _process=process_recording):
+              ignore_patterns=None, ignore_seen=None,
+              _process=process_recording):
     """Scan all configured roots once.
 
     on_event(kind, result) is called as work proceeds, with kind one of:
@@ -249,6 +496,12 @@ def scan_once(cfg, processed, comskip_binary=None, comskip_ini=None,
     summary = {"scanned": 0, "projects": 0, "no_ads": 0,
                "skipped": 0, "errors": 0, "ignored": 0, "paused": False}
 
+    # Give any newly-added ignore entries a starting date, and forget the ones
+    # that have since been deleted by hand.
+    seen_dirty = False
+    if ignore_seen is not None:
+        seen_dirty = ignore_seen.sync(ignore_patterns)
+
     log.info(
         "Scan starting: roots=%s, pattern=%s, settle=%ds, %d already on the "
         "processed list.",
@@ -271,8 +524,17 @@ def scan_once(cfg, processed, comskip_binary=None, comskip_ini=None,
         # Skip recordings on the ignore list (housemates' programmes, etc.).
         # Deliberately NOT marked processed, so removing a title from the list
         # later lets it be picked up.
-        if matches_ignore(source, ignore_patterns):
+        matched = matching_ignore_patterns(source, ignore_patterns)
+        if matched:
             summary["ignored"] += 1
+            # Note the recording's own date against each entry it matched, so
+            # entries for programmes still being recorded stay fresh and ones
+            # for programmes that stopped can age out.
+            if ignore_seen is not None:
+                when = recording_date(source)
+                for pattern in matched:
+                    if ignore_seen.note(pattern, when):
+                        seen_dirty = True
             log.info("Ignored (matches ignore list): %s", name)
             continue
         if processed.contains(source):
@@ -341,6 +603,8 @@ def scan_once(cfg, processed, comskip_binary=None, comskip_ini=None,
     # Forget recordings that have since been deleted.
     processed.prune_missing()
     processed.save()
+    if ignore_seen is not None and seen_dirty:
+        ignore_seen.save()
     log.info(
         "Scan finished: %d new, %d with commercials, %d advert-free, "
         "%d still recording, %d ignored, %d error(s).",

@@ -42,6 +42,9 @@ from addons.output_profiles import (
     load_profiles,
     save_profiles,
     CRF_AUTO,
+    GOP_AUTO,
+    GOP_MIN,
+    GOP_MAX,
     CRF_MAX,
     DEFAULT_PRESET,
 )
@@ -352,6 +355,19 @@ class ProfileEditDialog(QDialog):
         self.crf_spin.setSpecialValueText(self.tr("Automatic"))
         self.crf_spin.setValue(getattr(profile, "crf", CRF_AUTO))
 
+        self.gop_spin = row(self.tr("Keyframes every:"), QSpinBox())
+        self.gop_spin.setRange(GOP_AUTO, GOP_MAX)  # 0 shows as "Automatic"
+        self.gop_spin.setSpecialValueText(self.tr("Automatic"))
+        self.gop_spin.setSuffix(self.tr(" seconds"))
+        self.gop_spin.setValue(getattr(profile, "gop_seconds", GOP_AUTO))
+        self.gop_spin.setToolTip(self.tr(
+            "How far apart keyframes are placed - VideoReDo called this Max GOP "
+            "length. Wider spacing makes a smaller file at the same quality; "
+            "closer spacing makes seeking finer and re-cutting the result "
+            "quicker. Automatic uses 5 seconds for HEVC and 1 second when "
+            "cropping."
+        ))
+
         self.audio_combo = row(self.tr("Audio:"), _combo(_AUDIO))
         _select_data(self.audio_combo, profile.audio)
         self.audio_combo.currentIndexChanged.connect(self._on_audio_changed)
@@ -491,6 +507,7 @@ class ProfileEditDialog(QDialog):
         )
         self.preset_combo.setEnabled(reencodes)
         self.crf_spin.setEnabled(reencodes)
+        self.gop_spin.setEnabled(reencodes)
 
     def _on_crop_changed(self):
         self._sync_encoder_rows()
@@ -576,6 +593,7 @@ class ProfileEditDialog(QDialog):
             video=self.video_combo.currentData(),
             preset=self.preset_combo.currentData(),
             crf=self.crf_spin.value(),
+            gop_seconds=self.gop_spin.value(),
             crop_mode=self.crop_combo.currentData(),
             crop=(
                 self.crop_spins["top"].value(),

@@ -25,7 +25,9 @@ distilling the part many people relied on most into a free, open-source tool.
 - **Automatic commercial detection** via Comskip, with the breaks turned into
   ready-to-review cuts.
 - **A background Watcher** that scans your recording folders and prepares
-  projects automatically, so they're waiting for you in the Batch Manager.
+  projects automatically, so they're waiting for you in the Batch Manager. An
+  ignore list keeps other people's programmes out of it, and can tidy itself up
+  as series come to an end.
 - **TV and Film renamers** that look titles up on TMDB and produce tidy,
   media-server-friendly names.
 - **Project import/export** — reads and writes `.vprj` (V3/V5) and EDL files —

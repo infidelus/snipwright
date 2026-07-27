@@ -5,6 +5,150 @@ All notable changes to VRD Next are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.10.0] - 2026-07-27
+
+### Added
+
+- **Send a running export to the Batch Manager.** A long re-encode used to hold
+  the editor hostage until it finished. The export window now has a **Send to
+  Batch** button that hands the job over and gives you the editor back.
+
+  Nothing restarts and no encoding time is lost: the export carries on from
+  exactly where it had reached, still writing to the destination you chose under
+  the name you gave it. All that changes is that it reports its progress as a row
+  in the Batch Manager, shown as *Exporting… 47%*. The batch runner steps over it,
+  so pressing **Start** processes the other queued jobs and leaves that one to
+  finish on its own. Changed your mind? Select the row and press **Remove** — that
+  offers to stop the export and discard the part-finished file. Quitting VRD Next
+  while one is still running warns you first, and if the application is closed or
+  crashes the job returns to the queue as an ordinary entry, still bound to the
+  destination you originally picked.
+
+- **Keyframe spacing is now a profile setting.** VRD Next hard-coded a keyframe
+  every second in every re-encode, which is broadcast practice — it suits a
+  stream you might need to join at any moment, and is wasteful for a file you are
+  going to watch. Keyframes are several times the size of the frames between them
+  and they reset the encoder's prediction chain, so an HEVC export was larger than
+  it needed to be for the same quality. **Keyframes every** in the profile editor
+  now controls this, with **Automatic** using five seconds for HEVC and keeping
+  one second for the H.264 crop path. (VideoReDo called this Max GOP length.)
+
+  This changes the output of existing HEVC profiles: they'll produce smaller files
+  at the same CRF. On a measured hour-long 1080p recording the same export dropped
+  from 1.42 GiB to 1.29 GiB — about 9% — with everything else identical. Quality
+  is unchanged, since only the keyframe spacing differs, and anyone who wants the
+  old behaviour back can set it to one second explicitly.
+
+- **Ignore-list housekeeping.** The Watcher's ignore list can now tidy itself up.
+  Each entry records when a new recording last matched it, and under
+  **Housekeeping** in the ignore list editor you can have entries dropped once
+  nothing has matched for a chosen number of months (twelve by default, which
+  suits series that return annually). It's off by default. **Review and prune
+  now** lists every title with the date it was last seen, oldest first, with the
+  stale ones ticked ready to remove so you can untick anything worth keeping.
+
+  "Last seen" is the date of the matching *recording*, not of the scan that
+  noticed it, so old episodes left sitting in a folder don't keep an entry looking
+  permanently fresh. Pruning an entry marks any recordings still in the watched
+  folders that matched it as already done, so tidying the list never sends a
+  back-catalogue through Comskip; genuinely new recordings are picked up as
+  normal.
+
+- **Mouse-wheel scrubbing.** Over the picture, the thumbnail strip or the
+  navigation bar, a notch of the wheel moves one frame; hold `Ctrl` and each notch
+  moves by the short skip distance instead. Scrolling up moves forward through the
+  recording, scrolling down moves back. Trackpads and high-resolution wheels are
+  accumulated to whole notches, so they scrub steadily rather than flying off down
+  the timeline. The wheel keeps its existing job wherever it had one — scrolling
+  the scene list, adjusting the volume.
+
+- **Estimated time remaining in the Batch Manager.** The progress bar now reads
+  something like `Encoding — 76% — 4m 12s left`. The clock starts at the first
+  measurable progress rather than when the job starts, since indexing happens
+  before anything can be counted, and a re-encode is timed separately from the
+  much faster stream copy that preceded it. Nothing is shown while a phase has no
+  measurable progress, rather than freezing a stale figure that ticks down to a
+  lie. Closing and reopening the Batch Manager mid-batch doesn't restart the
+  clock.
+
+- **A "Coming from VideoReDo" section in the user guide**, mapping the old names
+  onto the new ones — Intelligent Recode, Force Recode, Max GOP length, Quality
+  Factor Adjustment and the rest. Several features were already there under
+  different names, which isn't obvious to anyone searching for the vocabulary they
+  know. It's also honest about what has no equivalent.
+
+- **The German user guide is complete again.** Four subsections had never been
+  translated — both editing-mode walkthroughs, the navigation-bar colour key and
+  the whole Joiner section — and two headings were still in English, so a German
+  reader had no documentation of Cut Mode at all. Both guides now carry the same
+  28 sections in the same order. The German guide also named buttons that don't
+  exist in the German interface (looking for "In-Punkt setzen" when the button
+  reads "Anfang markieren", among others); every UI term it mentions is now taken
+  from the actual translations. The interface itself has been fully translated
+  throughout.
+
+### Fixed
+
+- **Quick Stream Fix could hang forever.** ffmpeg's warnings were read from a pipe
+  that was only drained *after* the process finished. A pipe holds about 64 KiB;
+  once full, ffmpeg blocked writing the next warning, which stopped it writing
+  progress, which left VRD Next waiting for a line that could never arrive.
+  Remuxing an MPEG program stream produced 3.7 MB of warnings — sixty times the
+  buffer — on a thirty-second clip, and damaged broadcast recordings are just as
+  capable of it, which is unfortunate for the tool that exists to repair them.
+  Warnings now go to a temporary file that can't block. The same pattern was
+  present in the exporter, the joiner's re-encode and the crop runner, and has
+  been fixed in all of them.
+
+- **A failed re-encode no longer passes for a finished export.** When a profile
+  asks for HEVC, the recording is cut first and the re-encode runs afterwards as a
+  finishing pass. If that pass failed, the exporter kept the cut file — which is
+  in the *source* codec — logged a warning, and then reported "Export complete".
+  The result was a file with exactly the name the finished article was going to
+  have, in the wrong format, presented as a success. It now says so in the export
+  summary, and in a batch the job is held for review with its output removed
+  rather than marked Done.
+
+- **Cancelling during the finishing re-encode now removes the output.** A killed
+  encoder exits non-zero and looked identical to a failure, so cancelling an HEVC
+  export part-way left the source-codec cut behind under the final name — and the
+  log claimed the partial output had been cleaned up when nothing had been
+  deleted.
+
+- **"Add from Watch Folder" no longer queues a recording twice.** It compared
+  project file paths only, so a recording already queued via Queue to Batch —
+  which arrives as a timestamped staging file — was added again from the watcher's
+  own copy of the same project. It now compares the recording each project points
+  at, skips anything already queued, and reports how many it skipped.
+
+- **`.mpg`, `.mpeg` and `.vob` files can now be selected in Open Video.** They
+  always opened perfectly well once loaded — the extensions were simply missing
+  from the dialog's filter, so the files weren't shown unless you switched to All
+  files. The save dialog and drag-and-drop had always accepted them.
+
+- **The Watcher's ignore list editor could be opened several times over.** The
+  tray's context menu is a popup owned by the tray rather than an application
+  window, so the dialog's modality didn't stop the menu item being chosen again
+  while it was already open, and each click stacked up another copy — whichever
+  was saved last quietly won. Choosing it again now brings the open editor to the
+  front.
+
+- The Batch Manager's progress bar dropped back to zero during phases with nothing
+  to count (the audio graft, the mux, the finalise pass), which looked as though
+  the job had restarted. It now pulses as an indeterminate bar, the way the export
+  dialog already did.
+
+- The Batch Manager showed the same output filename for two jobs cut from the same
+  recording. The runner has always added a ' (2)' so nothing was ever overwritten,
+  but the preview didn't show it and implied a clash.
+
+- Four German dialogue messages showed a literal `\n` instead of a line break.
+
+### Changed
+
+- The user guide now documents the Watcher's ignore list, which it had never
+  covered, in both English and German.
+
 ## [1.9.0] - 2026-07-24
 
 The big feature is **Cut Mode** - VideoReDo's default way of working, where you

@@ -18,6 +18,8 @@ import os
 import re
 import subprocess
 
+from utils.proc import run_cancellable
+
 _CROP_RE = re.compile(r"crop=(\d+):(\d+):(\d+):(\d+)")
 _DEFAULT_KBPS = 8000          # fallback target when the source bitrate is unknown
 _DEFAULT_FPS = 25.0
@@ -27,30 +29,11 @@ def _run(cmd, cancel_cb=None):
     """Run ffmpeg/ffprobe, returning the CompletedProcess.
 
     stderr is captured (ffmpeg's filters and progress go there).  A long encode
-    is polled so a cancel request can terminate it promptly.
+    is polled so a cancel request can terminate it promptly.  Both streams are
+    captured to temporary files rather than pipes: polling without reading a
+    pipe deadlocks as soon as the process fills it - see utils/proc.py.
     """
-    if cancel_cb is None:
-        return subprocess.run(cmd, capture_output=True, text=True)
-    proc = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-    )
-    while proc.poll() is None:
-        try:
-            if cancel_cb():
-                proc.terminate()
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                break
-        except Exception:
-            pass
-        try:
-            proc.wait(timeout=0.5)
-        except subprocess.TimeoutExpired:
-            continue
-    out, err = proc.communicate()
-    return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+    return run_cancellable(cmd, cancel_cb)
 
 
 def _probe(path, entries, stream=False):
@@ -327,7 +310,7 @@ def _run_progress(cmd, total_seconds, progress_cb, cancel_cb):
 
 def crop_reencode(in_path, out_path, rect=None, *, cap_kbps, fps, sar=None,
                   field_order="", codec="libx264", crf=None,
-                  preset="faster",
+                  preset="faster", gop_seconds=None,
                   total_seconds=0.0, progress_cb=None, cancel_cb=None):
     """Re-encode ``in_path`` to ``out_path``, optionally cropping.
 
@@ -356,6 +339,15 @@ def crop_reencode(in_path, out_path, rect=None, *, cap_kbps, fps, sar=None,
     fps_i = max(1, int(round(fps)))
     if crf is None:
         crf = 24 if hevc else 20           # HEVC needs a touch less to match
+    # Keyframe spacing.  I-frames are several times the size of the frames
+    # between them and they reset the encoder's prediction chain, so how far
+    # apart they sit has a real effect on the file size.  VRD Next used to pin
+    # this at one second, which is broadcast practice and wasteful for a file
+    # that is going to be played rather than re-cut.
+    if gop_seconds is None or int(gop_seconds) <= 0:
+        gop_seconds = 5 if hevc else 1
+    keyint = max(1, int(round(fps_i * float(gop_seconds))))
+
     cmd = [
         "ffmpeg", "-hide_banner", "-nostats", "-y",
         "-i", in_path, "-map", "0",
@@ -367,7 +359,7 @@ def crop_reencode(in_path, out_path, rect=None, *, cap_kbps, fps, sar=None,
         "-crf", str(crf),
         "-maxrate", "%dk" % cap_kbps,
         "-bufsize", "%dk" % (cap_kbps * 2),
-        "-g", str(fps_i), "-keyint_min", str(fps_i),
+        "-g", str(keyint), "-keyint_min", str(fps_i),
         "-pix_fmt", "yuv420p",
     ]
     if hevc:

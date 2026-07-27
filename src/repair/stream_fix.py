@@ -14,6 +14,8 @@ Runs on a worker thread.
 import shutil
 import subprocess
 
+from utils.proc import popen_progress, read_stderr
+
 from PySide6.QtCore import (
     QThread,
     Signal,
@@ -161,12 +163,10 @@ def quick_stream_fix(
         out_path,
     ]
 
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    # stderr goes to a temp file, not a pipe: a pipe fills at 64 KiB and
+    # ffmpeg then blocks writing warnings while we wait for progress on stdout
+    # that can never arrive.  See utils/proc.py.
+    proc, err_file = popen_progress(cmd)
 
     # Read progress lines as they arrive.  ffmpeg writes key=value lines; the
     # one we want is out_time_us (microseconds processed so far).
@@ -179,6 +179,7 @@ def quick_stream_fix(
                     proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     proc.kill()
+                read_stderr(err_file)
                 raise StreamFixError("Quick Stream Fix cancelled.")
 
             if progress_cb and total_us > 0 and line.startswith("out_time_us="):
@@ -193,8 +194,8 @@ def quick_stream_fix(
 
     proc.wait()
 
+    err = read_stderr(err_file)
     if proc.returncode != 0:
-        err = proc.stderr.read() if proc.stderr else ""
         raise StreamFixError(
             f"Quick Stream Fix failed:\n{err.strip()}"
         )

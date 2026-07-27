@@ -29,10 +29,12 @@ from PySide6.QtWidgets import (
 
 from batch.job import (
     QUEUED, RUNNING, DONE, FAILED, CANCELLED, NEEDS_REVIEW,
-    apply_modifier, clean_basename,
+    apply_modifier, clean_basename, build_dest_path, container_to_fmt,
 )
 from addons.output_profiles import load_profiles, resolve_profile
+from batch.controller import norm_path
 from project.vprj import read_source_filename
+from utils.eta import format_seconds
 
 # Display labels for the job phases the runner reports.
 _PHASE_TEXT = {
@@ -349,8 +351,37 @@ class BatchManagerDialog(QDialog):
             glob.glob(os.path.join(folder, "*.vprj"))
             + glob.glob(os.path.join(folder, "*.VPrj"))
         )
-        existing = {os.path.normpath(j.vprj_path) for j in self.controller.jobs}
-        new = [p for p in found if os.path.normpath(p) not in existing]
+
+        # A bulk add should never queue a recording that's already waiting.
+        # Comparing project paths alone isn't enough: a recording edited and
+        # sent over with Queue to Batch arrives as a timestamped staging file,
+        # so its path never matches the watcher's copy even though both cut the
+        # same recording.  Compare what each project actually points at.
+        existing_projects = {
+            norm_path(j.vprj_path) for j in self.controller.jobs if j.vprj_path
+        }
+        queued_sources = self.controller.queued_sources()
+
+        new = []
+        skipped = 0
+        for path in found:
+            if norm_path(path) in existing_projects:
+                skipped += 1
+                continue
+            source = ""
+            try:
+                source = read_source_filename(path)
+            except Exception:
+                source = ""
+            key = norm_path(source) if source else ""
+            if key and key in queued_sources:
+                skipped += 1
+                continue
+            new.append(path)
+            if key:
+                # Guard against two watcher projects for the same recording
+                # within this same sweep.
+                queued_sources.add(key)
 
         if not new:
             QMessageBox.information(
@@ -361,10 +392,16 @@ class BatchManagerDialog(QDialog):
             return
 
         self.controller.add_jobs(new)
+        message = self.tr(
+            "Added %d project(s) from the watch folder. They're queued and "
+            "stopped — review each with Edit, then Start."
+        ) % len(new)
+        if skipped:
+            message += "\n\n" + self.tr(
+                "Skipped %d already in the queue."
+            ) % skipped
         QMessageBox.information(
-            self, self.tr("Add from Watch Folder"),
-            f"Added {len(new)} project(s) from the watch folder. They're "
-            "queued and stopped — review each with Edit, then Start.",
+            self, self.tr("Add from Watch Folder"), message,
         )
 
     def _selected_rows(self):
@@ -389,17 +426,53 @@ class BatchManagerDialog(QDialog):
         rows = self._selected_rows()
         if not rows:
             return
-        active = self.controller.running_row()
-        if active in rows:
-            if len(rows) == 1:
+
+        jobs = self._jobs()
+
+        # An adopted export can be stopped, unlike the job the batch runner is
+        # working on - that one needs the batch stopping first.  Offer to do it,
+        # since Remove is where you'd reach for anyway.
+        exports = [
+            r for r in rows
+            if 0 <= r < len(jobs) and jobs[r].externally_running
+            and not jobs[r].cancelling
+        ]
+        if exports:
+            names = "\n".join("\u2022 %s" % jobs[r].name for r in exports[:5])
+            answer = QMessageBox.question(
+                self, self.tr("Stop export"),
+                self.tr("%d export(s) are still being written in the "
+                        "background:\n\n%s\n\nStopping now discards the "
+                        "part-finished file. The rows disappear once the "
+                        "encoder has actually stopped, which can take a "
+                        "moment.\n\nStop them?") % (len(exports), names),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
+            for r in exports:
+                self.controller.cancel_export(r)
+            # The rest of the selection is handled below; the cancelled rows
+            # remove themselves when their workers confirm.
+            rows = [r for r in rows if r not in exports]
+            if not rows:
+                return
+
+        # Whatever's left: the runner's current job still can't go, and neither
+        # can an export already in the middle of stopping.
+        protected = self.controller.protected_rows()
+        clash = [r for r in rows if r in protected]
+        if clash:
+            remaining = [r for r in rows if r not in protected]
+            if not remaining:
                 QMessageBox.information(
                     self, self.tr("Remove"),
                     self.tr("That file is being processed right now. Stop the "
                             "batch first if you want to remove it."),
                 )
                 return
-            # A mixed selection: drop the waiting ones, keep the active job.
-            rows = [r for r in rows if r != active]
+            rows = remaining
         self.controller.remove(rows)
 
     def _clear_finished(self):
@@ -429,15 +502,29 @@ class BatchManagerDialog(QDialog):
         running, so you can re-profile jobs you queue on the fly."""
         return job.status not in (RUNNING, DONE)
 
-    def _preview_output(self, job):
+    def _preview_output(self, job, taken=None):
         """Best-effort output filename for display, before the job runs - named
-        after the recording, with the job profile's container extension."""
+        after the recording, with the job profile's container extension.
+
+        `taken` carries the names earlier rows have already claimed, so the
+        preview shows the ' (2)' the runner will actually add rather than
+        displaying the same filename twice and leaving the user to wonder
+        whether the second job is about to overwrite the first.
+        """
         embedded = read_source_filename(job.vprj_path)
         base_src = embedded or job.vprj_path
         name = apply_modifier(clean_basename(base_src), self.controller.modifier)
         profile = resolve_profile(self.controller.config, job.profile_name)
         ext = profile.extension(os.path.splitext(base_src)[1] or ".ts")
-        return os.path.join(self.controller.out_folder, f"{name}{ext}")
+        if taken is None:
+            return os.path.join(self.controller.out_folder, f"{name}{ext}")
+        # Same call the runner makes, so the preview and the real thing agree -
+        # including the container-to-format conversion, which is why this uses
+        # container_to_fmt rather than the profile's container name directly.
+        return build_dest_path(
+            self.controller.out_folder, self.controller.modifier,
+            base_src, container_to_fmt(profile.container), taken,
+        )
 
     def _refresh_table(self):
         jobs = self._jobs()
@@ -457,10 +544,6 @@ class BatchManagerDialog(QDialog):
             self._fill_profile_combo(combo, job.profile_name)
             combo.setEnabled(self._profile_editable(job))
 
-            out = job.dest_path or self._preview_output(job)
-            out_item = QTableWidgetItem(os.path.basename(out))
-            out_item.setToolTip(out)
-            self.table.setItem(r, COL_OUTPUT, out_item)
 
             self.table.setItem(r, COL_STATUS, QTableWidgetItem(
                 self._status_for(job)
@@ -478,7 +561,25 @@ class BatchManagerDialog(QDialog):
                 )
                 self.table.setCellWidget(r, COL_EDIT, edit_btn)
             edit_btn.setEnabled(job.status != RUNNING)
+        self._refresh_outputs()
         self._update_buttons()
+
+    def _refresh_outputs(self):
+        """Rebuild the whole Output column.
+
+        Always the whole column, never one row: the names are claimed in order,
+        so a job that would clash with an earlier one gets a ' (2)'.  Changing
+        any row's profile can change its extension, which changes what clashes
+        with what - so recomputing a single row in isolation would drop the
+        suffix and show two rows writing to the same file.
+        """
+        claimed = set()
+        for r, job in enumerate(self._jobs()):
+            out = job.dest_path or self._preview_output(job, claimed)
+            claimed.add(out)
+            item = QTableWidgetItem(os.path.basename(out))
+            item.setToolTip(out)
+            self.table.setItem(r, COL_OUTPUT, item)
 
     def _on_row_profile(self, row):
         jobs = self._jobs()
@@ -487,12 +588,17 @@ class BatchManagerDialog(QDialog):
         combo = self.table.cellWidget(row, COL_PROFILE)
         if isinstance(combo, QComboBox):
             self.controller.set_job_profile(row, combo.currentData())
-            out = self._preview_output(jobs[row])
-            item = QTableWidgetItem(os.path.basename(out))
-            item.setToolTip(out)
-            self.table.setItem(row, COL_OUTPUT, item)
+            self._refresh_outputs()
 
     def _status_for(self, job):
+        if job.cancelling:
+            # Asked to stop, but the encoder hasn't finished unwinding - saying
+            # so is better than a percentage that has quietly stopped moving.
+            return self.tr("Stopping…")
+        if job.externally_running:
+            # Distinguished from a batch job so it's clear where the work is
+            # happening - and why Start won't touch it.
+            return self.tr("Exporting… %d%%") % job.percent
         if job.status == RUNNING:
             return f"Running… {job.percent}%"
         if job.status == NEEDS_REVIEW:
@@ -564,10 +670,19 @@ class BatchManagerDialog(QDialog):
         box.setIcon(QMessageBox.Question)
         box.setWindowTitle(self.tr("Stop Batch"))
         box.setText(self.tr("Stop processing the queue?"))
-        box.setInformativeText(self.tr(
+        informative = self.tr(
             "The job that's currently running can be finished first, or stopped "
             "straight away and left unfinished."
-        ))
+        )
+        if self.controller.has_external_running():
+            # Two things are in flight, so "the job that's currently running" is
+            # ambiguous and "Stop now" reads as though it stops everything.
+            informative += "\n\n" + self.tr(
+                "This affects the batch only. An export sent here from the "
+                "editor keeps running either way - to stop that, select its row "
+                "and press Remove."
+            )
+        box.setInformativeText(informative)
         finish_btn = box.addButton(
             self.tr("Finish current file, then stop"), QMessageBox.AcceptRole
         )
@@ -616,6 +731,7 @@ class BatchManagerDialog(QDialog):
         self._start_btn.setEnabled(True)
         self._set_controls_enabled(not running)
         if not running:
+            self._progress.setRange(0, 100)
             self._progress.setValue(0)
             self._progress.setFormat("")
         self._refresh_table()
@@ -656,6 +772,7 @@ class BatchManagerDialog(QDialog):
     def _on_job_started(self, index):
         self._set_row_status(index)
         self.table.selectRow(index)
+        self._progress.setRange(0, 100)
         self._progress.setValue(0)
         jobs = self._jobs()
         if 0 <= index < len(jobs):
@@ -663,17 +780,55 @@ class BatchManagerDialog(QDialog):
                 f"Processing {index + 1} of {len(jobs)}: {jobs[index].name}"
             )
 
+    def _drives_progress_bar(self, index):
+        """Whether this row owns the shared bar at the bottom.
+
+        Two jobs can now be in flight at once - the batch's own, and an export
+        adopted from the editor - and there's only one bar.  The batch runner's
+        job wins while a batch is running; otherwise the adopted export gets
+        it.  Either way each row shows its own percentage in the Status column,
+        so nothing is hidden.
+        """
+        if self.controller.is_running():
+            return index == self.controller.running_row()
+        jobs = self._jobs()
+        return 0 <= index < len(jobs) and jobs[index].externally_running
+
     def _on_job_progress(self, index, info):
+        # The row's own status cell always follows its job.
+        self._set_row_status(index)
+        if not self._drives_progress_bar(index):
+            return
+
         phase = info.get("phase", "")
         pct = info.get("percent")
-        if isinstance(pct, (int, float)):
-            self._progress.setValue(int(pct))
         phase_text = QCoreApplication.translate(
             "BatchManager",
             _PHASE_TEXT.get(phase, QT_TRANSLATE_NOOP("BatchManager", "Working")),
         )
-        self._progress.setFormat(f"{phase_text} — %p%")
-        self._set_row_status(index)
+
+        # A negative percent means "busy, with nothing to count" - the audio
+        # graft, the mux and the finalise pass all report it.  Pulse the bar
+        # rather than dropping it back to zero, which looks like the job has
+        # restarted.
+        if isinstance(pct, (int, float)) and pct < 0:
+            if self._progress.maximum() != 0:
+                self._progress.setRange(0, 0)
+            self._progress.setFormat(phase_text)
+            return
+
+        if self._progress.maximum() == 0:
+            self._progress.setRange(0, 100)
+        if isinstance(pct, (int, float)):
+            self._progress.setValue(int(pct))
+
+        # "%p" is the progress bar's own placeholder for the percentage; the
+        # estimate is baked into the format string as it changes.
+        text = f"{phase_text} — %p%"
+        remaining = self.controller.eta_seconds(index)
+        if remaining is not None:
+            text += " — " + self.tr("%s left") % format_seconds(remaining)
+        self._progress.setFormat(text)
 
     def _on_job_done(self, index, stats):
         jobs = self._jobs()
@@ -694,6 +849,7 @@ class BatchManagerDialog(QDialog):
         self._set_row_status(index)
 
     def _on_batch_finished(self, completed, failed, held, cancelled):
+        self._progress.setRange(0, 100)
         self._progress.setValue(0)
         self._progress.setFormat("")
         verb = self.tr("Stopped") if cancelled else self.tr("Finished")

@@ -22,6 +22,12 @@ PROCESSED_FILE = CONFIG_DIR / "watch_processed.txt"
 # watcher's settings, or by hand.
 IGNORE_FILE = CONFIG_DIR / "watch_ignore.txt"
 
+# When each ignore entry last matched a new recording, so entries for
+# programmes that have stopped airing can be pruned.  Deliberately a separate
+# sidecar rather than extra columns in watch_ignore.txt, which stays a plain
+# hand-editable list of titles.
+IGNORE_SEEN_FILE = CONFIG_DIR / "watch_ignore_seen.json"
+
 
 def _default_output_dir():
     return os.path.join(os.path.expanduser("~"), "Videos", "VRD Watch")
@@ -56,6 +62,14 @@ DEFAULTS = {
     "log_max_files": 30,
     # Recordings to never process (absolute paths).
     "ignore": [],
+    # Housekeeping for the ignore list: drop entries that haven't matched a new
+    # recording for a while, so a list built up over years doesn't keep
+    # skipping programmes that stopped airing long ago.  Off by default - an
+    # upgrade should never quietly start deleting someone's settings.
+    "ignore_prune_enabled": False,
+    # How long an entry may go unmatched before it's considered stale, in
+    # months.  A year suits programmes that return for a new series annually.
+    "ignore_prune_months": 12,
 }
 
 
@@ -203,6 +217,25 @@ class WatchConfig:
     @ignore.setter
     def ignore(self, value):
         self._data["ignore"] = sorted(set(value))
+
+    @property
+    def ignore_prune_enabled(self):
+        return bool(self._data.get("ignore_prune_enabled", False))
+
+    @ignore_prune_enabled.setter
+    def ignore_prune_enabled(self, value):
+        self._data["ignore_prune_enabled"] = bool(value)
+
+    @property
+    def ignore_prune_months(self):
+        try:
+            return max(1, int(self._data.get("ignore_prune_months", 12)))
+        except (TypeError, ValueError):
+            return 12
+
+    @ignore_prune_months.setter
+    def ignore_prune_months(self, value):
+        self._data["ignore_prune_months"] = max(1, int(value))
 
     # --- shared Comskip paths (read-only from the editor's config) -------- #
 
