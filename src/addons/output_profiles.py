@@ -32,7 +32,7 @@ AUDIO_MODES = ("copy", "aac")          # smart copy (lossless) | re-encode AAC
 # "veryfast" is deliberately absent - it measures the same as "faster" for both
 # speed and quality, so it would only add a pointless choice.
 ENCODER_PRESETS = ("slow", "medium", "faster", "superfast", "ultrafast")
-DEFAULT_PRESET = "faster"               # what VRD Next has always used
+DEFAULT_PRESET = "faster"               # what Snipwright has always used
 
 # Constant Rate Factor: lower is better quality and a bigger file.  The scales
 # differ between the two encoders, so CRF_AUTO resolves per codec.
@@ -49,7 +49,7 @@ DEFAULT_CRF = {"hevc": 24, "copy": 20}  # "copy" here means an H.264 crop re-enc
 # Broadcast uses about a second (fast channel changes); encoders default to ten
 # for file playback.  Five is the middle ground: most of the size saving, still
 # responsive to seek, and comfortably inside streaming conventions if a server
-# ever repackages the file.  The H.264 crop path keeps the one second VRD Next
+# ever repackages the file.  The H.264 crop path keeps the one second Snipwright
 # has always used, since a cropped broadcast recording is the kind of file
 # somebody is most likely to cut again.
 # 0 rather than -1 (which is what CRF_AUTO uses): a CRF of 0 is meaningful
@@ -84,7 +84,7 @@ class OutputProfile:
         self.video = video if video in ("copy", "hevc") else "copy"
         # Encoder speed and quality, used only when something is actually
         # re-encoded (HEVC output, or a crop).  The defaults reproduce what
-        # VRD Next did before these were configurable.
+        # Snipwright did before these were configurable.
         self.preset = preset if preset in ENCODER_PRESETS else DEFAULT_PRESET
         self.crf = self._clean_crf(crf)
         # Keyframe spacing for the re-encode, in seconds.  GOP_AUTO resolves
@@ -229,7 +229,7 @@ class OutputProfile:
             preset=d.get("preset", DEFAULT_PRESET),
             crf=d.get("crf", CRF_AUTO),
             # Profiles written before this existed get the automatic value,
-            # which for HEVC is a longer gap than the one second VRD Next used
+            # which for HEVC is a longer gap than the one second Snipwright used
             # to hard-code - so they produce smaller files at the same quality.
             gop_seconds=d.get("gop_seconds", GOP_AUTO),
             output_dir=d.get("output_dir", ""),

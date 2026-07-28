@@ -1,11 +1,11 @@
 """Single source of truth for the application's name and version."""
 
-APP_NAME = "VRD Next"
+APP_NAME = "Snipwright"
 
 # major.minor.patch
-VERSION = "1.10.0"
+VERSION = "2.0.0"
 
-# Shown in the title bar, About box and logs, e.g. "VRD Next 1.0.2".
+# Shown in the title bar, About box and logs, e.g. "Snipwright 1.0.2".
 VERSION_STRING = f"{APP_NAME} {VERSION}"
 
 

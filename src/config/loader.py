@@ -1,4 +1,5 @@
 import json
+import shutil
 
 from pathlib import Path
 
@@ -6,6 +7,17 @@ from config.defaults import (
     DEFAULT_CONFIG,
 )
 
+
+APP_DIR_NAME = "snipwright"
+
+# What the settings folder was called before the application was renamed.
+# NOTE: this is deliberately the OLD name and must not be updated to match the
+# current one - a bulk rename that "helpfully" changes it silently disables the
+# migration, since it would then look for the folder already in use.
+# Kept so an existing installation's settings, profiles, batch queue and watcher
+# state come across on first run rather than the user finding an empty
+# application.
+LEGACY_DIR_NAMES = ("vrd-next",)
 
 CONFIG_DIR = (
 
@@ -17,9 +29,14 @@ CONFIG_DIR = (
 
     /
 
-    "vrd-next"
+    APP_DIR_NAME
 
 )
+
+# Set by migrate_legacy_config() when it actually copies something, so the
+# editor and the watcher can tell the user rather than moving their settings
+# about silently.
+MIGRATION_NOTE = None
 
 CONFIG_FILE = (
 
@@ -32,7 +49,68 @@ CONFIG_FILE = (
 )
 
 
+def migrate_legacy_config():
+    """Bring settings across from a previous name of the application.
+
+    Copies rather than moves, deliberately.  The old folder is left exactly as
+    it was, so anyone who wants to go back to an earlier version still has
+    their settings waiting - at the cost of one orphaned directory, which is a
+    small price for not being the reason somebody lost their profiles.
+
+    Runs at most once: the presence of the new folder is the flag, so a user who
+    deliberately clears their settings does not have the old ones reappear
+    behind them.  Returns a short description of what happened, or None.
+    """
+    global MIGRATION_NOTE
+
+    if CONFIG_DIR.exists():
+        return None
+
+    base = CONFIG_DIR.parent
+    source = None
+    for name in LEGACY_DIR_NAMES:
+        candidate = base / name
+        if candidate.is_dir():
+            source = candidate
+            break
+    if source is None:
+        return None
+
+    copied = 0
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        for item in source.iterdir():
+            # Logs are large, disposable and named after the old application;
+            # there is nothing to gain by dragging them across.
+            if item.suffix == ".log" or item.name.endswith(".log"):
+                continue
+            target = CONFIG_DIR / item.name
+            if target.exists():
+                continue
+            if item.is_dir():
+                shutil.copytree(item, target)
+            else:
+                shutil.copy2(item, target)
+            copied += 1
+    except OSError as exc:
+        MIGRATION_NOTE = (
+            "Couldn't copy your previous settings from %s: %s"
+            % (source, exc)
+        )
+        return MIGRATION_NOTE
+
+    if copied:
+        MIGRATION_NOTE = (
+            "Your settings have been copied from %s to %s. The old folder has "
+            "been left alone." % (source, CONFIG_DIR)
+        )
+    return MIGRATION_NOTE
+
+
 def ensure_config():
+
+    migrate_legacy_config()
+
 
     CONFIG_DIR.mkdir(
         parents=True,

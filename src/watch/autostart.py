@@ -13,6 +13,7 @@ set_enabled) that the Settings UI calls without caring which OS it's on.
   enabled" and do nothing, so the UI degrades gracefully.
 """
 
+import logging
 import os
 import sys
 
@@ -23,12 +24,15 @@ def _entry_script():
     return os.path.normpath(os.path.join(here, os.pardir, "watcher.py"))
 
 
+log = logging.getLogger("snipwright.watch")
+
+
 # --------------------------------------------------------------------------- #
 # Linux (XDG autostart)
 # --------------------------------------------------------------------------- #
 
 _LINUX_DIR = os.path.join(os.path.expanduser("~"), ".config", "autostart")
-_LINUX_FILE = os.path.join(_LINUX_DIR, "vrd-next-watcher.desktop")
+_LINUX_FILE = os.path.join(_LINUX_DIR, "snipwright-watcher.desktop")
 
 
 def _linux_launch_command():
@@ -36,9 +40,17 @@ def _linux_launch_command():
 
 
 def _linux_icon_path():
+    """Absolute path to the icon a .desktop entry should point at.
+
+    Prefers the PNG, since the application mark is raster; the SVG remains as a
+    fallback for an installation that still has the older asset."""
     here = os.path.dirname(os.path.abspath(__file__))
-    return os.path.normpath(
-        os.path.join(here, os.pardir, "assets", "app_icon.svg"))
+    base = os.path.normpath(os.path.join(here, os.pardir, "assets"))
+    for name in ("app_icon.png", "app_icon.svg"):
+        path = os.path.join(base, name)
+        if os.path.exists(path):
+            return path
+    return os.path.join(base, "app_icon.png")
 
 
 def _linux_is_enabled():
@@ -51,7 +63,7 @@ def _linux_enable():
         content = (
             "[Desktop Entry]\n"
             "Type=Application\n"
-            "Name=VRD Next Watcher\n"
+            "Name=Snipwright Watcher\n"
             "Comment=Scan recordings for commercials and prepare cut projects\n"
             f"Exec={_linux_launch_command()}\n"
             f"Icon={_linux_icon_path()}\n"
@@ -90,7 +102,7 @@ def _windows_startup_dir():
 
 
 def _windows_file():
-    return os.path.join(_windows_startup_dir(), "vrd-next-watcher.cmd")
+    return os.path.join(_windows_startup_dir(), "snipwright-watcher.cmd")
 
 
 def _windows_pythonw():
@@ -139,6 +151,43 @@ def _windows_disable():
 # Platform-agnostic API
 # --------------------------------------------------------------------------- #
 
+# Entries the watcher wrote under the application's previous name.  An upgrade
+# leaves these behind, and they point at the old installation - so a user who
+# had start-on-login turned on would quietly get two watchers running, or one
+# that fails because the folder has since been deleted.  Named explicitly rather
+# than derived, so a future rename can't turn them into the current names and
+# make this a no-op.
+_LEGACY_LINUX_FILES = ("vrd-next-watcher.desktop",)
+_LEGACY_WINDOWS_FILES = ("vrd-next-watcher.cmd",)
+
+
+def _clear_legacy_entries():
+    """Remove autostart entries left by an earlier name of the application.
+
+    Best-effort and silent: this runs whenever autostart is queried or changed,
+    and a failure here should never stop the real work.  Returns how many were
+    removed, which the caller may log.
+    """
+    removed = 0
+    if os.name == "nt":
+        folder, names = _windows_startup_dir(), _LEGACY_WINDOWS_FILES
+    elif sys.platform.startswith("linux"):
+        folder, names = _LINUX_DIR, _LEGACY_LINUX_FILES
+    else:
+        return 0
+    for name in names:
+        path = os.path.join(folder, name)
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+                removed += 1
+                log.info("Removed a start-on-login entry left by the old "
+                         "application name: %s", path)
+        except OSError:
+            pass
+    return removed
+
+
 def supported():
     """Whether start-on-login is implemented on this platform (so the UI can
     disable/hide the option on, e.g., macOS rather than offer a dead toggle)."""
@@ -146,6 +195,7 @@ def supported():
 
 
 def is_enabled():
+    _clear_legacy_entries()
     if os.name == "nt":
         return _windows_is_enabled()
     if sys.platform.startswith("linux"):
@@ -155,6 +205,7 @@ def is_enabled():
 
 def enable():
     """Write the autostart entry.  Returns True on success."""
+    _clear_legacy_entries()
     if os.name == "nt":
         return _windows_enable()
     if sys.platform.startswith("linux"):
@@ -164,6 +215,7 @@ def enable():
 
 def disable():
     """Remove the autostart entry.  Returns True if it's gone afterwards."""
+    _clear_legacy_entries()
     if os.name == "nt":
         return _windows_disable()
     if sys.platform.startswith("linux"):

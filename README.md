@@ -1,13 +1,18 @@
 <p align="center">
-  <img src="docs/vrd-next-logo.png" alt="VRD Next" width="440">
+  <img src="docs/snipwright-logo.png" alt="Snipwright" width="440">
 </p>
 
-**VRD Next is a lightweight, frame-accurate video cutter for Linux.** It focuses
+**Snipwright is a lightweight, frame-accurate video cutter for Linux.** It focuses
 on doing one thing well — fast, frame-accurate cuts of videos and PVR/broadcast
 recordings without re-encoding — and takes its inspiration from VideoReDo,
 distilling the part many people relied on most into a free, open-source tool.
 
-![VRD Next editor](docs/screenshots/editor.png)
+> **Formerly VRD Next.** The project was renamed in July 2026 at the request of
+> one of VideoReDo's original developers, so that nobody mistakes it for that
+> product or sends its author support requests meant for this one. Only the name
+> has changed — settings are carried over automatically on first run.
+
+![Snipwright editor](docs/screenshots/editor.png)
 
 ## Features
 
@@ -61,8 +66,8 @@ dependencies, a virtual environment, and menu/desktop shortcuts.
 **Linux:**
 
 ```bash
-git clone https://github.com/infidelus/vrd-next.git
-cd vrd-next/src/packaging
+git clone https://github.com/infidelus/snipwright.git
+cd snipwright/src/packaging
 chmod +x install-linux.sh
 ./install-linux.sh
 ```
@@ -93,8 +98,8 @@ See [`src/packaging/README.md`](src/packaging/README.md) for details.
 If you'd rather set things up yourself:
 
 ```bash
-git clone https://github.com/infidelus/vrd-next.git
-cd vrd-next
+git clone https://github.com/infidelus/snipwright.git
+cd snipwright
 
 # A virtual environment is recommended but not required:
 python3 -m venv .venv
@@ -117,7 +122,7 @@ python3 src/main.py
 
 Everything else lives in two places worth a look early on:
 
-- **Settings** — set your working folders, point VRD Next at Comskip and
+- **Settings** — set your working folders, point Snipwright at Comskip and
   mkvmerge, add your TMDB key, and adjust logging.
 - **The Extras menu** — launch the TV/Film renamers and start the background
   Watcher.
@@ -142,7 +147,7 @@ Everything else lives in two places worth a look early on:
 
 ## Status
 
-VRD Next was built for, and tested mainly against, UK Freeview HD and SD
+Snipwright was built for, and tested mainly against, UK Freeview HD and SD
 recordings on Linux Mint — that's the path that's had the most real-world use.
 Other sources and distributions may well work, but haven't been exercised as
 thoroughly, so reports from them are welcome.
@@ -157,19 +162,21 @@ a small launcher in your Startup folder (and removes it when you untick the
 option), so no manual setup is needed.
 
 It's shared as-is, in the hope that others find it useful.
-[Discussions](https://github.com/infidelus/vrd-next/discussions) is the place
+[Discussions](https://github.com/infidelus/snipwright/discussions) is the place
 for questions, problems and suggestions — the issue tracker stays off. Bug
 reports are welcome, especially with a sample recording, since almost every fix
 so far has come from someone sending me a file that broke it. Feature requests
 I'll read and consider, but I'm promising nothing: this is a hobby project
 maintained by one person, and it already does what I need it to. Replies may
-take a while. If you want VRD Next to go further than I'm likely to take it,
+take a while. If you want Snipwright to go further than I'm likely to take it,
 fork it and make it your own — exactly what the licence is here to allow.
 
 ## Acknowledgements
 
 - Inspired by **VideoReDo**, the Windows tool that made frame-accurate
-  recording cuts feel effortless.
+  recording cuts feel effortless. Snipwright is not connected to VideoReDo in
+  any way and its developers provide no support for it — please don't contact
+  them about anything here.
 - The frame-accurate cutting engine in `src/smartcut/` is **smartcut** by
   Santtu Keskinen (MIT licensed), used here with local modifications. See the
   original project at https://github.com/skeskinen/smartcut.
@@ -178,7 +185,7 @@ fork it and make it your own — exactly what the licence is here to allow.
 
 ## Licence
 
-VRD Next is released under the **MIT Licence** — see [`LICENSE`](LICENSE).
+Snipwright is released under the **MIT Licence** — see [`LICENSE`](LICENSE).
 
 It bundles the smartcut engine, which is also MIT licensed (© 2024 Santtu
 Keskinen); that licence is retained at `src/smartcut/LICENSE`.

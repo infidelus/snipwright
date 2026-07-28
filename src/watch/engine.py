@@ -25,7 +25,7 @@ from project.edl import parse_edl_cuts
 from project.vprj import save_vprj_from_cuts
 from repair.comskip import run_comskip, ComskipError, pick_comskip_ini
 
-log = logging.getLogger("vrd-next.watch")
+log = logging.getLogger("snipwright.watch")
 
 
 class ProcessResult:
@@ -426,7 +426,7 @@ def process_recording(source, comskip_binary, comskip_ini, output_dir,
     Comskip "no commercials" result; genuine failures are returned as
     result.error.
     """
-    tmp_dir = tempfile.mkdtemp(prefix="vrd-next-watch-")
+    tmp_dir = tempfile.mkdtemp(prefix="snipwright-watch-")
     try:
         try:
             edl_path = _run_comskip(

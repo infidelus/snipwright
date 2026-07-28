@@ -58,9 +58,9 @@ NEEDS_REVIEW = "needs_review"   # held: needs repair + cut confirmation
 # Decorations a working/QSF'd copy might carry, stripped so outputs are named
 # after the original recording (kept in step with main._clean_basename).
 _STRIP_PREFIXES = (
-    "vrd-next-manual-fix-",
-    "vrd-next-export-fix-",
-    "vrd-next-",
+    "snipwright-manual-fix-",
+    "snipwright-export-fix-",
+    "snipwright-",
 )
 _STRIP_SUFFIXES = (" - QSF", " - fixed", " - edited")
 

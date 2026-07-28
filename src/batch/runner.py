@@ -26,7 +26,7 @@ from media.frame_index import build_index_sync
 from project.vprj import read_source_filename, load_vprj
 from utils.winepath import resolve_source
 
-log = logging.getLogger("vrd-next.batch")
+log = logging.getLogger("snipwright.batch")
 
 
 class JobError(Exception):

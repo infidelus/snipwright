@@ -1,9 +1,59 @@
 # Changelog
 
-All notable changes to VRD Next are documented here.
+All notable changes to Snipwright are documented here. Releases before
+2.0.0 were published under the project's former name, VRD Next.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
+
+## [2.0.0] - 2026-07-28
+
+### Fixed
+
+- **The Windows icon was pixellated.** Two faults, one on top of the other: the
+  `.ico` files at first contained only a 16x16 frame, and once the other sizes
+  were added they were all PNG-compressed. Windows only reads PNG frames
+  reliably at 256x256 — below that Explorer wants a BMP frame, and falls back to
+  scaling whatever it can decode. Both icons now carry ten frames from 16x16 to
+  256x256, stored as BMP below 256 and PNG at 256, which is what Windows
+  expects.
+
+  The Windows installer was also setting the shortcut's `IconLocation` without
+  an index. Windows wants `"path,index"` there, and without it does not reliably
+  choose the right frame from a multi-size icon — commonly settling on the
+  smallest and scaling it up. The `.vprj` registration had always set an index;
+  the shortcut had been missed. The installer now also nudges the shell to drop
+  its icon cache, since Windows will otherwise keep showing an icon it drew
+  before the file was replaced.
+
+### Changed
+
+- **VRD Next is now Snipwright.** One of VideoReDo's original developers asked
+  that "VRD" not appear in the name: he still owns the VideoReDo domains, and a
+  similarly-named project risks people assuming the two are connected and
+  sending him support requests for software he has nothing to do with. That's a
+  fair thing to ask and it costs nothing to honour, so the application, the
+  repository and the settings folder have all been renamed. He was happy for
+  VideoReDo to keep being mentioned in the documentation, which it is — the
+  guide still has its "Coming from VideoReDo" section, and the project is still
+  built for people who relied on that software.
+
+  Nothing about how it works has changed, and it still reads and writes
+  VideoReDo's `.vprj` project files exactly as before.
+
+- **Settings now live in `~/.config/snipwright/`.** On first run, an existing
+  `vrd-next` folder is *copied* across — settings, output profiles, the batch
+  queue and its staged projects,
+  and the watcher's ignore list with its last-seen dates. Copied rather than
+  moved, so the old folder is left exactly as it was and going back to an
+  earlier version costs nothing. It runs at most once, and never overwrites
+  settings that are already there. Log files are skipped. You're told when it
+  happens rather than having your configuration moved about silently. The same
+  applies on Windows, where the folder lives under your user profile.
+
+  A start-on-login entry written under the old name is removed when the Watcher
+  next checks or changes that setting, so an upgrade can't leave two watchers
+  starting with the desktop.
 
 ## [1.10.0] - 2026-07-27
 
@@ -386,7 +436,7 @@ fixes.
   buttons, tooltips, messages, the tray Watcher and the stream-info panel — is
   now translatable, with a **Language** setting under **Settings → General**.
   A complete **German** translation is included, along with a German user guide.
-  Adding a language needs no code: translate `translations/vrd-next_en.ts`,
+  Adding a language needs no code: translate `translations/snipwright_en.ts`,
   compile it with `translations/compile.sh`, and it appears in the picker.
   Changing language offers to restart the application.
 - Qt's own translations are loaded alongside, so standard buttons (OK, Cancel,
@@ -539,14 +589,14 @@ fixes.
 
 - Initial public release.
 
-[1.9.0]: https://github.com/infidelus/vrd-next/compare/v1.8.0...v1.9.0
-[1.8.0]: https://github.com/infidelus/vrd-next/compare/v1.7.0...v1.8.0
-[1.7.0]: https://github.com/infidelus/vrd-next/compare/v1.6.0...v1.7.0
-[1.6.0]: https://github.com/infidelus/vrd-next/compare/v1.5.1...v1.6.0
-[1.5.1]: https://github.com/infidelus/vrd-next/compare/v1.5.0...v1.5.1
-[1.5.0]: https://github.com/infidelus/vrd-next/compare/v1.4.0...v1.5.0
-[1.4.0]: https://github.com/infidelus/vrd-next/compare/v1.3.0...v1.4.0
-[1.3.0]: https://github.com/infidelus/vrd-next/compare/v1.2.0...v1.3.0
-[1.2.0]: https://github.com/infidelus/vrd-next/compare/v1.1.0...v1.2.0
-[1.1.0]: https://github.com/infidelus/vrd-next/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/infidelus/vrd-next/releases/tag/v1.0.0
+[1.9.0]: https://github.com/infidelus/snipwright/compare/v1.8.0...v1.9.0
+[1.8.0]: https://github.com/infidelus/snipwright/compare/v1.7.0...v1.8.0
+[1.7.0]: https://github.com/infidelus/snipwright/compare/v1.6.0...v1.7.0
+[1.6.0]: https://github.com/infidelus/snipwright/compare/v1.5.1...v1.6.0
+[1.5.1]: https://github.com/infidelus/snipwright/compare/v1.5.0...v1.5.1
+[1.5.0]: https://github.com/infidelus/snipwright/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/infidelus/snipwright/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/infidelus/snipwright/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/infidelus/snipwright/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/infidelus/snipwright/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/infidelus/snipwright/releases/tag/v1.0.0

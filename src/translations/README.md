@@ -1,19 +1,19 @@
 # Translations
 
-VRD Next's interface can be translated. English is built in; other languages are
+Snipwright's interface can be translated. English is built in; other languages are
 added here as Qt translation files.
 
-- `vrd-next_en.ts` — the **template**: every translatable phrase in the app, in
+- `snipwright_en.ts` — the **template**: every translatable phrase in the app, in
   English. This is regenerated from the source and is what you translate *from*.
-- `vrd-next_<code>.ts` — a **translation** for one language (`de` = German,
+- `snipwright_<code>.ts` — a **translation** for one language (`de` = German,
   `fr` = French, and so on — standard two-letter language codes).
-- `vrd-next_<code>.qm` — the **compiled** version of that translation, which is
+- `snipwright_<code>.qm` — the **compiled** version of that translation, which is
   what the application actually loads. You don't edit these by hand.
 
 ## Adding a language
 
-1. **Copy the template.** Copy `vrd-next_en.ts` to `vrd-next_<code>.ts` (for
-   example `vrd-next_de.ts` for German).
+1. **Copy the template.** Copy `snipwright_en.ts` to `snipwright_<code>.ts` (for
+   example `snipwright_de.ts` for German).
 
 2. **Translate it.** Either open it in **Qt Linguist**, or — since it's just XML
    — hand the file to a translator or a chatbot and ask it to fill in each
@@ -34,20 +34,20 @@ added here as Qt translation files.
    ./compile.sh
    ```
 
-   (Under the bonnet that's `pyside6-lrelease vrd-next_<code>.ts`, which ships
+   (Under the bonnet that's `pyside6-lrelease snipwright_<code>.ts`, which ships
    with PySide6.)
 
-4. **Use it.** Restart VRD Next and pick the language under
+4. **Use it.** Restart Snipwright and pick the language under
    **Settings → General → Language**. It appears there automatically once its
    `.qm` is present.
 
 ## Updating a translation after the app changes
 
-When new text is added to VRD Next, refresh the template and merge the new
+When new text is added to Snipwright, refresh the template and merge the new
 phrases into each translation (existing translations are kept):
 
 ```sh
-pyside6-lupdate ../**/*.py -ts vrd-next_en.ts vrd-next_de.ts vrd-next_fr.ts
+pyside6-lupdate ../**/*.py -ts snipwright_en.ts snipwright_de.ts snipwright_fr.ts
 ```
 
 Then translate any newly-added (empty) entries and run `./compile.sh` again.
@@ -78,6 +78,6 @@ finished file looks like.
 The user guide is a separate HTML file, not part of the `.ts`. To translate it,
 copy `../assets/help/user-guide.html` to `user-guide_<code>.html` in the same
 folder (for example `user-guide_de.html`) and translate the text inside it,
-leaving the HTML tags alone. VRD Next shows the guide for the chosen language if
+leaving the HTML tags alone. Snipwright shows the guide for the chosen language if
 that file exists, and falls back to the English guide if it doesn't — so a
 missing translation never leaves the reader with nothing.

@@ -5,7 +5,7 @@ checkbox and a favourite star per row, plus Add / Edit / Duplicate / Delete and
 reorder, and Save / Cancel.  It works on a copy of the profile list so Cancel
 discards every change; Save persists the whole list.
 
-The editor is scoped to what VRD Next actually uses: name, container, audio
+The editor is scoped to what Snipwright actually uses: name, container, audio
 handling (smart copy vs re-encode AAC), display aspect, and a per-profile
 default output directory.  Audio and aspect are saved now; the exporter starts
 acting on them in the next step.
@@ -459,7 +459,7 @@ class ProfileEditDialog(QDialog):
             "(HEVC, or cropping).  Slower presets give better quality for the "
             "same size, at the cost of time.  A lower CRF means better quality "
             "and a bigger file; 'Automatic' picks a sensible value for the "
-            "codec, which is what VRD Next has always used.")
+            "codec, which is what Snipwright has always used.")
         )
         note.setWordWrap(True)
         note.setStyleSheet("color: gray;")

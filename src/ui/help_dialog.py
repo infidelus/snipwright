@@ -47,7 +47,7 @@ class UserGuideDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(self.tr("VRD Next User Guide"))
+        self.setWindowTitle(self.tr("Snipwright User Guide"))
         self.resize(900, 720)
 
         layout = QVBoxLayout(self)

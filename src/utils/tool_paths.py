@@ -1,6 +1,6 @@
 """Locate the external ffmpeg / ffprobe used across export, join and probing.
 
-VRD Next shells out to ffmpeg and ffprobe from many places, always as the bare
+Snipwright shells out to ffmpeg and ffprobe from many places, always as the bare
 command name so the operating system resolves them on PATH.  Rather than thread
 an explicit path through every call site, the user can point at a specific build
 in Settings > External tools and we simply prepend that build's folder to PATH
@@ -13,9 +13,9 @@ import os
 import shutil
 import logging
 
-log = logging.getLogger("vrd-next")
+log = logging.getLogger("snipwright")
 
-# The external tools VRD Next expects, paired with the config key that holds a
+# The external tools Snipwright expects, paired with the config key that holds a
 # user-chosen override for each.
 _TOOLS = (
     ("ffmpeg", "ffmpeg_binary"),

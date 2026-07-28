@@ -10,7 +10,7 @@ Other EDL dialects use 1=mute, 2=scene-mark, 3=commercial - we treat any line
 as a cut region unless the action is clearly a non-cut type, but Comskip's own
 output is always 0.
 
-As with .vprj, the regions listed are the parts to REMOVE.  VRD-Next works in
+As with .vprj, the regions listed are the parts to REMOVE.  Snipwright works in
 KEPT ranges, so loading inverts the cut list against the total frame count and
 saving inverts the kept ranges back into cut regions.
 """

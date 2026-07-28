@@ -1,7 +1,7 @@
 """
 A small persistent record of files that Quick Stream Fix has processed.
 
-It stores a content fingerprint for each file VRD Next has either repaired
+It stores a content fingerprint for each file Snipwright has either repaired
 (used as a QSF source) or produced (a QSF output), so the app can recognise an
 already-processed file and warn before repairing it a second time.
 
@@ -22,7 +22,7 @@ from pathlib import Path
 REGISTRY_FILE = (
     Path.home()
     / ".cache"
-    / "vrd-next"
+    / "snipwright"
     / "qsf_registry.json"
 )
 

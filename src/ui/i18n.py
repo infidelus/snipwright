@@ -1,4 +1,4 @@
-"""Loading and selecting UI translations for VRD Next.
+"""Loading and selecting UI translations for Snipwright.
 
 Translations live in the ``translations`` folder beside the source, as Qt
 translation files: an editable ``.ts`` (the English template, and one per
@@ -19,7 +19,7 @@ import os
 
 from PySide6.QtCore import QTranslator
 
-_APP = "vrd-next"
+_APP = "snipwright"
 
 # Friendly names for the languages we anticipate, so the dropdown reads nicely.
 # A .qm whose code isn't listed here still appears, labelled by its code.
@@ -44,7 +44,7 @@ def translations_dir():
 
 
 def _code_from_qm(filename):
-    """'vrd-next_de.qm' -> 'de', or None if it isn't one of ours."""
+    """'snipwright_de.qm' -> 'de', or None if it isn't one of ours."""
     base = os.path.basename(filename)
     prefix = _APP + "_"
     if base.startswith(prefix) and base.endswith(".qm"):

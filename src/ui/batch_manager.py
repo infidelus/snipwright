@@ -158,7 +158,7 @@ class BatchManagerDialog(QDialog):
         self._add_btn.clicked.connect(self._add_projects)
         self._add_watch_btn = QPushButton(self.tr("Add from Watch Folder"))
         self._add_watch_btn.setToolTip(
-            self.tr("Add new projects produced by the VRD Next Watcher (commercial "
+            self.tr("Add new projects produced by the Snipwright Watcher (commercial "
             "detection). They arrive stopped, for you to review and Start.")
         )
         self._add_watch_btn.clicked.connect(self._add_from_watch_folder)
@@ -343,7 +343,7 @@ class BatchManagerDialog(QDialog):
             QMessageBox.information(
                 self, self.tr("Add from Watch Folder"),
                 self.tr("The watch output folder doesn't exist yet. Set it up in the "
-                "VRD Next Watcher first."),
+                "Snipwright Watcher first."),
             )
             return
 

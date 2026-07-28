@@ -2,7 +2,7 @@
 Application logging.
 
 Sets up Python's standard logging so the app keeps a per-day log file
-(``vrd-next-YYYY-MM-DD.log``) in the configured log folder - or, when none is
+(``snipwright-YYYY-MM-DD.log``) in the configured log folder - or, when none is
 set, the app config directory (matching what Settings shows as the default).
 
 The same messages are also echoed to the console, so running from a terminal
@@ -30,9 +30,9 @@ from config.loader import CONFIG_DIR
 
 # The shared parent logger name.  Modules use logging.getLogger(__name__);
 # this one is handy for app-level lifecycle lines ("Starting ...").
-APP_LOGGER = "vrd-next"
+APP_LOGGER = "snipwright"
 
-_FILE_PREFIX = "vrd-next-"
+_FILE_PREFIX = "snipwright-"
 _FILE_SUFFIX = ".log"
 
 _FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -40,7 +40,7 @@ _DATEFMT = "%Y-%m-%d %H:%M:%S"
 
 # Tag our handlers so re-configuring (e.g. after the folder changes) only
 # removes the ones we added, never anything else.
-_OURS = "_vrd_next_handler"
+_OURS = "_snipwright_handler"
 
 _current_log_file = None
 _current_log_dir = None
@@ -66,7 +66,7 @@ def _resolve_dir(log_folder):
         try:
             path.mkdir(parents=True, exist_ok=True)
             # Confirm we can actually write here.
-            probe = path / ".vrd-next-log-write-test"
+            probe = path / ".snipwright-log-write-test"
             probe.write_text("ok", encoding="utf-8")
             probe.unlink()
             return path
@@ -77,8 +77,8 @@ def _resolve_dir(log_folder):
 
 
 def _prune(directory, max_age_days, prefix=_FILE_PREFIX, max_files=0):
-    """Trim old log files for one family (the editor's plain ``vrd-next-`` logs
-    or the watcher's ``vrd-next-watcher-`` logs, never each other's).
+    """Trim old log files for one family (the editor's plain ``snipwright-`` logs
+    or the watcher's ``snipwright-watcher-`` logs, never each other's).
 
     Two independent limits, either of which may be off (0/None):
       * ``max_age_days`` - delete files older than this many days;
@@ -90,7 +90,7 @@ def _prune(directory, max_age_days, prefix=_FILE_PREFIX, max_files=0):
         return
 
     # Match only THIS family's dated files: the date always starts with a
-    # digit, so "vrd-next-[0-9]*" excludes "vrd-next-watcher-..." and vice
+    # digit, so "snipwright-[0-9]*" excludes "snipwright-watcher-..." and vice
     # versa, keeping the two families' pruning from treading on each other.
     try:
         entries = list(directory.glob(f"{prefix}[0-9]*{_FILE_SUFFIX}"))
@@ -160,9 +160,9 @@ def configure_logging(log_folder="", max_age_days=30, verbose=False,
 
     ``app_tag`` distinguishes companion processes that share the log folder: the
     standalone Watcher passes ``"watcher"`` so it writes its own
-    ``vrd-next-watcher-YYYY-MM-DD.log`` rather than interleaving with the
+    ``snipwright-watcher-YYYY-MM-DD.log`` rather than interleaving with the
     editor's file.  Empty (the default) keeps the editor's plain
-    ``vrd-next-YYYY-MM-DD.log``.
+    ``snipwright-YYYY-MM-DD.log``.
 
     ``max_age_days`` and ``max_files`` cap how many old log files are kept (by
     age and by count); either may be 0 to disable that limit.  They apply only

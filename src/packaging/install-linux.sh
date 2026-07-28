@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 #
-# One-step setup for VRD Next on Debian/Ubuntu/Mint.
+# One-step setup for Snipwright on Debian/Ubuntu/Mint.
 #
 #   ./install-linux.sh
 #
 # It will, in order:
-#   1. install the system packages VRD Next needs (Python, venv support,
+#   1. install the system packages Snipwright needs (Python, venv support,
 #      ffmpeg, mkvmerge, and the Qt runtime libraries) via apt, asking for
 #      sudo only if something is actually missing;
 #   2. create a self-contained virtual environment in the project root
 #      (.venv) and install the Python dependencies into it;
-#   3. add "VRD Next" and "VRD Next Watcher" to your applications menu,
+#   3. add "Snipwright" and "Snipwright Watcher" to your applications menu,
 #      pointing at the environment's Python (via install-desktop-entries.sh);
 #   4. check the installed dependencies actually import, and print the exact
 #      error if they don't.
@@ -79,7 +79,7 @@ fi
 # --- 2. virtual environment + Python dependencies -------------------------
 say "2/4  Virtual environment"
 
-# VRD Next runs on Python 3.12 (Linux Mint 22's system Python).  Prefer an
+# Snipwright runs on Python 3.12 (Linux Mint 22's system Python).  Prefer an
 # explicit python3.12 if present, so the venv is built on it even where the
 # default python3 is something else; fall back to python3 otherwise.
 BUILD_PY="$(command -v python3.12 || command -v python3 || true)"
@@ -145,14 +145,14 @@ else
     info "A dependency didn't install correctly:"
     printf '%s\n' "$err" | sed 's/^/    /'
     info "Try re-running this script; if it still fails, please report the"
-    info "text above at https://github.com/infidelus/vrd-next/issues"
+    info "text above at https://github.com/infidelus/snipwright/issues"
     exit 1
 fi
 
 say "Done."
-info "Launch VRD Next from your applications menu, or run it directly with:"
+info "Launch Snipwright from your applications menu, or run it directly with:"
 info "  $PY $SRC/main.py"
-info "The Watcher is \"VRD Next Watcher\" in the menu, or:"
+info "The Watcher is \"Snipwright Watcher\" in the menu, or:"
 info "  $PY $SRC/watcher.py"
 info "If the menu entry ever fails to launch, run the command above in a"
 info "terminal - the error it prints says what's wrong."

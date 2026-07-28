@@ -1,4 +1,4 @@
-"""Playback audio for VRD Next.
+"""Playback audio for Snipwright.
 
 Audio is decoded with PyAV (only the audio stream - cheap, and crucially no
 video decoding to fight the video preview or spam the console) and played
@@ -24,7 +24,7 @@ import time
 import threading
 import logging
 
-log = logging.getLogger("vrd-next")
+log = logging.getLogger("snipwright")
 
 try:
     import av

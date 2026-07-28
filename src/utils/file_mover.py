@@ -21,7 +21,7 @@ import os
 import shutil
 import logging
 
-log = logging.getLogger("vrd-next")
+log = logging.getLogger("snipwright")
 
 _CHUNK = 4 * 1024 * 1024            # 4 MiB per read/write
 _SYNC_EVERY = 16 * 1024 * 1024      # force data out to the NAS ~every 16 MiB

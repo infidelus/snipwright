@@ -20,7 +20,7 @@ Two dialects exist:
 We read both.  We write a Version 5-style file (with the human-readable
 timecode attributes), which VideoReDo and Comskip-aware tools both accept.
 
-Because VRD-Next works in KEPT ranges (the green scenes) while a .vprj stores
+Because Snipwright works in KEPT ranges (the green scenes) while a .vprj stores
 REMOVED ranges, loading inverts the cut list against the total duration, and
 saving inverts the kept ranges back into cuts.
 """

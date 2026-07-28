@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Entry point for the standalone VRD Next Watcher (tray app).
+"""Entry point for the standalone Snipwright Watcher (tray app).
 
 Run it directly:
 
@@ -40,11 +40,11 @@ def main():
             app_tag="watcher",
             max_files=WatchConfig.load().log_max_files,
         )
-        logging.getLogger("vrd-next.watch").info(
-            "Starting VRD Next Watcher"
+        logging.getLogger("snipwright.watch").info(
+            "Starting Snipwright Watcher"
         )
         if log_file is not None:
-            logging.getLogger("vrd-next.watch").info(
+            logging.getLogger("snipwright.watch").info(
                 "Logging to %s", log_file
             )
     except Exception:
@@ -52,11 +52,11 @@ def main():
         logging.basicConfig(level=logging.INFO)
 
     app = QApplication(sys.argv)
-    app.setApplicationName("vrd-next-watcher")
-    app.setApplicationDisplayName("VRD Next Watcher")
-    # Group any Watcher windows under its own launcher (vrd-next-watcher.desktop)
+    app.setApplicationName("snipwright-watcher")
+    app.setApplicationDisplayName("Snipwright Watcher")
+    # Group any Watcher windows under its own launcher (snipwright-watcher.desktop)
     # rather than appearing as a stray panel icon.
-    app.setDesktopFileName("vrd-next-watcher")
+    app.setDesktopFileName("snipwright-watcher")
     # A tray app must not quit when its (optional) windows close.
     app.setQuitOnLastWindowClosed(False)
 
@@ -68,6 +68,13 @@ def main():
         from ui.i18n import install_language
         from config.loader import ensure_config
         cfg = ensure_config()
+
+        # The watcher can be the first of the two applications to start, so it
+        # may be the one that performs the migration.  It has no window to put
+        # a message in, so the log is where it says so.
+        from config.loader import MIGRATION_NOTE
+        if MIGRATION_NOTE:
+            logging.getLogger("snipwright.watch").info(MIGRATION_NOTE)
         settings = cfg.get("settings", {})
         remember_original(app)
         apply_theme(app, settings.get("theme", "system"))
@@ -83,7 +90,7 @@ def main():
     lock = QLockFile(watcher_lock_path())
     lock.setStaleLockTime(0)
     if not lock.tryLock(100):
-        logging.info("VRD Next Watcher is already running; exiting.")
+        logging.info("Snipwright Watcher is already running; exiting.")
         return
 
     tray = WatcherTray(app)        # noqa: F841 - keeps the tray alive

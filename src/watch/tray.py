@@ -36,7 +36,7 @@ from watch.engine import (
 )
 from watch import autostart
 
-log = logging.getLogger("vrd-next.watch.tray")
+log = logging.getLogger("snipwright.watch.tray")
 
 
 _TRAY_SVG = os.path.normpath(
@@ -443,7 +443,7 @@ class WatchControlDialog(QDialog):
         super().__init__()
         self.tray = tray
         self.cfg = tray.cfg
-        self.setWindowTitle(self.tr("VRD Next Watcher"))
+        self.setWindowTitle(self.tr("Snipwright Watcher"))
         self.setWindowIcon(make_tray_icon())
         self.resize(560, 520)
         self._build_ui()
@@ -464,7 +464,7 @@ class WatchControlDialog(QDialog):
         self.pause_btn.clicked.connect(self._toggle_pause)
         self.open_out_btn = QPushButton(self.tr("Open Output Folder"))
         self.open_out_btn.clicked.connect(self.tray.open_output)
-        self.launch_btn = QPushButton(self.tr("Launch VRD Next"))
+        self.launch_btn = QPushButton(self.tr("Launch Snipwright"))
         self.launch_btn.clicked.connect(self.tray.launch_editor)
         for b in (self.scan_btn, self.pause_btn, self.open_out_btn,
                   self.launch_btn):
@@ -619,7 +619,7 @@ class WatchControlDialog(QDialog):
             self.comskip_label.setStyleSheet("")
         else:
             self.comskip_label.setText(
-                self.tr("⚠ Comskip isn't set. Open the VRD Next editor → Settings and "
+                self.tr("⚠ Comskip isn't set. Open the Snipwright editor → Settings and "
                 "set the Comskip program (and .ini); the watcher reads it from "
                 "there.")
             )
@@ -693,7 +693,7 @@ class WatcherTray:
         self.no_tray = not QSystemTrayIcon.isSystemTrayAvailable()
 
         self.tray = QSystemTrayIcon(make_tray_icon())
-        self.tray.setToolTip(self.tr("VRD Next Watcher"))
+        self.tray.setToolTip(self.tr("Snipwright Watcher"))
         self._build_menu()
         self.tray.activated.connect(self._on_activated)
 
@@ -707,7 +707,7 @@ class WatcherTray:
         else:
             self.tray.show()
             self._notify(
-                self.tr("VRD Next Watcher"),
+                self.tr("Snipwright Watcher"),
                 self.tr("Watching for recordings. Right-click the tray icon for "
                 "options."),
             )
@@ -727,7 +727,7 @@ class WatcherTray:
         self.act_pause = menu.addAction(self.tr("Pause"))
         self.act_pause.triggered.connect(lambda: self.set_paused(not self.cfg.paused))
         menu.addSeparator()
-        self.act_launch = menu.addAction(self.tr("Launch VRD Next"))
+        self.act_launch = menu.addAction(self.tr("Launch Snipwright"))
         self.act_launch.triggered.connect(self.launch_editor)
         self.act_output = menu.addAction(self.tr("Open output folder"))
         self.act_output.triggered.connect(self.open_output)
@@ -828,19 +828,19 @@ class WatcherTray:
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(CONFIG_DIR)))
 
     def launch_editor(self):
-        """Start the main VRD Next editor as a separate process."""
+        """Start the main Snipwright editor as a separate process."""
         here = os.path.dirname(os.path.abspath(__file__))   # .../src/watch
         main_py = os.path.normpath(os.path.join(here, os.pardir, "main.py"))
         if not os.path.isfile(main_py):
             self._notify(
-                self.tr("Launch VRD Next"),
+                self.tr("Launch Snipwright"),
                 self.tr("Couldn't find the editor (main.py) next to the watcher."),
             )
             return
         try:
             subprocess.Popen([sys.executable, main_py])
         except OSError as exc:
-            self._notify(self.tr("Launch VRD Next"), self.tr("Couldn't launch the editor:\n%s") % exc)
+            self._notify(self.tr("Launch Snipwright"), self.tr("Couldn't launch the editor:\n%s") % exc)
 
     def open_ignore_editor(self):
         # The tray's context menu is a popup owned by the tray rather than an
@@ -922,7 +922,7 @@ class WatcherTray:
             ) % (len(pruned), ", ".join(sorted(pruned)))
         self._set_status(msg)
         if projects or pruned:
-            self._notify(self.tr("VRD Next Watcher"), msg)
+            self._notify(self.tr("Snipwright Watcher"), msg)
 
     # --- helpers ---------------------------------------------------------- #
 
@@ -933,7 +933,7 @@ class WatcherTray:
         return QCoreApplication.translate("WatcherTray", text)
 
     def _set_status(self, text):
-        self.tray.setToolTip(self.tr("VRD Next Watcher\n%s") % text)
+        self.tray.setToolTip(self.tr("Snipwright Watcher\n%s") % text)
         if self.dialog is not None:
             self.dialog.set_status(text)
 

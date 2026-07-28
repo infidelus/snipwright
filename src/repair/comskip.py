@@ -168,7 +168,7 @@ class ComskipWorker(QThread):
         self.ini = ini
         self.source_path = source_path
         self._cancel = False
-        self._out_dir = tempfile.mkdtemp(prefix="vrd-next-comskip-")
+        self._out_dir = tempfile.mkdtemp(prefix="snipwright-comskip-")
 
     def cancel(self):
         self._cancel = True

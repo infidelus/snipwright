@@ -14,7 +14,7 @@ import os
 
 
 # Bump if the on-disk shape ever changes in an incompatible way.
-JOINER_FORMAT = "vrd-next-joiner"
+JOINER_FORMAT = "snipwright-joiner"
 JOINER_VERSION = 1
 
 # File extension for a saved joiner list.

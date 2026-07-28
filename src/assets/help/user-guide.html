@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>VRD Next User Guide</title>
+<title>Snipwright User Guide</title>
 <style>
   body {
     font-family: "Segoe UI", "DejaVu Sans", sans-serif;
@@ -79,7 +79,7 @@
 </head>
 <body>
 
-<h1>VRD Next User Guide</h1>
+<h1>Snipwright User Guide</h1>
 <p class="lead">A frame-accurate, lossless video cutter for Linux &mdash; inspired
 by VideoReDo.</p>
 
@@ -99,27 +99,27 @@ by VideoReDo.</p>
 </div>
 
 <h2 id="intro">1. Introduction</h2>
-<p>VRD Next cuts unwanted sections &mdash; such as adverts &mdash; out of video
+<p>Snipwright cuts unwanted sections &mdash; such as adverts &mdash; out of video
 recordings frame-accurately and, wherever possible, <strong>losslessly</strong>: the
 kept video is stream-copied rather than re-encoded, so there is no quality loss and
 exports are fast. It handles common broadcast and file formats, including H.264 and
 MPEG-2, and works with most videos rather than any one source in particular.</p>
-<p>If VRD Next feels familiar, that is deliberate. I have used <strong>VideoReDo</strong>
+<p>If Snipwright feels familiar, that is deliberate. I have used <strong>VideoReDo</strong>
 for around two decades, and I have kept the interface as close to it as I sensibly can
 &mdash; comfortable and familiar for anyone moving across &mdash; and made the
 functionality work in a VideoReDo-like way wherever possible. Think of it as a
-<strong>lighter alternative</strong>, though: VRD Next brings the core VideoReDo workflow
+<strong>lighter alternative</strong>, though: Snipwright brings the core VideoReDo workflow
 to a native Linux application, but it does not aim to match VideoReDo's full feature set.</p>
-<p>Beyond cutting, VRD Next can detect commercials automatically with Comskip, rename
+<p>Beyond cutting, Snipwright can detect commercials automatically with Comskip, rename
 recordings using data from TMDB, and help semi-automate the whole record-to-library
 routine through a folder watcher and a batch queue. It does not run end-to-end on its own
 &mdash; you stay in the loop &mdash; but it takes a lot of the manual work out.</p>
-<div class="note">VRD Next needs <code>ffmpeg</code> and <code>ffprobe</code> on your
+<div class="note">Snipwright needs <code>ffmpeg</code> and <code>ffprobe</code> on your
 system. Comskip is optional but recommended for automatic ad detection (see section 4).</div>
 
 <h2 id="start">2. Getting started</h2>
 <p>Open a recording with <strong>File &rarr; Open Video</strong> (<kbd>Ctrl+O</kbd>),
-or pick a recent one from <strong>File &rarr; Open Recent</strong>. VRD Next opens the
+or pick a recent one from <strong>File &rarr; Open Recent</strong>. Snipwright opens the
 common broadcast and file types &mdash; <code>.ts</code>, <code>.mkv</code>,
 <code>.mp4</code>, <code>.m2ts</code>, <code>.mov</code>, <code>.avi</code> and the
 MPEG program-stream family (<code>.mpg</code>, <code>.mpeg</code>, <code>.vob</code>)
@@ -138,13 +138,13 @@ editor window has four main areas:</p>
   <li><strong>Transport controls</strong> &mdash; play, step and seek, with the current
   scene's start, end and duration shown alongside.</li>
 </ul>
-<p align="center" class="figrow"><img class="gimg m800" src="img/editor-overview.png" width="800" height="532" alt="The VRD Next editor window"></p>
+<p align="center" class="figrow"><img class="gimg m800" src="img/editor-overview.png" width="800" height="533" alt="The Snipwright editor window"></p>
 <p align="center" class="cap">The editor window: &#9312; preview &middot; &#9313; scene list &middot;
 &#9314; thumbnail bar and timeline (green&nbsp;=&nbsp;keep, red&nbsp;=&nbsp;cut) &middot;
 &#9315; transport controls.</p>
-<p>The first time you open a recording, VRD Next builds a frame index so it can seek
+<p>The first time you open a recording, Snipwright builds a frame index so it can seek
 accurately. This is cached, so opening the same file again is instant.</p>
-<div class="note">VRD Next ships with one-step installers in the <code>packaging</code>
+<div class="note">Snipwright ships with one-step installers in the <code>packaging</code>
 folder &mdash; <code>install-linux.sh</code> for Debian/Ubuntu/Mint and
 <code>install-windows.ps1</code> for Windows &mdash; which set up the dependencies, a
 virtual environment, and menu/desktop shortcuts, so you can start it from your
@@ -152,7 +152,7 @@ applications menu like any other program. See the <code>README</code> there for 
 
 <h2 id="cutting">3. Marking and cutting</h2>
 <h3>Two ways of working: Cut Mode and Scene Mode</h3>
-<p>VRD Next offers the same two editing modes as VideoReDo, chosen under
+<p>Snipwright offers the same two editing modes as VideoReDo, chosen under
 <strong>Settings &rarr; General &rarr; Editing mode</strong>. The choice takes effect the
 next time you open a video.</p>
 <ul>
@@ -244,10 +244,10 @@ over.</p>
 adverts. Run it from the <strong>Tools</strong> menu (<kbd>Ctrl+A</kbd>); it analyses the
 recording in the background and turns its results into kept scenes, which you can then
 fine-tune by eye.</p>
-<p>Comskip is a separate, free program and is <strong>not</strong> bundled with VRD Next,
+<p>Comskip is a separate, free program and is <strong>not</strong> bundled with Snipwright,
 so you will need to download and install it first from its home on GitHub:
 <a href="https://github.com/erikkaashoek/Comskip">github.com/erikkaashoek/Comskip</a>.
-Once it is installed, point VRD Next at the Comskip binary and your <code>.ini</code> file
+Once it is installed, point Snipwright at the Comskip binary and your <code>.ini</code> file
 under <strong>Settings &rarr; External tools</strong>.</p>
 <div class="note">If your recorder writes the channel name into the filename (for example
 Tvheadend, via its <code>$c</code> format), you can use a different <code>.ini</code> per
@@ -264,8 +264,8 @@ that don't put the channel in the filename (such as Plex or Jellyfin) simply use
 <p>Your cuts can be saved and reloaded as a project. <strong>Import Project</strong> reads
 VideoReDo <code>.vprj</code> files (both the V5 VRD and V3 Comskip dialects) and EDL files;
 <strong>Export Project</strong> writes them back out. This lets you move edits between
-VRD Next and other tools, or keep a record of your cuts without re-exporting the video.</p>
-<div class="note">When a project is moved between VRD Next and VideoReDo, individual cut
+Snipwright and other tools, or keep a record of your cuts without re-exporting the video.</p>
+<div class="note">When a project is moved between Snipwright and VideoReDo, individual cut
 marks may shift by a frame or two &mdash; the two editors index frames slightly differently
 internally. The cut each editor makes is still frame-accurate to the marks it is showing
 you. <strong>If a mark looks wrong in whichever editor you are using, correct it there
@@ -311,12 +311,12 @@ it, and even save that one while the first is still encoding.</p>
 &mdash; pressing <strong>Start</strong> runs the other queued jobs and leaves that one to
 finish on its own. If you change your mind, select its row and press <strong>Remove</strong>
 &mdash; that offers to stop the export and discard the part-finished file, and the row goes
-once the encoder has actually stopped. If you quit VRD Next before it finishes you will be
+once the encoder has actually stopped. If you quit Snipwright before it finishes you will be
 warned, because closing the application does stop it.</div>
 <h3>Output profiles</h3>
 <p>Manage profiles under <strong>Tools &rarr; Manage Profiles</strong>. The settings below
 are the fields <em>inside</em> a profile, not the profile names you choose from when saving
-&mdash; VRD Next ships with three profiles (<strong>Match Source</strong>, <strong>Matroska
+&mdash; Snipwright ships with three profiles (<strong>Match Source</strong>, <strong>Matroska
 MKV</strong> and <strong>MP4</strong>), and each of them is simply a saved combination of
 these fields. Note that &ldquo;Match Source&rdquo; is both the name of a built-in profile and
 one of the Container choices, which is worth keeping straight. A profile controls:</p>
@@ -334,7 +334,7 @@ one of the Container choices, which is worth keeping straight. A profile control
   lossless copy they're greyed out. A slower preset gives better quality for the same file
   size, at the cost of time. A lower CRF means better quality and a bigger file.
   <strong>Automatic</strong> picks a sensible CRF for the codec, and the defaults are what
-  VRD Next has always used &mdash; so there's no need to touch either unless you want to.</li>
+  Snipwright has always used &mdash; so there's no need to touch either unless you want to.</li>
   <li><strong>Keyframes every</strong> &mdash; how far apart keyframes are placed in a
   re-encode. Keyframes are complete pictures and are several times the size of the frames
   between them, so spacing them further apart makes a noticeably smaller file at the same
@@ -348,7 +348,7 @@ one of the Container choices, which is worth keeping straight. A profile control
   <li><strong>Cropping</strong> &mdash; remove black bars (see below).</li>
   <li><strong>Default directory</strong> &mdash; a per-profile destination folder.</li>
 </ul>
-<p align="center" class="figrow"><img class="gimg m460" src="img/profile-editor.png" width="460" height="473" alt="The output profile editor"></p>
+<p align="center" class="figrow"><img class="gimg m460" src="img/profile-editor.png" width="460" height="617" alt="The output profile editor"></p>
 <p align="center" class="cap">Editing an output profile.</p>
 <h3>Cropping</h3>
 <p>Cropping removes letterbox or pillarbox black bars. Because the bars are part of the
@@ -380,12 +380,12 @@ or send an entry back to the editor to trim it.</p>
 <p><strong>Joiner &rarr; Create Video From Joiner List</strong> renders the result through
 the same Save Video dialogue and output profiles as a normal save. Scenes that share one
 format are joined losslessly by stream copy &mdash; an MKV gets a chapter at each join
-&mdash; while a mix of formats is re-encoded to a common one (VRD Next recommends
+&mdash; while a mix of formats is re-encoded to a common one (Snipwright recommends
 suitable settings). Title cards and fades apply during a re-encoded join, so adding them
 to otherwise matching clips trades a little speed and quality for the effect.</p>
 
 <h2 id="renaming">6. Renaming recordings</h2>
-<p>VRD Next can rename recordings into a tidy layout that media servers like
+<p>Snipwright can rename recordings into a tidy layout that media servers like
 <strong>Plex</strong>, <strong>Jellyfin</strong>, <strong>Emby</strong> and
 <strong>Kodi</strong> understand, using data from <strong>TMDB</strong> (The Movie Database).
 There are separate renamers for TV and film, reached from the <strong>Tools</strong> menu.</p>
@@ -405,7 +405,7 @@ type your own; <strong>Save&hellip;</strong> stores the current pattern under a 
 joins the list for reuse, and <strong>Delete</strong> removes one of your own saved presets
 (the built-in ones can't be deleted). The TV and film renamers keep their own separate
 preset lists.</p>
-<p align="center" class="figrow"><img class="gimg m762" src="img/tv-renamer.png" width="762" height="592" alt="The TV renamer with the episode picker open"></p>
+<p align="center" class="figrow"><img class="gimg m762" src="img/tv-renamer.png" width="762" height="594" alt="The TV renamer with the episode picker open"></p>
 <p align="center" class="cap">The TV renamer, with the episode picker open over the recording list.</p>
 <h3>Film renamer</h3>
 <p>The film renamer works the same way for films, matching each recording to a title and
@@ -419,10 +419,10 @@ the adverts are, saving the result as a <strong>project file</strong>. It does n
 rename anything itself &mdash; it prepares the cuts for you. You stay in control: open a
 project in the editor to check and adjust the marks by eye, or add it to the Batch Manager
 to process as-is.</p>
-<p align="center" class="figrow"><img class="gimg m560" src="img/watcher.png" width="560" height="655" alt="The watcher window"></p>
+<p align="center" class="figrow"><img class="gimg m560" src="img/watcher.png" width="560" height="643" alt="The watcher window"></p>
 <p align="center" class="cap">The watcher: the folders it monitors, its schedule, and where it saves projects.</p>
 <div class="note">The watcher runs in the system tray and works <strong>completely
-independently</strong> of the main editor &mdash; you do not need VRD Next open for it to do
+independently</strong> of the main editor &mdash; you do not need Snipwright open for it to do
 its job.</div>
 <h3>Ignoring programmes you do not want</h3>
 <p>Not every recording in the folder is yours to worry about. Right-click the tray icon and
@@ -472,7 +472,7 @@ the Batch Manager.</div>
 </ul>
 <div class="note">The <strong>Theme</strong> on the General page lets you follow your
 desktop's own colours or pin a <strong>Light</strong> or <strong>Dark</strong> look for
-VRD Next, and applies straight away. The editor's timeline and thumbnail bars stay dark in
+Snipwright, and applies straight away. The editor's timeline and thumbnail bars stay dark in
 every theme, as is usual in video editors.</div>
 <p>Keyboard shortcuts can also be viewed and customised here, through the built-in config
 editor.</p>
@@ -537,16 +537,16 @@ rather than the current setting.</p>
   <li><strong>Cutting a Blu-ray or 4K file is slow and memory-hungry:</strong> very large,
   high-bitrate sources (Blu-ray and UHD) take far longer to analyse for cut points than a
   broadcast recording, and can use several gigabytes of RAM while doing so &mdash; the cut
-  itself is still lossless. This is expected for that class of file; VRD Next is aimed at
+  itself is still lossless. This is expected for that class of file; Snipwright is aimed at
   broadcast TV recordings, which cut quickly and lightly.</li>
 </ul>
 
 <h2 id="videoredo">11. Coming from VideoReDo</h2>
-<p>VRD Next covers the parts of VideoReDo most people used day to day, but it does not always
+<p>Snipwright covers the parts of VideoReDo most people used day to day, but it does not always
 use the same words for them. If you are looking for a familiar setting and cannot find it,
 it is probably here under another name.</p>
 <table>
-  <tr><th>VideoReDo</th><th>VRD Next</th><th>Notes</th></tr>
+  <tr><th>VideoReDo</th><th>Snipwright</th><th>Notes</th></tr>
   <tr>
     <td>Intelligent Recode</td>
     <td>The default &mdash; no setting to change</td>
@@ -596,16 +596,16 @@ it is probably here under another name.</p>
   <tr>
     <td>QuickStream Fix</td>
     <td><strong>Tools &rarr; Quick Stream Fix</strong></td>
-    <td>Repairs broken broadcast streams by remuxing them. VRD Next also offers it
+    <td>Repairs broken broadcast streams by remuxing them. Snipwright also offers it
     automatically when a recording will not open cleanly.</td>
   </tr>
   <tr>
     <td>Ad-Detective</td>
     <td><a href="https://github.com/erikkaashoek/Comskip">Comskip</a>, plus the Watcher</td>
     <td>A different tool, not a rebadged one. Ad-Detective was built into VideoReDo and
-    tuned through its own parameters dialogue; Comskip is a separate program that VRD Next
+    tuned through its own parameters dialogue; Comskip is a separate program that Snipwright
     calls, and it is configured through an <code>.ini</code> file rather than a GUI. There
-    is no equivalent of the Ad-Detective parameters window. What VRD Next does with the
+    is no equivalent of the Ad-Detective parameters window. What Snipwright does with the
     result is the same idea: the detected breaks become ready-to-review cuts you confirm
     before saving, and the Watcher can run the whole thing over new recordings unattended.
     Comskip repays being tuned to your source &mdash; its frame rate especially &mdash; and
@@ -618,7 +618,7 @@ it is probably here under another name.</p>
     mid-flight with <strong>Send to Batch</strong>.</td>
   </tr>
 </table>
-<div class="note">Not everything has an equivalent. VRD Next cannot <em>convert</em> a
+<div class="note">Not everything has an equivalent. Snipwright cannot <em>convert</em> a
 recording to MPEG-2 &mdash; its full re-encode options are H.264 and HEVC &mdash; so there
 is nothing here for producing DVD-compliant output, and no DVD authoring. Nor are there
 joiner-side title cards beyond what is described above. It was written to replace the parts
@@ -629,8 +629,8 @@ mid-GOP, in MPEG-2, so the result is a normal MPEG-2 file that plays anywhere it
 did. The only thing missing is choosing MPEG-2 as an output format for a file that is not
 already MPEG-2.</div>
 
-<p class="lead">VRD Next is open source &mdash;
-<a href="https://github.com/infidelus/vrd-next">github.com/infidelus/vrd-next</a>.</p>
+<p class="lead">Snipwright is open source &mdash;
+<a href="https://github.com/infidelus/snipwright">github.com/infidelus/snipwright</a>.</p>
 
 </body>
 </html>

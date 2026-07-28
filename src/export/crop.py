@@ -341,7 +341,7 @@ def crop_reencode(in_path, out_path, rect=None, *, cap_kbps, fps, sar=None,
         crf = 24 if hevc else 20           # HEVC needs a touch less to match
     # Keyframe spacing.  I-frames are several times the size of the frames
     # between them and they reset the encoder's prediction chain, so how far
-    # apart they sit has a real effect on the file size.  VRD Next used to pin
+    # apart they sit has a real effect on the file size.  Snipwright used to pin
     # this at one second, which is broadcast practice and wasteful for a file
     # that is going to be played rather than re-cut.
     if gop_seconds is None or int(gop_seconds) <= 0:

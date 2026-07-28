@@ -35,7 +35,7 @@ class FilesPage(SettingsPage):
         self._qsf_no_rewarn.setChecked(s.get("qsf_no_rewarn", False))
         self.add(self._qsf_no_rewarn)
         self.add(hint(
-            self.tr("VRD Next remembers files it has already Quick Stream Fixed and "
+            self.tr("Snipwright remembers files it has already Quick Stream Fixed and "
             "asks before repairing one again. Tick this to skip that prompt.")
         ))
 

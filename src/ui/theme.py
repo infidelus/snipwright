@@ -1,4 +1,4 @@
-"""Light / dark theming for VRD Next.
+"""Light / dark theming for Snipwright.
 
 By default the editor follows the desktop's own colours (on Linux Mint, whatever
 GTK theme is set).  These helpers let the user pin a **Light** or **Dark** look
@@ -93,7 +93,7 @@ def apply_theme(app, mode, wrap_style=None):
     """Apply ``mode`` ("system" | "light" | "dark") to the running application.
 
     ``wrap_style`` optionally wraps the chosen QStyle before it's installed -
-    VRD Next passes its slow-tooltip proxy so the hover delay is preserved.
+    Snipwright passes its slow-tooltip proxy so the hover delay is preserved.
     ``remember_original`` is called first, so "system" always has the desktop's
     original look to restore.
     """

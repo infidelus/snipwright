@@ -132,7 +132,7 @@ VIDEO_OPEN_FILTER = _vf("Videos", ".ts", ".m2ts", ".mkv", ".mp4", ".mov",
                         ".avi", ".mpg", ".mpeg", ".vob", ".m2v")
 
 
-log = logging.getLogger("vrd-next")
+log = logging.getLogger("snipwright")
 
 
 class MainWindow(QMainWindow):
@@ -197,6 +197,10 @@ class MainWindow(QMainWindow):
         # up (deferred so it applies after show()).
         if win.get("maximized", False):
             QTimer.singleShot(0, self.showMaximized)
+
+        # If settings were brought across from the application's previous name,
+        # say so rather than moving somebody's configuration about silently.
+        QTimer.singleShot(0, self._report_config_migration)
 
         self.frames = []
         self.current_frame = 0
@@ -1065,7 +1069,7 @@ class MainWindow(QMainWindow):
         film_action = extras_menu.addAction(self.tr("Film Renamer…"))
         film_action.triggered.connect(self._open_film_renamer)
 
-        watcher_action = extras_menu.addAction(self.tr("Launch VRD Next Watcher"))
+        watcher_action = extras_menu.addAction(self.tr("Launch Snipwright Watcher"))
         watcher_action.triggered.connect(self._launch_watcher)
 
         #
@@ -1099,7 +1103,7 @@ class MainWindow(QMainWindow):
         )
         from utils.icons import app_icon
 
-        url = "https://github.com/infidelus/vrd-next"
+        url = "https://github.com/infidelus/snipwright"
 
         dialog = QDialog(self)
         dialog.setWindowTitle(self.tr("About %s") % APP_NAME)
@@ -1163,7 +1167,7 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _launch_watcher(self):
-        """Start the standalone VRD Next Watcher tray app as its own detached
+        """Start the standalone Snipwright Watcher tray app as its own detached
         process.
 
         If a Watcher is already running we just say so rather than spawning a
@@ -1179,8 +1183,8 @@ class MainWindow(QMainWindow):
         if watcher_is_running():
             QMessageBox.information(
                 self,
-                self.tr("VRD Next Watcher"),
-                self.tr("The VRD Next Watcher is already running - look for its icon "
+                self.tr("Snipwright Watcher"),
+                self.tr("The Snipwright Watcher is already running - look for its icon "
                 "in your system tray."),
             )
             return
@@ -1193,7 +1197,7 @@ class MainWindow(QMainWindow):
         if not os.path.exists(watcher_py):
             QMessageBox.warning(
                 self,
-                self.tr("VRD Next Watcher"),
+                self.tr("Snipwright Watcher"),
                 self.tr("Couldn't find watcher.py alongside the application."),
             )
             return
@@ -1208,15 +1212,15 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(
                 self,
-                self.tr("VRD Next Watcher"),
+                self.tr("Snipwright Watcher"),
                 self.tr("Couldn't start the Watcher:\n%s") % e,
             )
             return
 
         QMessageBox.information(
             self,
-            self.tr("VRD Next Watcher"),
-            self.tr("The VRD Next Watcher has started and now lives in your system "
+            self.tr("Snipwright Watcher"),
+            self.tr("The Snipwright Watcher has started and now lives in your system "
             "tray."),
         )
 
@@ -1540,7 +1544,7 @@ class MainWindow(QMainWindow):
         # way Open Project does.  A single reused path is fine: only one Edit
         # selection can be in flight at a time, and load_project_file reads the
         # file during its deferred after-index step.
-        tmp = os.path.join(tempfile.gettempdir(), "vrd-next-joiner-edit.vprj")
+        tmp = os.path.join(tempfile.gettempdir(), "snipwright-joiner-edit.vprj")
         save_vprj_from_cuts(
             tmp, entry.source, entry.cuts, entry.total_duration, entry.fps)
         self.load_project_file(tmp, title="Edit Joiner Selection",
@@ -2071,7 +2075,7 @@ class MainWindow(QMainWindow):
         box.setIcon(QMessageBox.Information)
         box.setWindowTitle(self.tr("Language changed"))
         box.setText(self.tr(
-            "The interface language will change when VRD Next is restarted."
+            "The interface language will change when Snipwright is restarted."
         ))
         box.setInformativeText(self.tr("Restart now?"))
         restart_btn = box.addButton(
@@ -2084,7 +2088,7 @@ class MainWindow(QMainWindow):
             self._restart_application()
 
     def _restart_application(self):
-        """Relaunch VRD Next.  The restart goes through the normal window close,
+        """Relaunch Snipwright.  The restart goes through the normal window close,
         so any unsaved project or running batch is handled first; if the user
         cancels at one of those prompts, the restart is abandoned and the app
         stays open."""
@@ -2267,9 +2271,9 @@ class MainWindow(QMainWindow):
         working copy."""
         base = os.path.splitext(os.path.basename(path or ""))[0]
         for prefix in (
-                "vrd-next-manual-fix-",
-                "vrd-next-export-fix-",
-                "vrd-next-",
+                "snipwright-manual-fix-",
+                "snipwright-export-fix-",
+                "snipwright-",
         ):
             if base.startswith(prefix):
                 base = base[len(prefix):]
@@ -4667,6 +4671,27 @@ class MainWindow(QMainWindow):
 
         event.accept()
 
+    def _report_config_migration(self):
+        """Tell the user if their settings were copied from the old folder.
+
+        Shown once, on the first run after the rename - the migration only
+        happens once, so this only fires once.  A message box rather than a
+        status line: settings moving house is worth a moment's attention, and
+        the status bar is easy to miss.
+        """
+        from config.loader import MIGRATION_NOTE
+        if not MIGRATION_NOTE:
+            return
+        log.info(MIGRATION_NOTE)
+        if MIGRATION_NOTE.startswith("Couldn't"):
+            QMessageBox.warning(self, self.tr("Settings"), MIGRATION_NOTE)
+        else:
+            self.statusBar().showMessage(
+                self.tr("Settings brought across from your previous "
+                        "installation."), 10000)
+            QMessageBox.information(
+                self, self.tr("Settings moved"), MIGRATION_NOTE)
+
     def commit_selection(self):
         """Save the pending IN/OUT as a kept (green) range."""
         if self.selection.commit_range():
@@ -5718,14 +5743,14 @@ app = QApplication(
 )
 
 # Identify the application to the desktop environment so a launched window
-# groups under the pinned launcher (vrd-next.desktop) rather than appearing as a
+# groups under the pinned launcher (snipwright.desktop) rather than appearing as a
 # second panel icon.  setDesktopFileName drives the Wayland app_id and the X11
 # WM_CLASS the panel matches against StartupWMClass in the .desktop file.
-app.setApplicationName("vrd-next")
+app.setApplicationName("snipwright")
 # Deliberately no setApplicationDisplayName: the desktop appends it to the
-# window title, which already starts with "VRD Next <version>", giving a
-# redundant "... - VRD Next".  The window title carries the name itself.
-app.setDesktopFileName("vrd-next")
+# window title, which already starts with "Snipwright <version>", giving a
+# redundant "... - Snipwright".  The window title carries the name itself.
+app.setDesktopFileName("snipwright")
 
 # Application icon (window + taskbar).  Set on the QApplication so every
 # top-level window and dialog inherits it.
@@ -5804,7 +5829,7 @@ except Exception:
 
 window.show()
 
-# Open a file passed on the command line (e.g. "Open with VRD Next" from the
+# Open a file passed on the command line (e.g. "Open with Snipwright" from the
 # file manager, which the .desktop entry forwards via %f).  A video opens in
 # the editor; a .vprj/.edl project loads its video and cuts.  Anything we don't
 # recognise is ignored - the app just opens empty.  Done after show() so the

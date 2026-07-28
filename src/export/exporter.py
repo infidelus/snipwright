@@ -131,7 +131,7 @@ def frame_to_time(source, frame_num, end_frame=False):
 def ranges_to_segments(source, keep_ranges, frame_index=None):
     """Convert kept frame ranges to (start_time, end_time) segments.
 
-    The frame numbers in keep_ranges are indices into VRD-Next's FrameIndex.
+    The frame numbers in keep_ranges are indices into Snipwright's FrameIndex.
     For field-coded (PAFF) sources that index is COLLAPSED to one entry per
     displayable frame, so it has fewer entries than the file has coded
     pictures.  smartcut's own frame list (source.video_frame_times) counts every
@@ -150,7 +150,7 @@ def ranges_to_segments(source, keep_ranges, frame_index=None):
             for a, b in keep_ranges
         ]
 
-    # keep_ranges index VRD-Next's FrameIndex.  For field-coded (PAFF) sources
+    # keep_ranges index Snipwright's FrameIndex.  For field-coded (PAFF) sources
     # that index is COLLAPSED to one entry per displayable frame, so it has
     # fewer entries than smartcut's own frame list (which counts every coded
     # picture).  Indexing smartcut's list with a collapsed number lands on the

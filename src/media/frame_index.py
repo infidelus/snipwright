@@ -35,7 +35,7 @@ from PySide6.QtCore import (
 CACHE_DIR = (
     Path.home()
     / ".cache"
-    / "vrd-next"
+    / "snipwright"
     / "index"
 )
 

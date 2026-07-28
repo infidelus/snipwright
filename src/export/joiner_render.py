@@ -247,7 +247,7 @@ class JoinerRenderWorker(QThread):
             raise _Cancelled()
 
     def run(self):
-        tmpdir = tempfile.mkdtemp(prefix="vrd-next-joiner-")
+        tmpdir = tempfile.mkdtemp(prefix="snipwright-joiner-")
         index_cache = {}
         segments = []
         durations = []

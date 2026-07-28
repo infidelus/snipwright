@@ -1,5 +1,5 @@
 <#
-    One-step setup for VRD Next on Windows 10/11.
+    One-step setup for Snipwright on Windows 10/11.
 
     Right-click this file and choose "Run with PowerShell", or from a PowerShell
     window run:
@@ -11,7 +11,7 @@
          (Windows' built-in package manager) for anything missing;
       2. create a virtual environment in the project root (.venv) and install
          the Python dependencies from requirements.txt into it;
-      3. create a Start-menu and Desktop shortcut called "VRD Next", using the
+      3. create a Start-menu and Desktop shortcut called "Snipwright", using the
          app icon, that launches without a console window.
 
     It reports each step and pauses at the end, so you can see what happened.
@@ -161,7 +161,7 @@ if ($LASTEXITCODE -ne 0) {
 & $venvPy -c "import PySide6, av, numpy, bitstring, tqdm" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Warn "Python dependencies still aren't importing.  The shortcuts will be"
-    Warn "created, but VRD Next may not start until this is resolved - check the"
+    Warn "created, but Snipwright may not start until this is resolved - check the"
     Warn "messages above."
 }
 
@@ -176,7 +176,12 @@ function New-AppShortcut($linkPath) {
         $lnk.TargetPath       = $venvPyw
         $lnk.Arguments        = '"' + $mainPy + '"'
         $lnk.WorkingDirectory = $Src
-        if (Test-Path $Icon) { $lnk.IconLocation = $Icon }
+        # IconLocation wants "path,index".  Without the ,0 Windows does not
+        # reliably pick the right frame out of a multi-size .ico and often
+        # settles on the smallest one, which is then scaled up for the desktop
+        # and looks awful.  The .vprj registration below has always set an
+        # index; this had been missed.
+        if (Test-Path $Icon) { $lnk.IconLocation = "$Icon,0" }
         $lnk.Description      = "Frame-accurate cutter for broadcast recordings"
         $lnk.Save()
         if (Test-Path $linkPath) { Info "Created: $linkPath" }
@@ -192,19 +197,19 @@ foreach ($dir in @($startMenu, $desktop)) {
     if ($dir -and -not (Test-Path $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
-    New-AppShortcut (Join-Path $dir "VRD Next.lnk")
+    New-AppShortcut (Join-Path $dir "Snipwright.lnk")
 }
 
 # --- .vprj association (per-user, non-destructive) ------------------------
-# Register VRD Next as an available handler for .vprj so it shows up under
+# Register Snipwright as an available handler for .vprj so it shows up under
 # "Open with", WITHOUT making it the default - VideoReDo (or whatever the user
 # already has) keeps the default.  All under HKCU, so no admin is needed and
 # nothing system-wide changes.  Mirrors what the Linux installer does.
 try {
-    $progId = "VRDNext.Project"
+    $progId = "Snipwright.Project"
     $classes = "HKCU:\Software\Classes"
 
-    # Define the ProgID: how to open a .vprj with VRD Next.
+    # Define the ProgID: how to open a .vprj with Snipwright.
     $cmd = "`"$venvPyw`" `"$mainPy`" `"%1`""
     New-Item -Path "$classes\$progId\shell\open\command" -Force | Out-Null
     # The ProgID's (default) is the file-type description (details column).
@@ -214,8 +219,8 @@ try {
     # it, Windows reads the command, sees pythonw.exe, and labels the entry
     # "Python" - so set it explicitly on both the ProgID and its open verb
     # (different Windows versions read it from different places).
-    Set-ItemProperty -Path "$classes\$progId" -Name "FriendlyAppName" -Value "VRD Next"
-    Set-ItemProperty -Path "$classes\$progId\shell\open" -Name "FriendlyAppName" -Value "VRD Next"
+    Set-ItemProperty -Path "$classes\$progId" -Name "FriendlyAppName" -Value "Snipwright"
+    Set-ItemProperty -Path "$classes\$progId\shell\open" -Name "FriendlyAppName" -Value "Snipwright"
     # Use the project-file icon (a document, distinct from the app icon) for
     # .vprj files themselves.  Falls back to the app icon if it's not present.
     $vprjIcon = if (Test-Path $ProjIcon) { $ProjIcon } else { $Icon }
@@ -238,26 +243,35 @@ try {
     # Windows would otherwise show Python's icon and name there.  Registering a
     # named Applications entry with its own FriendlyAppName and DefaultIcon,
     # and listing it in the extension's OpenWithList, gives the menu entry the
-    # VRD Next icon and name.
-    $appKey = "$classes\Applications\vrd-next.exe"
+    # Snipwright icon and name.
+    $appKey = "$classes\Applications\snipwright.exe"
     New-Item -Path "$appKey\shell\open\command" -Force | Out-Null
-    Set-ItemProperty -Path "$appKey" -Name "FriendlyAppName" -Value "VRD Next"
+    Set-ItemProperty -Path "$appKey" -Name "FriendlyAppName" -Value "Snipwright"
     Set-ItemProperty -Path "$appKey\shell\open\command" -Name "(default)" -Value $cmd
     if (Test-Path $Icon) {
         New-Item -Path "$appKey\DefaultIcon" -Force | Out-Null
         Set-ItemProperty -Path "$appKey\DefaultIcon" -Name "(default)" -Value "$Icon,0"
     }
     # Let .vprj offer this application under "Open with".
-    New-Item -Path "$classes\.vprj\OpenWithList\vrd-next.exe" -Force | Out-Null
+    New-Item -Path "$classes\.vprj\OpenWithList\snipwright.exe" -Force | Out-Null
 
-    Info "Registered VRD Next as an option for .vprj files (not as the default)."
+    Info "Registered Snipwright as an option for .vprj files (not as the default)."
 } catch {
     Warn "Couldn't register the .vprj file association - $($_.Exception.Message)"
-    Warn "(VRD Next still runs; you can open projects from File > Import Project.)"
+    Warn "(Snipwright still runs; you can open projects from File > Import Project.)"
 }
 
+# Windows caches every icon it has ever drawn, keyed by path, and will happily
+# keep showing an old one after the file behind it has been replaced.  Nudging
+# the shell saves the user working out why a reinstall changed nothing.
+try {
+    ie4uinit.exe -show 2>$null
+} catch { }
+
 Section "Done."
-Info "Launch VRD Next from the Start menu or the Desktop shortcut."
+Info "Launch Snipwright from the Start menu or the Desktop shortcut."
+Info "If the shortcut still shows an old icon, Windows has cached it - log out"
+Info "and back in, or delete and re-create the shortcut."
 Info "If ffmpeg/mkvmerge were just installed, a sign-out/in may be needed for"
-Info "VRD Next to detect them (Settings > External tools shows their status)."
+Info "Snipwright to detect them (Settings > External tools shows their status)."
 Pause-Exit

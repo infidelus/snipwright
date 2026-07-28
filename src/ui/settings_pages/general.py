@@ -128,7 +128,7 @@ class GeneralPage(SettingsPage):
         self.add_layout(theme_row)
         self.add(hint(
             self.tr("Follow the desktop's own colours, or pin a Light or Dark look for "
-            "VRD Next. The editor's timeline and thumbnail bars stay dark in "
+            "Snipwright. The editor's timeline and thumbnail bars stay dark in "
             "every theme. The change applies straight away.")
         ))
 

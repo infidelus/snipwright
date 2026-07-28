@@ -1,4 +1,4 @@
-# Installing VRD Next
+# Installing Snipwright
 
 Two one-step installers set everything up (dependencies, a virtual environment,
 and menu/desktop shortcuts).  Run the one for your platform.
@@ -11,11 +11,11 @@ chmod +x install-linux.sh          # first time only
 ./install-linux.sh
 ```
 
-It installs the system packages VRD Next needs (Python, `python3-venv`,
+It installs the system packages Snipwright needs (Python, `python3-venv`,
 ffmpeg, mkvmerge and the Qt runtime libraries) via apt — asking for sudo only
 if something's missing — creates a virtual environment in the project root
 (`.venv`) on Python 3.12, installs the Python dependencies into it, adds
-**VRD Next** and **VRD Next Watcher** to your applications menu pointing at
+**Snipwright** and **Snipwright Watcher** to your applications menu pointing at
 that environment, and finally checks the installation imports cleanly.
 Re-running it is safe (the venv is reused), and re-running it (or just
 `install-desktop-entries.sh`) after moving the project updates the menu
@@ -37,7 +37,7 @@ It uses **winget** to install Python, ffmpeg and mkvmerge if they're missing,
 creates the `.venv`, installs the Python dependencies, and makes a Start-menu
 and Desktop shortcut (using the app icon) that launches without a console
 window.  If ffmpeg/mkvmerge were just installed, a sign-out/in may be needed
-before VRD Next detects them (see **Settings → External tools**).
+before Snipwright detects them (see **Settings → External tools**).
 
 > The Windows installer has had basic testing — it installs the dependencies and
 > the application launches and runs. Functionality beyond that hasn't been
@@ -61,8 +61,8 @@ project.  It also registers the editor as a handler for `.ts` and `.mkv`.
 To remove the menu entries:
 
 ```sh
-rm ~/.local/share/applications/vrd-next.desktop \
-   ~/.local/share/applications/vrd-next-watcher.desktop
+rm ~/.local/share/applications/snipwright.desktop \
+   ~/.local/share/applications/snipwright-watcher.desktop
 ```
 
 ## Icons

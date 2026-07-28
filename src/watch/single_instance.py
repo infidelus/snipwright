@@ -1,7 +1,7 @@
-"""Single-instance coordination for the VRD Next Watcher.
+"""Single-instance coordination for the Snipwright Watcher.
 
 The Watcher itself uses this to refuse starting a second copy (two tray icons
-and two background scanners would be a mess), and the editor's "Launch VRD Next
+and two background scanners would be a mess), and the editor's "Launch Snipwright
 Watcher" menu item uses it to tell the user it's already running instead of
 spawning a duplicate.  Both agree on one lock-file path defined here so they
 can never disagree.
@@ -18,9 +18,9 @@ def watcher_lock_path():
     machine don't block one another.
     """
     if hasattr(os, "getuid"):
-        name = "vrd-next-watcher-%d.lock" % os.getuid()
+        name = "snipwright-watcher-%d.lock" % os.getuid()
     else:
-        name = "vrd-next-watcher.lock"
+        name = "snipwright-watcher.lock"
 
     return os.path.join(tempfile.gettempdir(), name)
 

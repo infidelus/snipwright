@@ -1,7 +1,7 @@
 """Resolving a recording's real path from what a project file stored.
 
 A .vprj saved under VideoReDo (run via WINE) records a Windows-style path such
-as ``H:\\Recordings\\file.ts``.  Saved under VRD Next it records a normal Linux
+as ``H:\\Recordings\\file.ts``.  Saved under Snipwright it records a normal Linux
 path.  These helpers turn either into a real, existing file path, so the import
 flow and the batch manager resolve sources the same way.
 """

@@ -1,6 +1,6 @@
 @echo off
 REM ---------------------------------------------------------------------------
-REM  VRD Next - Windows installer (Command Prompt friendly)
+REM  Snipwright - Windows installer (Command Prompt friendly)
 REM
 REM  Double-click this file, or run it from a Command Prompt:
 REM      install-windows.bat

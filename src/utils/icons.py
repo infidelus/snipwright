@@ -97,8 +97,18 @@ def clear_cache():
 
 def app_icon():
     """QIcon for the application (window / taskbar).  Lives one level up from
-    the button icons, in ``src/assets``."""
-    path = os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", "assets", "app_icon.svg")
+    the button icons, in ``src/assets``.
+
+    The PNG is preferred and the SVG kept as a fallback: the application mark
+    is artwork rather than geometry, so it ships as a 1024px raster that Qt
+    scales down for each size it needs.  The other icons in the set - the
+    project document and the tray emblem - are still vector.
+    """
+    base = os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "assets")
     )
-    return QIcon(path) if os.path.exists(path) else QIcon()
+    for name in ("app_icon.png", "app_icon.svg"):
+        path = os.path.join(base, name)
+        if os.path.exists(path):
+            return QIcon(path)
+    return QIcon()

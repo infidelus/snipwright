@@ -1,4 +1,4 @@
-"""External tools page: the helper programs and API keys VRD Next relies on."""
+"""External tools page: the helper programs and API keys Snipwright relies on."""
 
 import shutil
 
@@ -92,7 +92,7 @@ class ToolsPage(SettingsPage):
         self.add(self._ffprobe_row)
         self.add(hint(
             self.tr("ffmpeg and ffprobe do the cutting, joining and stream probing. "
-            "They aren't included with VRD Next and aren't always pre-installed "
+            "They aren't included with Snipwright and aren't always pre-installed "
             "- if they're on your PATH they're detected automatically here, "
             "otherwise install them (or download a build) and set the paths. "
             "Point these at a specific build if you want a particular version.")
