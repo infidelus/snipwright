@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QGridLayout, QLabel, QPushButton, QListWidget, QLineEdit, QSpinBox,
     QCheckBox, QFileDialog, QMessageBox, QGroupBox, QPlainTextEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QComboBox,
 )
 
 from watch.config import (
@@ -323,12 +324,28 @@ class IgnoreListDialog(QDialog):
 
         layout = QVBoxLayout(self)
         info = QLabel(
-            self.tr("One programme title per line. Any recording whose file name "
-            "contains a line here is skipped (case-insensitive).\n\n"
-            "Lines starting with # are comments.")
+            self.tr("One programme title per line. Matching ignores case, and "
+            "lines starting with # are comments.")
         )
         info.setWordWrap(True)
-        layout.addWidget(info)
+
+        # The matching mode sits on the same row as the explanation, right
+        # aligned - it is a one-off setting and doesn't warrant a group box of
+        # its own taking height away from the list.
+        self.match_combo = QComboBox()
+        self.match_combo.addItem(self.tr("Programme name"), "start")
+        self.match_combo.addItem(self.tr("Keyword"), "anywhere")
+        self.match_combo.setToolTip(self.tr(
+            "<b>Programme name</b> - the file name must start with the entry."
+            "<br><b>Keyword</b> - the entry may appear anywhere in the name."
+            "<br><br>An entry beginning with * is always matched anywhere."
+        ))
+
+        top = QHBoxLayout()
+        top.addWidget(info, 1)
+        top.addWidget(QLabel(self.tr("Match:")))
+        top.addWidget(self.match_combo)
+        layout.addLayout(top)
 
         self._editor = QPlainTextEdit()
         self._editor.setLineWrapMode(QPlainTextEdit.NoWrap)
@@ -386,6 +403,8 @@ class IgnoreListDialog(QDialog):
                 self._editor.setPlainText(f.read())
         except OSError:
             self._editor.setPlainText("")
+        idx = self.match_combo.findData(self.cfg.ignore_match_mode)
+        self.match_combo.setCurrentIndex(max(0, idx))
         self.prune_chk.setChecked(self.cfg.ignore_prune_enabled)
         self.prune_spin.setValue(self.cfg.ignore_prune_months)
         self._refresh_prune_enabled()
@@ -429,6 +448,7 @@ class IgnoreListDialog(QDialog):
     def _save(self):
         if not self._write_list():
             return
+        self.cfg.ignore_match_mode = self.match_combo.currentData()
         self.cfg.ignore_prune_enabled = self.prune_chk.isChecked()
         self.cfg.ignore_prune_months = self.prune_spin.value()
         self.cfg.save()

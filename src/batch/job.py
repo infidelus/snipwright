@@ -170,6 +170,14 @@ class BatchJob:
         # a cancellation in flight when the application closes is moot.
         self.cancelling = False
 
+        # A destination folder for this job alone, chosen from the favourites in
+        # the Batch Manager.  Different series often live on different drives,
+        # and one folder for the whole queue can't express that.  Empty means
+        # use the batch's output folder.  Unlike fixed_dest this is a folder
+        # only - the file name is still derived as normal, so the name modifier
+        # and de-duplication keep working.
+        self.dest_folder = ""
+
     @property
     def externally_running(self):
         """True while this job is being processed by someone else's worker."""
@@ -190,6 +198,7 @@ class BatchJob:
             "message": self.message,
             "dest_path": self.dest_path or "",
             "fixed_dest": self.fixed_dest or "",
+            "dest_folder": self.dest_folder or "",
         }
 
     @classmethod
@@ -213,6 +222,7 @@ class BatchJob:
         job.message = data.get("message", "")
         job.dest_path = data.get("dest_path") or None
         job.fixed_dest = data.get("fixed_dest") or None
+        job.dest_folder = data.get("dest_folder") or ""
         if job.status == DONE:
             job.percent = 100
         return job

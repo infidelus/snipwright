@@ -1,6 +1,9 @@
 """Files & folders page: opening behaviour and the working folders."""
 
-from PySide6.QtWidgets import QCheckBox, QFrame
+from PySide6.QtWidgets import (
+    QCheckBox, QFrame, QLabel, QListWidget, QPushButton, QWidget, QHBoxLayout,
+    QFileDialog,
+)
 
 from ui.settings_pages import SettingsPage
 from ui.settings_widgets import PathRow, hint
@@ -62,12 +65,60 @@ class FilesPage(SettingsPage):
         )
         self.add(self._project_row)
 
+        self.add(_divider())
+
+        self.add(QLabel(self.tr("Favourite folders")))
+        self.add(hint(
+            self.tr("Folders offered under the Folders button when saving a video, "
+            "for keeping different series on different drives. Drag to reorder.")
+        ))
+
+        self._favs = QListWidget()
+        self._favs.setSelectionMode(QListWidget.SingleSelection)
+        self._favs.setDragDropMode(QListWidget.InternalMove)
+        self._favs.setMaximumHeight(140)
+        for folder in p.get("favourite_folders", []) or []:
+            if isinstance(folder, str) and folder.strip():
+                self._favs.addItem(folder)
+        self.add(self._favs)
+
+        row = QWidget()
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(0, 0, 0, 0)
+        add_btn = QPushButton(self.tr("Add…"))
+        add_btn.clicked.connect(self._add_favourite)
+        rl.addWidget(add_btn)
+        rem_btn = QPushButton(self.tr("Remove"))
+        rem_btn.clicked.connect(self._remove_favourite)
+        rl.addWidget(rem_btn)
+        rl.addStretch(1)
+        self.add(row)
+
+    def _add_favourite(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, self.tr("Add a favourite folder")
+        )
+        if not folder:
+            return
+        existing = {self._favs.item(i).text()
+                    for i in range(self._favs.count())}
+        if folder in existing:
+            return
+        self._favs.addItem(folder)
+
+    def _remove_favourite(self):
+        for item in self._favs.selectedItems():
+            self._favs.takeItem(self._favs.row(item))
+
     def save(self, config):
         settings = config.setdefault("settings", {})
         settings["qsf_on_open"] = self._qsf_on_open.isChecked()
         settings["qsf_no_rewarn"] = self._qsf_no_rewarn.isChecked()
 
         paths = config.setdefault("paths", {})
+        paths["favourite_folders"] = [
+            self._favs.item(i).text() for i in range(self._favs.count())
+        ]
         paths["open_mode"] = self._open_row.mode()
         paths["open_folder"] = self._open_row.folder()
         paths["export_mode"] = self._export_row.mode()

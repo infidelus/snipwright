@@ -155,8 +155,11 @@ def _index_and_export(
         # derived from the batch output folder.
         os.makedirs(os.path.dirname(dest) or out_folder, exist_ok=True)
     else:
+        # A per-job folder overrides the batch-wide one; the file name is still
+        # derived and de-duplicated as usual.
+        folder = getattr(job, "dest_folder", "") or out_folder
         dest = build_dest_path(
-            out_folder, modifier, job.source_path,
+            folder, modifier, job.source_path,
             container_to_fmt(profile.container), taken,
         )
     job.dest_path = dest
@@ -304,12 +307,15 @@ class BatchRunner(QThread):
             self.current_index = i - 1
             self.job_started.emit(i - 1)
 
-            def _progress(info, _i=i - 1, _job=job):
+            def _progress(info, _job=job):
                 pct = info.get("percent")
                 if isinstance(pct, (int, float)):
                     _job.percent = int(pct)
                 _job.phase = info.get("phase", _job.phase)
-                self.job_progress.emit(_i, info)
+                # Read current_index rather than a captured row number: the
+                # queue can be reordered while a job runs (Send to End), and
+                # current_index is kept in step where a closure would not be.
+                self.job_progress.emit(self.current_index, info)
 
             try:
                 stats = process_job(
@@ -329,7 +335,8 @@ class BatchRunner(QThread):
                 job.percent = 100
                 completed += 1
                 self._persist_now()
-                self.job_done.emit(i - 1, stats if isinstance(stats, dict) else {})
+                self.job_done.emit(self.current_index,
+                                   stats if isinstance(stats, dict) else {})
             except NeedsReview as exc:
                 if self._stop:
                     job.status = CANCELLED
@@ -340,7 +347,7 @@ class BatchRunner(QThread):
                 held += 1
                 log.info("Batch job held for review: %s", job.name)
                 self._persist_now()
-                self.job_held.emit(i - 1, str(exc))
+                self.job_held.emit(self.current_index, str(exc))
             except JobError as exc:
                 if self._stop:
                     job.status = CANCELLED
@@ -351,14 +358,14 @@ class BatchRunner(QThread):
                 failed += 1
                 log.warning("Batch job failed: %s - %s", job.name, exc)
                 self._persist_now()
-                self.job_failed.emit(i - 1, str(exc))
+                self.job_failed.emit(self.current_index, str(exc))
             except Exception as exc:    # never let one job kill the batch
                 job.status = FAILED
                 job.message = str(exc)
                 failed += 1
                 log.exception("Batch job crashed: %s", job.name)
                 self._persist_now()
-                self.job_failed.emit(i - 1, str(exc))
+                self.job_failed.emit(self.current_index, str(exc))
 
         # Nothing is running any more, so nothing is protected from removal.
         self.current_index = -1

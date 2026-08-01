@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QComboBox,
+    QMenu,
     QLineEdit,
     QTableWidget,
     QTableWidgetItem,
@@ -62,8 +63,9 @@ _STATUS_TEXT = {
 COL_PROJECT = 0
 COL_PROFILE = 1
 COL_OUTPUT = 2
-COL_STATUS = 3
-COL_EDIT = 4
+COL_FOLDER = 3
+COL_STATUS = 4
+COL_EDIT = 5
 
 
 class BatchManagerDialog(QDialog):
@@ -137,9 +139,10 @@ class BatchManagerDialog(QDialog):
         outer.addLayout(settings)
 
         # --- job table --------------------------------------------------- #
-        self.table = QTableWidget(0, 5, self)
+        self.table = QTableWidget(0, 6, self)
         self.table.setHorizontalHeaderLabels(
-            [self.tr("Project"), self.tr("Profile"), self.tr("Output"), self.tr("Status"), ""]
+            [self.tr("Project"), self.tr("Profile"), self.tr("Output"),
+             self.tr("Folder"), self.tr("Status"), ""]
         )
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -148,6 +151,7 @@ class BatchManagerDialog(QDialog):
         hh.setSectionResizeMode(COL_PROJECT, QHeaderView.Stretch)
         hh.setSectionResizeMode(COL_PROFILE, QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(COL_OUTPUT, QHeaderView.Stretch)
+        hh.setSectionResizeMode(COL_FOLDER, QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(COL_STATUS, QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(COL_EDIT, QHeaderView.ResizeToContents)
         outer.addWidget(self.table, 1)
@@ -168,8 +172,16 @@ class BatchManagerDialog(QDialog):
         self._up_btn.clicked.connect(lambda: self._move_selected(-1))
         self._down_btn = QPushButton(self.tr("Move Down"))
         self._down_btn.clicked.connect(lambda: self._move_selected(1))
+        self._end_btn = QPushButton(self.tr("Send to End"))
+        self._end_btn.setToolTip(self.tr(
+            "Move this job to the back of the queue. Useful when a job was "
+            "held or failed, the batch has moved past it, and you've since "
+            "fixed it - sending it to the end puts it back in this run rather "
+            "than waiting for the queue to finish."
+        ))
+        self._end_btn.clicked.connect(self._send_selected_to_end)
         for b in (self._add_btn, self._add_watch_btn, self._remove_btn,
-                  self._up_btn, self._down_btn):
+                  self._up_btn, self._down_btn, self._end_btn):
             row.addWidget(b)
         row.addStretch(1)
         self._clear_done_btn = QPushButton(self.tr("Clear Finished"))
@@ -256,6 +268,52 @@ class BatchManagerDialog(QDialog):
     # ------------------------------------------------------------------ #
     # Settings handlers
     # ------------------------------------------------------------------ #
+
+    def _fill_row_folder_button(self, btn, row, job):
+        folder = getattr(job, "dest_folder", "") or ""
+        if folder:
+            btn.setText(os.path.basename(folder.rstrip(os.sep)) or folder)
+            btn.setToolTip(folder)
+        else:
+            btn.setText(self.tr("Default"))
+            btn.setToolTip(self.tr(
+                "Uses the batch's output folder. Choose a favourite to send "
+                "this one job somewhere else."
+            ))
+        menu = QMenu(btn)
+        act = menu.addAction(self.tr("Default (batch output folder)"))
+        act.triggered.connect(
+            lambda _c=False, j=job: self._set_row_folder(j, "")
+        )
+        favs = self._favourite_folders()
+        if favs:
+            menu.addSeparator()
+            for f in favs:
+                a = menu.addAction(f)
+                if os.path.isdir(f):
+                    a.triggered.connect(
+                        lambda _c=False, j=job, d=f: self._set_row_folder(j, d)
+                    )
+                else:
+                    a.setEnabled(False)
+                    a.setText(self.tr("%s (not available)") % f)
+        else:
+            menu.addSeparator()
+            none_act = menu.addAction(self.tr("No favourite folders set"))
+            none_act.setEnabled(False)
+        btn.setMenu(menu)
+        # A job already being written can't be redirected.
+        btn.setEnabled(job.status != RUNNING and not job.externally_running)
+
+    def _set_row_folder(self, job, folder):
+        job.dest_folder = folder
+        self.controller.save_queue()
+        self._refresh_table()
+
+    def _favourite_folders(self):
+        paths = self.controller.config.get("paths", {}).get(
+            "favourite_folders", [])
+        return [p for p in paths if isinstance(p, str) and p.strip()]
 
     def _choose_folder(self):
         folder = QFileDialog.getExistingDirectory(
@@ -517,12 +575,15 @@ class BatchManagerDialog(QDialog):
         profile = resolve_profile(self.controller.config, job.profile_name)
         ext = profile.extension(os.path.splitext(base_src)[1] or ".ts")
         if taken is None:
-            return os.path.join(self.controller.out_folder, f"{name}{ext}")
+            base_dir = (getattr(job, "dest_folder", "")
+                        or self.controller.out_folder)
+            return os.path.join(base_dir, f"{name}{ext}")
         # Same call the runner makes, so the preview and the real thing agree -
         # including the container-to-format conversion, which is why this uses
         # container_to_fmt rather than the profile's container name directly.
+        folder = getattr(job, "dest_folder", "") or self.controller.out_folder
         return build_dest_path(
-            self.controller.out_folder, self.controller.modifier,
+            folder, self.controller.modifier,
             base_src, container_to_fmt(profile.container), taken,
         )
 
@@ -553,6 +614,15 @@ class BatchManagerDialog(QDialog):
             # approximate, e.g. Comskip-detected) cut points can be adjusted
             # before the batch processes it.  Saving in the editor writes back
             # to this same .vprj, which the runner re-reads at process time.
+            # Per-row destination.  Shows the folder's own name rather than the
+            # whole path - the tooltip carries the full thing - so the column
+            # stays narrow enough not to crowd the rest of the table.
+            fol_btn = self.table.cellWidget(r, COL_FOLDER)
+            if not isinstance(fol_btn, QPushButton):
+                fol_btn = QPushButton()
+                self.table.setCellWidget(r, COL_FOLDER, fol_btn)
+            self._fill_row_folder_button(fol_btn, r, job)
+
             edit_btn = self.table.cellWidget(r, COL_EDIT)
             if not isinstance(edit_btn, QPushButton):
                 edit_btn = QPushButton(self.tr("Edit…"))
@@ -892,6 +962,25 @@ class BatchManagerDialog(QDialog):
         one = len(sel) == 1
         self._up_btn.setEnabled(one and self._can_move(sel[0], -1))
         self._down_btn.setEnabled(one and self._can_move(sel[0], 1))
+        # Sending to the end is allowed even while the batch runs, and even
+        # from above the running job - that is the whole point of it.  Only the
+        # running job itself, an adopted export, and a job already last are
+        # excluded.
+        jobs = self._jobs()
+        can_end = (one and 0 <= sel[0] < len(jobs)
+                   and sel[0] != len(jobs) - 1
+                   and jobs[sel[0]].status not in (RUNNING, DONE)
+                   and not jobs[sel[0]].externally_running)
+        self._end_btn.setEnabled(bool(can_end))
+
+    def _send_selected_to_end(self):
+        rows = self._selected_rows()
+        if len(rows) != 1:
+            return
+        new_row = self.controller.move_to_end(rows[0])
+        self._refresh_table()
+        if 0 <= new_row < self.table.rowCount():
+            self.table.selectRow(new_row)
 
     def _can_move(self, row, delta):
         """Whether the job at `row` may move by `delta` (-1 up, +1 down).
@@ -899,14 +988,20 @@ class BatchManagerDialog(QDialog):
         A running job is pinned, and no job may cross it - so a move is refused
         when the job itself is running, when the target slot is out of range,
         or when the neighbour being swapped with is the running job.
+
+        Completed jobs are pinned, and nothing may swap with one.  The runner
+        walks the list by index and never revisits a position it has passed, so
+        a queued job lifted above the block of finished jobs would sit where the
+        cursor has already been and never run at all.  Getting a job back into
+        the current pass is what Send to End is for.
         """
         jobs = self._jobs()
         target = row + delta
         if not (0 <= row < len(jobs) and 0 <= target < len(jobs)):
             return False
-        if jobs[row].status == RUNNING:
+        if jobs[row].status in (RUNNING, DONE):
             return False
-        if jobs[target].status == RUNNING:
+        if jobs[target].status in (RUNNING, DONE):
             return False
         return True
 

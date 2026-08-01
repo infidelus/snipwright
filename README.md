@@ -44,6 +44,17 @@ distilling the part many people relied on most into a free, open-source tool.
 
 ## Requirements
 
+> **Snipwright is a Python application, not a standalone `.exe`.** Python has to
+> be installed on the machine and stays there — it is needed every time you run
+> Snipwright, not just to install it. You never have to *use* Python, though:
+> the installer fetches it for you, and you start Snipwright from a Start Menu
+> or desktop shortcut like any other program. There is no console window and
+> nothing to type.
+>
+> If you were hoping for a single self-contained executable to copy between
+> machines, this isn't that — see [Why not a compiled
+> `.exe`?](#why-not-a-compiled-exe) below.
+
 - **An operating system that runs Python.** Developed and tested on Linux
   Mint, so Linux is the best-supported platform. Windows has had limited
   testing — it installs and runs — and macOS has had none at all, though
@@ -57,6 +68,19 @@ distilling the part many people relied on most into a free, open-source tool.
   - **Comskip** — optional, for the Watcher's automatic commercial detection.
 - **A TMDB API key** — optional, only needed for the TV/Film renamers. A free
   key is available from your account at themoviedb.org.
+
+### Why not a compiled `.exe`?
+
+Bundling Python and Qt into one executable is possible, but it would be a few
+hundred megabytes, and it would still need ffmpeg and mkvmerge installed
+separately — those are separate programs, not Python libraries, so a bundle
+doesn't remove the dependency. Bundled Python builds also trip antivirus false
+positives fairly regularly, and "Windows blocked this" is a worse first
+impression than running an installer. Snipwright is developed on Linux, so a
+Windows build would also mean shipping binaries that can't easily be tested.
+
+The installer script does the work instead: one double-click fetches everything
+needed and creates the shortcuts.
 
 ## Installation
 

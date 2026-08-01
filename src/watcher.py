@@ -11,7 +11,16 @@ It runs as its own process, separate from the editor, so it can quietly scan
 recordings in the background whether or not the editor is open.
 """
 
+import os
 import sys
+
+# Windows pops (and focuses) a console window for every helper process we run -
+# ffmpeg, ffprobe, mkvmerge, Comskip - which makes it impossible to work in
+# another application while an export is going.  Patch that away before
+# anything can be launched.  No effect on Linux or macOS.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from utils.nowindow import install as _install_nowindow
+_install_nowindow()
 import logging
 
 from PySide6.QtWidgets import QApplication

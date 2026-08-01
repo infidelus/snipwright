@@ -6,6 +6,150 @@ All notable changes to Snipwright are documented here. Releases before
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-08-01
+
+### Added
+
+- **Optional check for new versions.** Under **Settings → Maintenance**, set
+  **Check for new versions** to Daily, Weekly or Monthly and Snipwright will say
+  when a newer release exists and offer to open the releases page. There's also
+  **Help → Check for Updates** for a one-off look.
+
+  It is **off by default** and stays off unless you turn it on — nothing contacts
+  anything otherwise. Nothing is downloaded or installed either: Snipwright runs
+  from a folder you extracted, and replacing files underneath a running editor is
+  a good way to break someone's work mid-cut. Only GitHub's public releases list
+  is read, and the check runs on a background thread so a slow network can't hold
+  up the editor.
+- **Favourite folders.** If you keep different series on different drives, add
+  those folders under **Settings → Files & folders**; the Save Video dialog and
+  the Batch Manager then have a **Folders** button that sends the output straight
+  to one of them, keeping the file name. A folder that isn't currently available
+  is shown greyed out rather than hidden, so a missing drive is visible instead
+  of puzzling. Choosing a favourite applies to that export only — your usual
+  destination is what the dialog offers next time.
+
+  The Batch Manager has a **Folder** column instead, so each job in the queue can
+  go somewhere different: two episodes of one series to one drive, something else
+  to another. Names are still derived and de-duplicated as usual, so two jobs
+  landing in the same folder don't overwrite each other.
+  (Requested by Paul-Webster, who was reproducing it with one output profile per
+  series — which works, but conflates how a file is encoded with where it goes.)
+- **Send to End in the Batch Manager.** When a job fails or is held for review
+  the batch moves on, and until now a fixed job had to wait for the whole queue
+  to drain before it could be retried — the running job couldn't be crossed.
+  Selecting a job and pressing **Send to End** moves it to the back of the
+  queue, where the runner reaches it on the same pass. The running job, an
+  adopted export and anything already finished stay put.
+
+  **Move Up** and **Move Down** now refuse any swap involving a completed job.
+  The runner walks the queue by index and never revisits a position it has
+  passed, so a queued job lifted above the block of finished jobs would sit
+  where the cursor has already been and never run at all. Completed jobs stay
+  at the top; Send to End is how a job gets back into the current pass.
+
+### Changed
+
+- **Ignore-list entries now match from the start of the file name.** Matching
+  was substring-anywhere, so an entry of "Gone" quietly ignored *Star Trek
+  S01E03 Where No Man Has Gone Before*. Recording file names begin with the
+  programme title, which is what people are typing, so entries are now compared
+  against the start of the name. Keyword-anywhere matching is still available
+  under **Matching** in the ignore list editor, and an individual entry written
+  with a leading `*` is always matched anywhere regardless of the setting.
+
+  If your list contains entries meant to match mid-name, either switch the mode
+  or prefix those entries with `*`. The full explanation is in the user guide;
+  the editor keeps a short **Match** dropdown beside the list rather than
+  spending its height on prose.
+
+### Fixed
+
+- **Quick Stream Fix working copies are now cleaned up.** Repairing a recording
+  writes a working copy of it — a whole video file, frequently several
+  gigabytes — into the system temporary folder, and nothing ever removed it.
+  Linux clears `/tmp` at reboot so this went unnoticed; Windows never clears its
+  temporary folder, so a few sessions of repairing recordings could quietly
+  consume tens of gigabytes.
+
+  Working copies are now deleted once they reach a set age — a week by default,
+  adjustable under **Settings → Maintenance**, where the space they occupy is
+  shown along with buttons to open the folder or delete them now. They are kept
+  rather than deleted at exit so you can close Snipwright and come back to a
+  recording without repairing it again.
+
+  Nothing in use is ever deleted: not the recording open in the editor, not one a
+  background export is reading, and not one referenced by a job waiting in the
+  batch queue. That last case is the important one — after a repair, a queued
+  job's project file points at the working copy rather than the original,
+  because the cut points belong to the repaired file's timeline, and the queue
+  survives restarts.
+- **Check for Updates froze the application on Windows.** The result handler was
+  connected to the worker thread's signal through a lambda. A lambda has no
+  QObject receiver, so Qt cannot work out which thread should run it and calls it
+  directly on the emitting thread — meaning the message box was being built off
+  the GUI thread. Linux tolerated that; Windows deadlocked, leaving an empty
+  dialog and a frozen main window. It now connects to a bound method, which gives
+  Qt the receiver it needs. A second check can no longer start while one is
+  already running, either.
+- **Windows no longer flashes a console window for every helper process.**
+  Snipwright shells out to ffmpeg, ffprobe, mkvmerge and Comskip constantly —
+  over forty call sites, several inside a loop over scenes — and on Windows each
+  one popped a console window that took focus, making it impossible to work in
+  another application while an export ran. Every subprocess now starts hidden.
+  No effect on Linux or macOS, where the problem doesn't arise. (Reported by
+  WhatsAName42.)
+- The README now states plainly that Python is required to *run* Snipwright and
+  not only to install it, and answers the "why not a compiled .exe" question
+  directly. Both had come up more than once.
+- The export log now records the destination folder and whether it exists and is
+  writable. An export that stalls before it starts is usually a destination
+  problem, and the log previously gave no way to tell.
+- **Exporting to MP4 could produce a zero-byte file.** A recording carrying an
+  audio-description track that was silent through the kept scenes left an audio
+  stream with no packets and no timebase in the intermediate file. Handed to the
+  MP4 encode, ffmpeg held video back waiting for audio that never arrived — the
+  log fills with "Too many packets buffered for output stream 0:0" — the filter
+  graph failed on a 1/0 timebase, and nothing was written at all. Such tracks are
+  now left out of the MP4 encode, as they already were for `.ts` output. (Found
+  by Sean, on the same Star Trek recording as the audio-track issues above.)
+- **A dropped audio track is no longer reported as a loss when nothing was
+  lost.** Broadcast audio description is often transmitted for a few seconds of
+  one programme and silent across the rest of a long capture. Cut scenes that
+  avoid those moments and the track has nothing to contribute, so it doesn't
+  appear in the output — but the export summary reported it as "1 audio track
+  missing", which reads like damage. Snipwright now checks whether a dropped
+  track carried any audio *within the scenes kept*, and if it didn't, says so as
+  a footnote rather than a warning. A track that really did carry audio still
+  warns exactly as before.
+- **A `.ts` export could keep an empty audio track and fail its final metadata
+  step.** Broadcasters register an audio-description PID that is only
+  transmitted during some programmes — one Star Trek recording carried 26
+  seconds of description in 73 minutes, all of it outside the episode. Cut a
+  section where it was silent and the track survived into the output with no
+  sample rate and no channel count, which ffmpeg refuses to remux at all
+  ("Error opening output files: Invalid argument"). The finalise step then
+  failed, leaving the file without its audio dispositions and with a dead track
+  a viewer could select and hear nothing from. Such tracks are now dropped
+  before the remux, using the same test Quick Stream Fix has always applied on
+  the way in.
+- The export log now identifies each audio track by its source stream, language
+  and whether it is the audio description, and names any track it drops — rather
+  than reporting only how many were dropped.
+- The Watcher's log said only that a recording was on the ignore list, not which
+  entry caught it — unhelpful with a long list. It now names the entry.
+- **The German user guide was being maintained in the wrong place.** Two copies
+  existed — `assets/help/user-guide_de.html`, which is where the application
+  looks, and a stray `translations/user-guide_de.html`. Recent work had gone into
+  the stray, so readers of the German guide were seeing a version three sections
+  and 1,100 words short: no "Coming from VideoReDo", no ignore-list section, and
+  no note about handing a long export to the Batch Manager. The complete guide is
+  now in the place the application reads, the duplicate is gone, and the
+  translations README says explicitly where a translated guide belongs.
+- The German user guide's keyboard shortcut table was missing Cut Selection,
+  Trim Unselected and Select All, and named the three skip distances as fixed
+  durations (10s/30s/120s) when they have been configurable for some time.
+
 ## [2.0.0] - 2026-07-28
 
 ### Fixed

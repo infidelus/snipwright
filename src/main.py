@@ -1,5 +1,14 @@
 import os
+import os
 import sys
+
+# Windows pops (and focuses) a console window for every helper process we run -
+# ffmpeg, ffprobe, mkvmerge, Comskip - which makes it impossible to work in
+# another application while an export is going.  Patch that away before
+# anything can be launched.  No effect on Linux or macOS.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from utils.nowindow import install as _install_nowindow
+_install_nowindow()
 import time
 import logging
 
@@ -159,6 +168,7 @@ class MainWindow(QMainWindow):
             from repair.qsf_registry import prune as prune_qsf_registry
             prune_index_cache(max_age)
             prune_qsf_registry(max_age)
+
         except Exception:
             pass
 
@@ -201,6 +211,11 @@ class MainWindow(QMainWindow):
         # If settings were brought across from the application's previous name,
         # say so rather than moving somebody's configuration about silently.
         QTimer.singleShot(0, self._report_config_migration)
+
+        # Scheduled update check, well after the window is up: it is a
+        # background courtesy, not part of starting the editor.  Does nothing
+        # unless the user has turned it on and the interval has elapsed.
+        QTimer.singleShot(4000, lambda: self.check_for_updates(manual=False))
 
         self.frames = []
         self.current_frame = 0
@@ -260,6 +275,17 @@ class MainWindow(QMainWindow):
         # running when the Batch Manager window is closed.
         from batch.controller import BatchController
         self.batch_controller = BatchController(self.config, self)
+
+        # Quick Stream Fix working copies are whole video files in the system
+        # temp folder, and nothing else removes them on Windows.  Age is the
+        # only safe test: a copy might belong to a second running Snipwright, or
+        # to work the user means to come back to.  Run here, after the batch
+        # controller exists, because a queued job's project file can reference
+        # a working copy - deleting one would break the job.
+        try:
+            self._prune_working_copies()
+        except Exception:
+            log.debug("Working-copy sweep failed", exc_info=True)
         self._batch_dialog = None
 
         # Fixed trim (seconds) added to where the AUDIO is seeked to, to line
@@ -1084,8 +1110,129 @@ class MainWindow(QMainWindow):
 
         help_menu.addSeparator()
 
+        updates_action = help_menu.addAction(self.tr("Check for Updates…"))
+        updates_action.triggered.connect(
+            lambda: self.check_for_updates(manual=True)
+        )
+
         about_action = help_menu.addAction(self.tr("About %s") % APP_NAME)
         about_action.triggered.connect(self.show_about)
+
+    def check_for_updates(self, manual=False):
+        """Ask GitHub whether a newer release exists.
+
+        Runs on a worker thread: a slow or unreachable network must never hold
+        up the editor, and this is a convenience rather than something worth
+        waiting for.  `manual` distinguishes the menu item - which should always
+        say something, even "you are up to date" - from the scheduled check,
+        which stays silent unless there is news.
+        """
+        from PySide6.QtCore import QThread, Signal, QObject
+        from utils import updates as U
+
+        # One check at a time: a second click while the first is in flight
+        # would leave two threads racing to put a dialog on screen.
+        existing = getattr(self, "_update_thread", None)
+        if existing is not None and existing.isRunning():
+            return
+
+        settings = self.config.setdefault("settings", {})
+        if not manual:
+            interval = settings.get("update_check", U.DEFAULT_INTERVAL)
+            if not U.due(settings.get("last_update_check", 0), interval):
+                return
+
+        # Record the attempt now, not on success: a machine that is offline
+        # every morning should not retry on every launch.
+        settings["last_update_check"] = time.time()
+        save_config(self.config)
+
+        class _Worker(QObject):
+            done = Signal(object, object)
+
+            def run(self):
+                tag, page = U.fetch_latest()
+                self.done.emit(tag, page)
+
+        thread = QThread(self)
+        worker = _Worker()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        # Connect to a BOUND METHOD of this window, never a lambda.  A lambda
+        # has no QObject receiver, so Qt cannot work out which thread should
+        # run it and executes it directly on the emitting thread - here, the
+        # worker.  The handler puts a QMessageBox on screen, and building a
+        # widget off the GUI thread deadlocks Windows outright (an empty dialog
+        # and a frozen main window).  A bound method of a main-thread QObject
+        # gives Qt the receiver it needs, and the call is queued properly.
+        worker.done.connect(self._on_update_result)
+        worker.done.connect(thread.quit)
+        thread.finished.connect(thread.deleteLater)
+        # `manual` can't ride along on the signal, so park it for the handler.
+        self._update_manual = manual
+        # Keep references, or Python collects the thread mid-flight.
+        self._update_thread = thread
+        self._update_worker = worker
+        thread.start()
+
+    def _on_update_result(self, tag, page):
+        """Report the result.  Runs on the GUI thread - see the connect() above.
+
+        `manual` comes from the attribute rather than the signal: a Qt signal
+        carries only its declared arguments, and adding a lambda to smuggle one
+        more in is exactly what broke this.
+        """
+        from utils import updates as U
+
+        manual = getattr(self, "_update_manual", False)
+
+        if tag is None:
+            if manual:
+                QMessageBox.information(
+                    self, self.tr("Check for Updates"),
+                    self.tr("Couldn't reach GitHub to check for updates.\n\n"
+                            "This is usually a network problem rather than "
+                            "anything wrong with Snipwright."),
+                )
+            return
+
+        if not U.is_newer(tag, VERSION):
+            if manual:
+                QMessageBox.information(
+                    self, self.tr("Check for Updates"),
+                    self.tr("You're running the latest version (%s).") % VERSION,
+                )
+            return
+
+        settings = self.config.setdefault("settings", {})
+        if not manual and settings.get("skipped_version") == str(tag):
+            return      # already told about this one and asked not to be again
+
+        box = QMessageBox(self)
+        box.setWindowTitle(self.tr("Update available"))
+        box.setText(self.tr("Snipwright %s is available. You have %s.")
+                    % (tag, VERSION))
+        box.setInformativeText(self.tr(
+            "Snipwright doesn't update itself - open the releases page to "
+            "download it, then extract over your existing folder."
+        ))
+        open_btn = box.addButton(self.tr("Open releases page"),
+                                 QMessageBox.AcceptRole)
+        later_btn = box.addButton(self.tr("Later"), QMessageBox.RejectRole)
+        skip_btn = None
+        if not manual:
+            skip_btn = box.addButton(self.tr("Skip this version"),
+                                     QMessageBox.DestructiveRole)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked is open_btn:
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl(page or U.RELEASES_PAGE))
+        elif skip_btn is not None and clicked is skip_btn:
+            settings["skipped_version"] = str(tag)
+            save_config(self.config)
 
     def show_user_guide(self):
         """Open the in-app User Guide (Help -> User Guide)."""
@@ -2306,6 +2453,45 @@ class MainWindow(QMainWindow):
             n += 1
         return candidate
 
+    def _in_use_paths(self):
+        """Files that must not be deleted from the temp folder.
+
+        Three things can be holding a working copy: the editor itself, an export
+        running in the background, and - easily missed - a job sitting in the
+        batch queue, whose project file may point at the working copy rather
+        than the original recording, because the cut points are in the repaired
+        file's timeline.  The queue survives restarts, so this matters at
+        startup and not only during a session.
+        """
+        keep = []
+        cur = getattr(self, "current_filename", "") or ""
+        if cur:
+            keep.append(cur)
+        controller = getattr(self, "batch_controller", None)
+        if controller is not None:
+            try:
+                keep.extend(controller.external_sources())
+            except Exception:
+                pass
+            try:
+                keep.extend(controller.queued_sources())
+            except Exception:
+                pass
+        return [p for p in keep if p]
+
+    def _prune_working_copies(self):
+        """Delete working copies older than the configured age."""
+        from utils.qsf_temp import prune_orphans, human_size
+
+        days = self.config.get("settings", {}).get("qsf_temp_max_age_days", 7)
+        gone, freed = prune_orphans(days, keep=self._in_use_paths())
+        if gone:
+            log.info(
+                "Removed %d Quick Stream Fix working copy/copies older than "
+                "%s day(s), freeing %s.", gone, days, human_size(freed)
+            )
+        return gone, freed
+
     def _qsf_temp_path(self, ext):
         """A /tmp path named '<original> - QSF<ext>' for an internal QSF working
         copy.  Guards the collisions that matter - it never returns the path of
@@ -2314,6 +2500,10 @@ class MainWindow(QMainWindow):
         import tempfile
         name = f"{self._original_base()} - QSF{ext}"
         path = os.path.join(tempfile.gettempdir(), name)
+        # Track what we create so it can be removed when the editor closes -
+        # these are whole video files, and Windows never clears its temp folder.
+        if not hasattr(self, "_qsf_temps"):
+            self._qsf_temps = []
 
         busy = {
             os.path.abspath(self.current_filename)
@@ -2335,8 +2525,10 @@ class MainWindow(QMainWindow):
                     tempfile.gettempdir(), f"{root} ({n}){e}"
                 )
                 if norm_path(candidate) not in {norm_path(p) for p in busy}:
+                    self._qsf_temps.append(candidate)
                     return candidate
                 n += 1
+        self._qsf_temps.append(path)
         return path
 
     def _log_source_info(self, filename):

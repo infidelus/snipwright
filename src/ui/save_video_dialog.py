@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QMenu,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -73,6 +74,19 @@ class SaveVideoDialog(QDialog):
         self.file_edit = QLineEdit(suggested_path or "")
         self.file_edit.textEdited.connect(self._on_path_edited)
         file_row.addWidget(self.file_edit, 1)
+        # Favourite folders: one click to send this export to a folder the user
+        # keeps a series in, without walking the file browser to get there.  The
+        # file name is left alone - only the directory changes.
+        self._fav_btn = QPushButton(self.tr("Folders"))
+        self._fav_btn.setToolTip(self.tr(
+            "Send this export to one of your favourite folders."
+            "<br>Set them up under Settings \u2192 Files & folders."
+        ))
+        self._fav_menu = QMenu(self._fav_btn)
+        self._fav_btn.setMenu(self._fav_menu)
+        self._build_favourites_menu()
+        file_row.addWidget(self._fav_btn)
+
         select_btn = QPushButton(self.tr("Select File"))
         select_btn.clicked.connect(self._select_file)
         file_row.addWidget(select_btn)
@@ -270,6 +284,55 @@ class SaveVideoDialog(QDialog):
             n += 1
 
     # -- file ---------------------------------------------------------------
+    def _favourite_folders(self):
+        paths = self.config.get("paths", {}).get("favourite_folders", [])
+        return [p for p in paths if isinstance(p, str) and p.strip()]
+
+    def _build_favourites_menu(self):
+        """Fill the Folders menu.
+
+        Folders that no longer exist are shown but disabled rather than hidden -
+        a drive that isn't mounted is worth seeing, and silently dropping an
+        entry looks like the setting was lost.
+        """
+        self._fav_menu.clear()
+        favs = self._favourite_folders()
+        if not favs:
+            act = self._fav_menu.addAction(
+                self.tr("No favourite folders set")
+            )
+            act.setEnabled(False)
+            self._fav_btn.setEnabled(True)
+            return
+        for folder in favs:
+            act = self._fav_menu.addAction(folder)
+            if os.path.isdir(folder):
+                act.triggered.connect(
+                    lambda _checked=False, f=folder: self._use_folder(f)
+                )
+            else:
+                act.setEnabled(False)
+                act.setText(self.tr("%s (not available)") % folder)
+
+    def _use_folder(self, folder):
+        """Point the output at `folder`, keeping the file name and de-duplicating.
+
+        Marks the path as user-chosen.  setText() does not emit textEdited -
+        Qt only raises that for typing - so without this the favourite looks
+        like an auto-suggestion and _apply_profile_path() rebuilds it from the
+        default folder the next time the profile selection changes.  The
+        symptom is a dialog showing the chosen folder while the export lands
+        somewhere else entirely.
+        """
+        current = self.file_edit.text().strip()
+        name = os.path.basename(current) if current else ""
+        if not name:
+            p = self._effective_profile()
+            ext = p.extension(self._source_ext) if p else self._source_ext
+            name = "%s%s" % (self._base_stem, ext)
+        self.file_edit.setText(self._dedup(os.path.join(folder, name)))
+        self._user_edited = True
+
     def _select_file(self):
         p = self._effective_profile()
         ext = p.extension(self._source_ext) if p else self._source_ext

@@ -45,6 +45,24 @@ DEFAULT_CONFIG = {
         # the cache growing indefinitely).
         "renamer_cache_max_age_days": 0,
 
+        # Quick Stream Fix working copies are whole video files written to the
+        # system temp folder, and nothing else clears them on Windows.  A week
+        # is a compromise: long enough to come back to a recording you were
+        # part-way through, short enough that a few gigabytes a session doesn't
+        # accumulate forever.  Anything still in use - open in the editor, being
+        # exported, or referenced by a queued batch job - is never touched.
+        # 0 disables the sweep entirely.
+        "qsf_temp_max_age_days": 7,
+
+        # How often to ask GitHub whether a newer release exists: "off",
+        # "daily", "weekly" or "monthly".  Off by default - nothing contacts
+        # anything unless the user asks it to.  "last_update_check" is the unix
+        # time of the last look, and "skipped_version" a release the user chose
+        # not to be reminded about again.
+        "update_check": "off",
+        "last_update_check": 0,
+        "skipped_version": "",
+
         # Delete log files older than this many days at startup.  0 = keep
         # forever.
         "log_max_age_days": 30,
@@ -114,6 +132,11 @@ DEFAULT_CONFIG = {
         "project_mode": "last",
         "project_folder": "",
         "last_project": "",
+
+        # Folders offered as one-click destinations in the Save Video dialog,
+        # for people who keep different series on different drives.  A plain
+        # list of paths, in the order the user arranged them.
+        "favourite_folders": [],
 
         # Where per-day log files are written.  Empty means use the default
         # location (the app config directory).

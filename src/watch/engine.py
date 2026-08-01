@@ -109,17 +109,51 @@ def load_ignore_patterns(path):
     return patterns
 
 
-def matching_ignore_patterns(filename, patterns):
-    """The ignore patterns this recording's file name contains
-    (case-insensitive substring match).  A name can match more than one."""
+# How an ignore entry is compared against a recording's file name.
+#
+#   "start"    - the file name must BEGIN with the entry.  Recording file names
+#                start with the programme title, so this is what people mean
+#                when they type one, and it will not fire on a word that merely
+#                appears later in an episode title.  ("Gone" ignoring "Star Trek
+#                S01E03 Where No Man Has Gone Before" is the failure this
+#                exists to prevent.)
+#   "anywhere" - the entry may appear anywhere in the name.  More catching, and
+#                correspondingly easier to catch the wrong thing.
+#
+# Either way, an entry written with a leading * is always matched anywhere, so
+# a keyword can be used without changing the setting for the whole list.
+MATCH_START = "start"
+MATCH_ANYWHERE = "anywhere"
+DEFAULT_MATCH_MODE = MATCH_START
+
+
+def matching_ignore_patterns(filename, patterns, mode=DEFAULT_MATCH_MODE):
+    """The ignore entries that match this recording's file name.
+
+    Returns the entries as written, so the caller can name them in a log line
+    or hand them to the pruner - which matches on the text of the line.
+    """
     name = os.path.basename(filename).lower()
-    return [p for p in patterns if p.strip() and p.lower() in name]
+    hits = []
+    for raw in patterns:
+        entry = (raw or "").strip()
+        if not entry:
+            continue
+        if entry.startswith("*"):
+            needle = entry[1:].strip().lower()
+            if needle and needle in name:
+                hits.append(raw)
+        elif mode == MATCH_ANYWHERE:
+            if entry.lower() in name:
+                hits.append(raw)
+        elif name.startswith(entry.lower()):
+            hits.append(raw)
+    return hits
 
 
-def matches_ignore(filename, patterns):
-    """True if the recording's file name contains any ignore pattern
-    (case-insensitive substring match)."""
-    return bool(matching_ignore_patterns(filename, patterns))
+def matches_ignore(filename, patterns, mode=DEFAULT_MATCH_MODE):
+    """True if any ignore entry matches this recording's file name."""
+    return bool(matching_ignore_patterns(filename, patterns, mode))
 
 
 def rewrite_ignore_file(path, drop):
@@ -341,7 +375,9 @@ def prune_ignore_list(ignore_path, seen, patterns, processed=None,
         for source in iter_recordings(cfg.input_roots, cfg.pattern):
             if processed.contains(source):
                 continue
-            if matching_ignore_patterns(source, patterns):
+            if matching_ignore_patterns(
+                    source, patterns,
+                    getattr(cfg, "ignore_match_mode", DEFAULT_MATCH_MODE)):
                 processed.add(source)
                 marked += 1
         if marked:
@@ -524,7 +560,10 @@ def scan_once(cfg, processed, comskip_binary=None, comskip_ini=None,
         # Skip recordings on the ignore list (housemates' programmes, etc.).
         # Deliberately NOT marked processed, so removing a title from the list
         # later lets it be picked up.
-        matched = matching_ignore_patterns(source, ignore_patterns)
+        matched = matching_ignore_patterns(
+            source, ignore_patterns, getattr(cfg, "ignore_match_mode",
+                                             DEFAULT_MATCH_MODE)
+        )
         if matched:
             summary["ignored"] += 1
             # Note the recording's own date against each entry it matched, so
@@ -535,7 +574,10 @@ def scan_once(cfg, processed, comskip_binary=None, comskip_ini=None,
                 for pattern in matched:
                     if ignore_seen.note(pattern, when):
                         seen_dirty = True
-            log.info("Ignored (matches ignore list): %s", name)
+            # Name the entry that matched.  With a long ignore list, "it was
+            # on the list" is not enough to work out why something was skipped.
+            log.info("Ignored (ignore list entry %s): %s",
+                     ", ".join('"%s"' % m for m in matched), name)
             continue
         if processed.contains(source):
             # Already done in an earlier scan.  This is the decision that used

@@ -208,7 +208,10 @@ def _usable_audio_tracks(source_path, n_audio):
                 # window the same stream reads correctly as mp2 48000 Hz mono.
                 "-analyzeduration", "30M", "-probesize", "60M",
                 "-select_streams", "a",
-                "-show_entries", "stream=index,codec_name,channels,sample_rate",
+                "-show_entries",
+                "stream=index,codec_name,channels,sample_rate"
+                ":stream_tags=language"
+                ":stream_disposition=visual_impaired,descriptions",
                 "-of", "default=noprint_wrappers=1",
                 source_path,
             ],
@@ -227,11 +230,18 @@ def _usable_audio_tracks(source_path, n_audio):
                 cur = line.split("=", 1)[1]
                 if cur not in per_stream:
                     per_stream[cur] = {
-                        "channels": 0, "sample_rate": 0, "codec": "?"
+                        "channels": 0, "sample_rate": 0, "codec": "?",
+                        "language": "", "described": False,
                     }
                     order.append(cur)
             elif cur is not None and line.startswith("codec_name="):
                 per_stream[cur]["codec"] = line.split("=", 1)[1]
+            elif cur is not None and line.startswith("TAG:language="):
+                per_stream[cur]["language"] = line.split("=", 1)[1]
+            elif cur is not None and (
+                    line.startswith("DISPOSITION:visual_impaired=1")
+                    or line.startswith("DISPOSITION:descriptions=1")):
+                per_stream[cur]["described"] = True
             elif cur is not None and line.startswith("channels="):
                 try:
                     per_stream[cur]["channels"] = int(line.split("=", 1)[1])
@@ -247,13 +257,27 @@ def _usable_audio_tracks(source_path, n_audio):
         usable = []
         for audio_idx, sidx in enumerate(order):
             info = per_stream[sidx]
+            label = []
+            if info.get("language"):
+                label.append(info["language"])
+            if info.get("described"):
+                label.append("audio description")
             logger.info(
-                "Audio track %d: codec=%s, channels=%d, sample_rate=%d",
-                audio_idx, info["codec"], info["channels"],
-                info["sample_rate"],
+                "Audio track %d (source stream %s%s): codec=%s, channels=%d, "
+                "sample_rate=%d",
+                audio_idx, sidx,
+                (", " + ", ".join(label)) if label else "",
+                info["codec"], info["channels"], info["sample_rate"],
             )
             if info["channels"] > 0 and info["sample_rate"] > 0:
                 usable.append(audio_idx)
+            else:
+                logger.warning(
+                    "Audio track %d (source stream %s%s) carries no audio in "
+                    "this recording and will be dropped.",
+                    audio_idx, sidx,
+                    (", " + ", ".join(label)) if label else "",
+                )
 
     except Exception:
         # If probing fails entirely, fall back to "all tracks".
@@ -316,6 +340,67 @@ def _empty_audio_tracks(source_path):
             empty += 1
 
     return empty
+
+
+def _audio_tracks_silent_in_ranges(source_path, keep_ranges, fps):
+    """Which audio tracks carry nothing in the parts of the recording kept.
+
+    `_empty_audio_tracks` above catches a PID the broadcaster registered but
+    never transmitted.  This catches the commoner case: a track that is real,
+    and carries audio somewhere in the recording, but has nothing in the
+    sections the user actually kept.  Audio description is typically like this
+    - transmitted for a few seconds of one programme and silent for the rest of
+    a three-hour capture.
+
+    Losing such a track costs the viewer nothing, so it should not be reported
+    in the same terms as losing audio that was really there.  Returns the
+    audio-relative indices (a:0, a:1 …) of tracks with no packets in range.
+    """
+    if not keep_ranges or not fps:
+        return []
+    try:
+        import av
+    except Exception:
+        return []
+
+    wanted = [(a / float(fps), (b + 1) / float(fps)) for a, b in keep_ranges]
+    silent = []
+    try:
+        container = av.open(source_path)
+    except Exception:
+        return []
+    try:
+        # Packet timestamps are absolute; a broadcast capture can start hours
+        # into the transport stream's clock, so measure from the container's
+        # own start rather than from zero.
+        base = (container.start_time or 0) / 1000000.0
+        streams = list(container.streams.audio)
+        if not streams:
+            return []
+        found = {i: False for i in range(len(streams))}
+        for pos, stream in enumerate(streams):
+            try:
+                for packet in container.demux(stream):
+                    if packet.pts is None:
+                        continue
+                    t = float(packet.pts * stream.time_base) - base
+                    if any(a <= t <= b for a, b in wanted):
+                        found[pos] = True
+                        break
+            except Exception:
+                # Unreadable stream: say nothing rather than claim it is silent.
+                found[pos] = True
+            try:
+                container.seek(0)
+            except Exception:
+                pass
+        silent = [i for i, hit in found.items() if not hit]
+    finally:
+        try:
+            container.close()
+        except Exception:
+            pass
+    return silent
 
 
 def _passthru_for_indices(n_audio, usable_indices):
@@ -919,7 +1004,7 @@ def _source_audio_meta(path):
     return tracks
 
 
-def _ffmpeg_audio_meta_args(ad_source):
+def _ffmpeg_audio_meta_args(ad_source, skip=()):
     """ffmpeg args that reproduce the source's per-track audio language and
     dispositions on the output (for the .ts re-interleave, the ffmpeg MKV
     fallback and the MP4 transcode).
@@ -932,14 +1017,22 @@ def _ffmpeg_audio_meta_args(ad_source):
     language rather than a bare index.
     """
     args = []
+    # `skip` lists source tracks that are not in the output.  Metadata is
+    # applied by output position, so those have to be left out and the
+    # remaining ones renumbered - otherwise every flag lands on the wrong track.
+    out_pos = 0
     for i, info in enumerate(_source_audio_meta(ad_source or "")):
+        if i in skip:
+            continue
         # ffmpeg joins multiple disposition flags with "+"; an empty set is
         # cleared with "0" so nothing the muxer added by default lingers.
         disp = "+".join(sorted(info["dispositions"])) if info["dispositions"] \
             else "0"
-        args += ["-disposition:a:%d" % i, disp]
+        args += ["-disposition:a:%d" % out_pos, disp]
         if info["language"]:
-            args += ["-metadata:s:a:%d" % i, "language=%s" % info["language"]]
+            args += ["-metadata:s:a:%d" % out_pos,
+                     "language=%s" % info["language"]]
+        out_pos += 1
     return args
 
 
@@ -1288,12 +1381,28 @@ def _transcode_to_mp4(
     # Write under a non-media temp name, then atomically rename on success.
     part_path = mp4_path + ".vrd-encoding.tmp"
 
+    # An audio track with no packets in the cut - a broadcast audio-description
+    # PID that was silent through the kept scenes - has no sample rate and no
+    # timebase.  Mapped into an MP4 encode it stalls the muxer outright:
+    # ffmpeg holds video packets back waiting for audio that never arrives
+    # ("Too many packets buffered for output stream 0:0"), the filter graph
+    # fails with a 1/0 timebase, and the result is a zero-byte file.  Leave
+    # such tracks out; they carry nothing to lose.
+    dead_audio = _unwritable_audio_streams(ts_path)
+    if dead_audio:
+        logger.info(
+            "MP4: leaving out %d empty audio track(s) - they carry no audio in "
+            "the kept scenes and would stall the encode.", len(dead_audio)
+        )
+
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostats", "-y",
         "-i", ts_path,
         "-map", "0:v:0",
         "-map", "0:a?",
     ]
+    for a in dead_audio:
+        cmd += ["-map", "-0:a:%d" % a]
 
     if copy_video:
         cmd += ["-c:v", "copy"]
@@ -1316,10 +1425,15 @@ def _transcode_to_mp4(
     # a label, so for an audio-description track we ALSO set the handler name
     # (the only thing MP4 players show as a track label) to "visual impaired".
     # Other tracks get no name - matching the source, which names nothing.
-    cmd += _ffmpeg_audio_meta_args(ad_source or ts_path)
+    cmd += _ffmpeg_audio_meta_args(ad_source or ts_path, skip=dead_audio)
+    out_pos = 0
     for i, info in enumerate(_source_audio_meta(ad_source or ts_path)):
+        if i in dead_audio:
+            continue
         if "visual_impaired" in info["dispositions"]:
-            cmd += ["-metadata:s:a:%d" % i, "handler_name=visual impaired"]
+            cmd += ["-metadata:s:a:%d" % out_pos,
+                    "handler_name=visual impaired"]
+        out_pos += 1
     cmd += [
         "-movflags", "+faststart",
         "-f", "mp4",
@@ -2189,6 +2303,49 @@ def _reencode_cut_audio_to_aac(cut_path, bitrate, cancel_cb=None):
     return False
 
 
+def _unwritable_audio_streams(path):
+    """Audio streams in `path` that ffmpeg cannot write out.
+
+    A broadcast .ts often carries an audio-description PID that is only
+    transmitted during some programmes.  Cut a section where it was silent and
+    the track survives into the output as a stream with no sample rate and no
+    channel count - ffmpeg cannot even identify the codec reliably.  Asked to
+    remux such a file it refuses outright with "Error opening output files:
+    Invalid argument", which fails the whole step for the sake of a track
+    holding nothing.
+
+    Quick Stream Fix has always excluded these on the way in; this is the same
+    test applied on the way out.  Returns audio-relative indices (a:0, a:1 …),
+    which is what ffmpeg's -map negation wants.
+    """
+    dead = []
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=index,sample_rate,channels",
+             "-of", "csv=p=0", path],
+            capture_output=True, text=True,
+        ).stdout
+    except OSError:
+        return dead
+
+    seen = set()
+    pos = 0
+    for line in out.splitlines():
+        parts = line.split(",")
+        if len(parts) < 3:
+            continue
+        idx = parts[0]
+        if idx in seen:          # .ts lists streams once per program
+            continue
+        seen.add(idx)
+        rate, chans = parts[1].strip(), parts[2].strip()
+        if rate in ("", "0", "N/A") or chans in ("", "0", "N/A"):
+            dead.append(pos)
+        pos += 1
+    return dead
+
+
 def _finalise_ts_audio_meta(path, ad_source=None, progress_cb=None):
     """Restore the source's audio dispositions/language on a finished .ts.
 
@@ -2209,13 +2366,25 @@ def _finalise_ts_audio_meta(path, ad_source=None, progress_cb=None):
         return False        # nothing to restore - leave the file as smartcut wrote it
 
     tmp = path + ".meta.ts"
+    # An audio track the broadcaster registered but did not transmit during
+    # this section has no parameters, and ffmpeg will not open an output
+    # containing it.  Drop those before they fail the remux; they hold nothing.
+    dead = _unwritable_audio_streams(path)
+    if dead:
+        logger.info(
+            "Dropping %d empty audio track(s) from the .ts: the broadcaster "
+            "registered them but transmitted nothing in the kept section.",
+            len(dead),
+        )
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-i", path,
         "-map", "0", "-map", "-0:d", "-ignore_unknown",
-        "-c", "copy",
     ]
-    cmd += _ffmpeg_audio_meta_args(ad_source)
+    for a in dead:
+        cmd += ["-map", "-0:a:%d" % a]
+    cmd += ["-c", "copy"]
+    cmd += _ffmpeg_audio_meta_args(ad_source, skip=dead)
     cmd += [
         "-max_interleave_delta", "60000000",   # 60s window (microseconds)
         "-muxpreload", "0", "-muxdelay", "0",
@@ -2297,6 +2466,15 @@ def export_ranges(
         "Export start: %s -> %s | %d scene(s), format=%s, fps=%.3f, "
         "audio tracks=%d",
         source_path, out_path, len(keep_ranges), out_format, fps, n_audio,
+    )
+    # Record where the output and its working files will be written.  An export
+    # that stalls at 0% is almost always a destination problem - a folder that
+    # doesn't exist, isn't writable, or is a disconnected network share - and
+    # without this the log gives a reader nothing to go on.
+    _dest_dir = os.path.dirname(out_path) or "."
+    logger.info(
+        "Output folder: %s (exists=%s, writable=%s)",
+        _dest_dir, os.path.isdir(_dest_dir), os.access(_dest_dir, os.W_OK),
     )
     logger.debug("Keep ranges (frames): %s", keep_ranges)
 
@@ -2782,6 +2960,22 @@ def export_ranges(
 
     dropped = n_audio - audio_written
 
+    # Which tracks had nothing to contribute in the kept scenes?  Only worth
+    # the probe when something actually went missing.
+    silent_here = 0
+    if dropped > 0:
+        try:
+            silent_here = len(
+                _audio_tracks_silent_in_ranges(source_path, keep_ranges, fps)
+            )
+            if silent_here:
+                logger.info(
+                    "%d audio track(s) carry no audio within the kept scenes.",
+                    silent_here,
+                )
+        except Exception:
+            silent_here = 0
+
     # For field-coded (collapsed) sources, `produced` counts coded pictures
     # (roughly twice the displayable frames), while `expected` counts the
     # displayable frames the edit actually keeps.  The difference between them
@@ -2838,6 +3032,21 @@ def export_ranges(
                 "These carry SBR/PS extensions that can't be re-encoded in sync "
                 "from a mid-stream cut, so they are dropped on purpose "
                 "(VideoReDo drops them too).",
+            ))
+        elif dropped <= sbr + phantom + silent_here:
+            # The track is real and carries audio elsewhere in the recording,
+            # but nothing at all in the sections kept.  Audio description is
+            # usually like this: a few seconds during one programme, silence
+            # across the rest of a long capture.  Dropping it costs the viewer
+            # nothing, and saying "a track could not be carried over" would
+            # imply a loss that did not happen.
+            notes.append((
+                "%d silent audio track%s not carried over" % (dropped, plural),
+                "The recording has %s audio track%s - typically audio "
+                "description - that carries no audio at all within the scenes "
+                "you kept. There was nothing to copy, so it is not in the "
+                "output. Nothing was lost, and the main audio is unaffected."
+                % ("an" if dropped == 1 else "%d" % dropped, plural),
             ))
         elif dropped <= sbr + phantom:
             # The source declares a track it never usefully transmits (no

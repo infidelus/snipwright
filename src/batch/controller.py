@@ -512,11 +512,55 @@ class BatchController(QObject):
             if self.jobs[row].status == RUNNING or \
                     self.jobs[nr].status == RUNNING:
                 return row
+            # Neither a finished job nor anything swapping with one may move.
+            # The runner walks the list by index and never returns to a
+            # position it has passed, so a queued job lifted above the block of
+            # completed jobs lands where the cursor has already been and would
+            # simply never run.  Send to End is the way to get a job back into
+            # the current pass.
+            if DONE in (self.jobs[row].status, self.jobs[nr].status):
+                return row
             self.jobs[row], self.jobs[nr] = self.jobs[nr], self.jobs[row]
             self.save_queue()
             self.jobs_changed.emit()
             return nr
         return row
+
+    def move_to_end(self, row):
+        """Send a job to the back of the queue.
+
+        For the case where a job failed or was held, the runner moved on, and
+        the user has since fixed it: without this they would have to wait for
+        the whole queue to drain before it could be retried.  Moving it to the
+        end puts it back in the runner's path on this same pass.
+
+        The running job stays put, and an adopted export stays put - neither is
+        the caller's to shuffle.  The runner is told, so its cursor follows the
+        list rather than skipping a job.
+        """
+        if not (0 <= row < len(self.jobs)):
+            return row
+        job = self.jobs[row]
+        if job.status == RUNNING or job.externally_running:
+            return row
+        # A finished job has nothing left to do - the runner skips DONE - so
+        # moving it only suggests it is about to be processed again.
+        if job.status == DONE:
+            return row
+        if row == len(self.jobs) - 1:
+            return row
+
+        self.jobs.append(self.jobs.pop(row))
+        if self.runner is not None:
+            # Same adjustment removal makes: the job has left a position at or
+            # before the cursor, so everything after it shifted up by one.
+            # Called directly rather than wrapped in a try - a typo here would
+            # silently leave the cursor pointing at the wrong job, which is far
+            # worse than an exception.
+            self.runner.note_removed([row])
+        self.save_queue()
+        self.jobs_changed.emit()
+        return len(self.jobs) - 1
 
     def clear_finished(self):
         """Remove the jobs that actually finished.

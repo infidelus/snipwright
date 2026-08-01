@@ -296,6 +296,23 @@ named &ldquo;visual impaired&rdquo;. Carrying the flag into MKV needs MKVToolNix
 newer; with an older version the track is still exported, just without the marking. <strong>DVB subtitle tracks are carried through too</strong>, cut to
 match the video, when saving to <code>.ts</code> or <code>.mkv</code> &mdash; MP4 cannot
 carry DVB subtitles, so they are dropped in that format only.</div>
+<h3>Favourite folders</h3>
+<p>If you keep different series on different drives, add those folders under
+<strong>Settings &rarr; Files &amp; folders &rarr; Favourite folders</strong>. The Save Video
+dialog then has a <strong>Folders</strong> button that sends the export straight to one of
+them, keeping the file name you already have. Drag the list to reorder it.</p>
+<p>The Batch Manager has a <strong>Folder</strong> column, so each job in the queue can go
+somewhere different &mdash; two episodes of one series to one drive, something else to
+another. Each row starts on <strong>Default</strong>, meaning the batch's own output folder;
+pick a favourite to send that one job elsewhere. Names are still derived and de-duplicated as
+usual, so two jobs landing in the same folder won't overwrite each other.</p>
+<p>Choosing a favourite applies to that one export. Your usual destination &mdash; whichever
+you set under <strong>Saving videos</strong> above &mdash; is what the dialog offers next time,
+so a one-off diversion doesn't quietly become the new default.</p>
+<div class="note">A folder that isn't currently available &mdash; an external drive that isn't
+mounted, say &mdash; still appears in the list, greyed out. It is easier to see that a drive
+is missing than to wonder where the entry went.</div>
+
 <h3>If an export is taking longer than you expected</h3>
 <p>A lossless save is usually over in seconds, but a full re-encode &mdash; HEVC, or a crop
 &mdash; can run for a long time, and the export window keeps the editor locked while it
@@ -426,10 +443,27 @@ independently</strong> of the main editor &mdash; you do not need Snipwright ope
 its job.</div>
 <h3>Ignoring programmes you do not want</h3>
 <p>Not every recording in the folder is yours to worry about. Right-click the tray icon and
-choose <strong>Edit ignore list</strong>, then add one programme title per line: any recording
-whose file name contains one of those lines is skipped, so a housemate's soaps never go near
-Comskip. Matching is not case-sensitive, and lines beginning with <code>#</code> are
-comments.</p>
+choose <strong>Edit ignore list</strong>, then add one programme title per line, so a
+housemate's soaps never go near Comskip. Matching is not case-sensitive, and lines beginning
+with <code>#</code> are comments.</p>
+<p>The <strong>Match</strong> setting beside that list decides how an entry is compared with a
+recording's file name:</p>
+<ul>
+  <li><strong>Programme name</strong> (the default) &mdash; the file name must <em>begin</em>
+  with the entry. Recording file names start with the programme title, so this is what most
+  entries mean.</li>
+  <li><strong>Keyword</strong> &mdash; the entry may appear anywhere in the file name. This
+  catches more, and correspondingly catches more by accident.</li>
+</ul>
+<div class="note">The difference matters more than it looks. With <strong>Keyword</strong>
+matching, an entry of <code>Gone</code> also ignores <em>Star&nbsp;Trek S01E03 Where No Man
+Has Gone Before</em> &mdash; the word appears in the episode title, so the recording is
+skipped and no project appears, with nothing obvious to say why. Matching on the programme
+name avoids that entirely.</div>
+<p>Whichever is chosen, a single entry written with a leading <code>*</code> is always matched
+anywhere &mdash; so <code>*Christmas Special</code> works without changing the setting for the
+whole list. If a recording is skipped and you cannot see why, the Watcher's log names the
+entry that caught it.</p>
 <p>Over the years such a list fills up with programmes that finished long ago. Under
 <strong>Housekeeping</strong> you can have the watcher drop entries that no new recording has
 matched for a set period &mdash; twelve months suits most series, which return annually if
@@ -459,6 +493,8 @@ sort it out (for example run QSF), save it again, and it is requeued the next ti
 the Batch Manager.</div>
 
 <h2 id="settings">8. Settings reference</h2>
+
+
 <p>Open <strong>Tools &rarr; Settings</strong>. The pages are:</p>
 <ul>
   <li><strong>General</strong> &mdash; overall behaviour and appearance, including the
@@ -476,6 +512,33 @@ Snipwright, and applies straight away. The editor's timeline and thumbnail bars 
 every theme, as is usual in video editors.</div>
 <p>Keyboard shortcuts can also be viewed and customised here, through the built-in config
 editor.</p>
+
+<h3>Quick Stream Fix working copies</h3>
+<p>Repairing a recording with Quick Stream Fix writes a working copy of it to the system
+temporary folder, and the editor cuts that copy rather than the original. Those copies are
+whole video files &mdash; often several gigabytes &mdash; and they are kept, so you can close
+Snipwright and come back to a recording later without repairing it again. Under
+<strong>Settings &rarr; Maintenance</strong> they are deleted once they reach a set age, a
+week by default.</p>
+<div class="note">This matters more on Windows than on Linux. Linux clears <code>/tmp</code>
+at every reboot, so working copies disappear on their own; Windows never clears its temporary
+folder, so without the age setting they would build up indefinitely. The same page shows how
+much space they are using and offers to open the folder or delete them now.</div>
+<div class="note">A working copy still in use is never deleted &mdash; whether it is open in
+the editor, being written by a background export, or referenced by a job waiting in the batch
+queue. That last one matters: when a recording has been repaired, a queued job points at the
+working copy rather than the original, because the cut points belong to the repaired file's
+timeline.</div>
+
+<h3>Checking for new versions</h3>
+<p>Under <strong>Settings &rarr; Maintenance</strong>, <strong>Check for new versions</strong>
+can be set to Never, Daily, Weekly or Monthly. When a newer release exists, Snipwright says so
+and offers to open the releases page.</p>
+<div class="note">Nothing is downloaded or installed &mdash; only GitHub's public list of
+releases is read. Snipwright never replaces its own files: you download a release and extract
+it over your existing folder, as always. Set it to <strong>Never</strong> to disable automatic
+checks; a manual check can always be made with <strong>Check now</strong>, or
+<strong>Help &rarr; Check for Updates</strong>.</div>
 
 <h2 id="shortcuts">9. Keyboard shortcuts</h2>
 <p>These are the defaults; all of them can be changed in Settings.</p>

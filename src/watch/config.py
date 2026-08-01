@@ -66,6 +66,9 @@ DEFAULTS = {
     # recording for a while, so a list built up over years doesn't keep
     # skipping programmes that stopped airing long ago.  Off by default - an
     # upgrade should never quietly start deleting someone's settings.
+    # How ignore entries are compared with a recording's file name: "start"
+    # (the name must begin with the entry) or "anywhere".  See watch/engine.py.
+    "ignore_match_mode": "start",
     "ignore_prune_enabled": False,
     # How long an entry may go unmatched before it's considered stale, in
     # months.  A year suits programmes that return for a new series annually.
@@ -217,6 +220,16 @@ class WatchConfig:
     @ignore.setter
     def ignore(self, value):
         self._data["ignore"] = sorted(set(value))
+
+    @property
+    def ignore_match_mode(self):
+        mode = self._data.get("ignore_match_mode", "start")
+        return mode if mode in ("start", "anywhere") else "start"
+
+    @ignore_match_mode.setter
+    def ignore_match_mode(self, value):
+        self._data["ignore_match_mode"] = (
+            "anywhere" if value == "anywhere" else "start")
 
     @property
     def ignore_prune_enabled(self):

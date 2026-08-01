@@ -1,5 +1,10 @@
 # Translations
 
+> **The user guide is not translated here.** A translated guide is a copy of
+> `assets/help/user-guide.html` named `user-guide_<code>.html` and placed *beside
+> it* in `assets/help/` — that is where the application looks for it. A copy kept
+> anywhere else is invisible to users, however carefully it is maintained.
+
 Snipwright's interface can be translated. English is built in; other languages are
 added here as Qt translation files.
 
