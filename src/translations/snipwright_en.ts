@@ -547,32 +547,32 @@ Stop them?</source>
 <context>
     <name>CropPreviewDialog</name>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="117"/>
+        <location filename="../ui/profile_manager_dialog.py" line="125"/>
         <source>Crop preview</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="139"/>
+        <location filename="../ui/profile_manager_dialog.py" line="147"/>
         <source>Loading…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="149"/>
+        <location filename="../ui/profile_manager_dialog.py" line="157"/>
         <source>Frame:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="172"/>
+        <location filename="../ui/profile_manager_dialog.py" line="180"/>
         <source>Auto-detect</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="198"/>
+        <location filename="../ui/profile_manager_dialog.py" line="206"/>
         <source>No recording open.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="224"/>
+        <location filename="../ui/profile_manager_dialog.py" line="232"/>
         <source>Couldn&apos;t read a frame here.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -647,12 +647,12 @@ Stop them?</source>
 <context>
     <name>FileRow</name>
     <message>
-        <location filename="../ui/settings_widgets.py" line="161"/>
+        <location filename="../ui/settings_widgets.py" line="173"/>
         <source>Browse…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/settings_widgets.py" line="173"/>
+        <location filename="../ui/settings_widgets.py" line="185"/>
         <source>Choose file</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1521,367 +1521,367 @@ Yes = append,  No = replace the current list.</source>
 <context>
     <name>MainWindow</name>
     <message>
-        <location filename="../main.py" line="561"/>
-        <location filename="../main.py" line="735"/>
+        <location filename="../main.py" line="569"/>
+        <location filename="../main.py" line="743"/>
         <source>Remove Selected Scenes</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="734"/>
+        <location filename="../main.py" line="742"/>
         <source>Remove Selected Cuts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="826"/>
+        <location filename="../main.py" line="834"/>
         <source>You have unsaved changes to the scene list.
 
 Save them as a project before continuing?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="847"/>
+        <location filename="../main.py" line="855"/>
         <source>File</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="852"/>
-        <location filename="../main.py" line="2577"/>
-        <location filename="../main.py" line="2729"/>
+        <location filename="../main.py" line="860"/>
+        <location filename="../main.py" line="2585"/>
+        <location filename="../main.py" line="2737"/>
         <source>Open Video</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="856"/>
+        <location filename="../main.py" line="864"/>
         <source>Open Recent</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="863"/>
+        <location filename="../main.py" line="871"/>
         <source>Save Video…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="868"/>
+        <location filename="../main.py" line="876"/>
         <source>Close Video</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="875"/>
+        <location filename="../main.py" line="883"/>
         <source>Open Project…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="880"/>
+        <location filename="../main.py" line="888"/>
         <source>Save Project</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="885"/>
+        <location filename="../main.py" line="893"/>
         <source>Save Project As…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="892"/>
-        <location filename="../main.py" line="3278"/>
-        <location filename="../main.py" line="3296"/>
-        <location filename="../main.py" line="3321"/>
-        <location filename="../main.py" line="3329"/>
-        <location filename="../main.py" line="3351"/>
+        <location filename="../main.py" line="900"/>
+        <location filename="../main.py" line="3290"/>
+        <location filename="../main.py" line="3308"/>
+        <location filename="../main.py" line="3333"/>
+        <location filename="../main.py" line="3341"/>
+        <location filename="../main.py" line="3363"/>
         <source>Queue to Batch</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="898"/>
+        <location filename="../main.py" line="906"/>
         <source>Exit</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="904"/>
+        <location filename="../main.py" line="912"/>
         <source>Edit</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="909"/>
+        <location filename="../main.py" line="917"/>
         <source>Mark In</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="914"/>
+        <location filename="../main.py" line="922"/>
         <source>Mark Out</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="921"/>
+        <location filename="../main.py" line="929"/>
         <source>Add Selection</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="926"/>
+        <location filename="../main.py" line="934"/>
         <source>Add Unselected</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="931"/>
+        <location filename="../main.py" line="939"/>
         <source>Cut Selection</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="936"/>
+        <location filename="../main.py" line="944"/>
         <source>Trim Unselected</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="941"/>
+        <location filename="../main.py" line="949"/>
         <source>Select All</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="946"/>
+        <location filename="../main.py" line="954"/>
         <source>Clear All Scenes</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="953"/>
+        <location filename="../main.py" line="961"/>
         <source>Previous Scene Start</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="958"/>
+        <location filename="../main.py" line="966"/>
         <source>Next Scene End</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="965"/>
-        <location filename="../main.py" line="1424"/>
-        <location filename="../main.py" line="1457"/>
-        <location filename="../main.py" line="1531"/>
-        <location filename="../main.py" line="1542"/>
-        <location filename="../main.py" line="1571"/>
-        <location filename="../main.py" line="1662"/>
-        <location filename="../main.py" line="1668"/>
-        <location filename="../main.py" line="1682"/>
+        <location filename="../main.py" line="973"/>
+        <location filename="../main.py" line="1432"/>
+        <location filename="../main.py" line="1465"/>
+        <location filename="../main.py" line="1539"/>
+        <location filename="../main.py" line="1550"/>
+        <location filename="../main.py" line="1579"/>
+        <location filename="../main.py" line="1670"/>
+        <location filename="../main.py" line="1676"/>
+        <location filename="../main.py" line="1690"/>
         <source>Joiner</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="970"/>
+        <location filename="../main.py" line="978"/>
         <source>Add Current Project To Joiner List</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="975"/>
+        <location filename="../main.py" line="983"/>
         <source>Edit Joiner List…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="980"/>
+        <location filename="../main.py" line="988"/>
         <source>Create Video From Joiner List…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="987"/>
+        <location filename="../main.py" line="995"/>
         <source>Tools</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="994"/>
+        <location filename="../main.py" line="1002"/>
         <source>Quick Stream Fix…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1005"/>
+        <location filename="../main.py" line="1013"/>
         <source>Detect Commercials…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1016"/>
+        <location filename="../main.py" line="1024"/>
         <source>Batch Manager…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1027"/>
+        <location filename="../main.py" line="1035"/>
         <source>Manage Profiles…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1041"/>
+        <location filename="../main.py" line="1049"/>
         <source>Show Video Programme Info</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1054"/>
+        <location filename="../main.py" line="1062"/>
         <source>Trim and Copy Source File…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1067"/>
+        <location filename="../main.py" line="1075"/>
         <source>Open Log Folder</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1078"/>
+        <location filename="../main.py" line="1086"/>
         <source>Settings…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1090"/>
+        <location filename="../main.py" line="1098"/>
         <source>Extras</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1092"/>
+        <location filename="../main.py" line="1100"/>
         <source>TV Renamer…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1095"/>
+        <location filename="../main.py" line="1103"/>
         <source>Film Renamer…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1098"/>
+        <location filename="../main.py" line="1106"/>
         <source>Launch Snipwright Watcher</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1105"/>
+        <location filename="../main.py" line="1113"/>
         <source>Help</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1107"/>
+        <location filename="../main.py" line="1115"/>
         <source>User Guide</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1113"/>
+        <location filename="../main.py" line="1121"/>
         <source>Check for Updates…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1118"/>
-        <location filename="../main.py" line="1256"/>
+        <location filename="../main.py" line="1126"/>
+        <location filename="../main.py" line="1264"/>
         <source>About %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1192"/>
-        <location filename="../main.py" line="1202"/>
+        <location filename="../main.py" line="1200"/>
+        <location filename="../main.py" line="1210"/>
         <source>Check for Updates</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1193"/>
+        <location filename="../main.py" line="1201"/>
         <source>Couldn&apos;t reach GitHub to check for updates.
 
 This is usually a network problem rather than anything wrong with Snipwright.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1203"/>
+        <location filename="../main.py" line="1211"/>
         <source>You&apos;re running the latest version (%s).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1212"/>
+        <location filename="../main.py" line="1220"/>
         <source>Update available</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1213"/>
+        <location filename="../main.py" line="1221"/>
         <source>Snipwright %s is available. You have %s.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1216"/>
+        <location filename="../main.py" line="1224"/>
         <source>Snipwright doesn&apos;t update itself - open the releases page to download it, then extract over your existing folder.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1219"/>
+        <location filename="../main.py" line="1227"/>
         <source>Open releases page</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1224"/>
+        <location filename="../main.py" line="1232"/>
         <source>Skip this version</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1265"/>
+        <location filename="../main.py" line="1273"/>
         <source>Version %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1267"/>
+        <location filename="../main.py" line="1275"/>
         <source>An open-source, Linux-native, frame-accurate video cutter, heavily inspired by VideoReDo.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1289"/>
+        <location filename="../main.py" line="1297"/>
         <source>OK</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1333"/>
-        <location filename="../main.py" line="1347"/>
-        <location filename="../main.py" line="1362"/>
-        <location filename="../main.py" line="1369"/>
+        <location filename="../main.py" line="1341"/>
+        <location filename="../main.py" line="1355"/>
+        <location filename="../main.py" line="1370"/>
+        <location filename="../main.py" line="1377"/>
         <source>Snipwright Watcher</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1334"/>
+        <location filename="../main.py" line="1342"/>
         <source>The Snipwright Watcher is already running - look for its icon in your system tray.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1348"/>
+        <location filename="../main.py" line="1356"/>
         <source>Couldn&apos;t find watcher.py alongside the application.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1363"/>
+        <location filename="../main.py" line="1371"/>
         <source>Couldn&apos;t start the Watcher:
 %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1370"/>
+        <location filename="../main.py" line="1378"/>
         <source>The Snipwright Watcher has started and now lives in your system tray.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1425"/>
+        <location filename="../main.py" line="1433"/>
         <source>Open a recording before adding it to the joiner list.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1458"/>
+        <location filename="../main.py" line="1466"/>
         <source>The same %d scene%s from &quot;%s&quot; %s already in the joiner list.
 
 Add again?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1468"/>
+        <location filename="../main.py" line="1476"/>
         <source>Already in the joiner list: %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1532"/>
+        <location filename="../main.py" line="1540"/>
         <source>The joiner list is empty.  Add one or more scenes first (Joiner -&gt; Add Current Project To Joiner List).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1543"/>
+        <location filename="../main.py" line="1551"/>
         <source>Some entries refer to files that can&apos;t be found, so the video can&apos;t be created:
 
 %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1572"/>
+        <location filename="../main.py" line="1580"/>
         <source>Because %s, the whole video will be re-encoded to a common format:%s
 
     H.264, %d×%d, %d fps, AAC stereo
@@ -1892,150 +1892,150 @@ Go ahead?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1641"/>
+        <location filename="../main.py" line="1649"/>
         <source>Create Joined Video</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="4879"/>
+        <location filename="../main.py" line="4899"/>
         <source>Settings</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="4882"/>
+        <location filename="../main.py" line="4902"/>
         <source>Settings brought across from your previous installation.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="4885"/>
+        <location filename="../main.py" line="4905"/>
         <source>Settings moved</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="5824"/>
+        <location filename="../main.py" line="5844"/>
         <source>Export running</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="5825"/>
+        <location filename="../main.py" line="5845"/>
         <source>An export is still being written in the background. Quitting will stop it, and the part-finished file will be discarded.
 
 Quit anyway?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1640"/>
+        <location filename="../main.py" line="1648"/>
         <source>Preparing…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1640"/>
-        <location filename="../main.py" line="1820"/>
-        <location filename="../main.py" line="2858"/>
-        <location filename="../main.py" line="3506"/>
-        <location filename="../main.py" line="3629"/>
+        <location filename="../main.py" line="1648"/>
+        <location filename="../main.py" line="1828"/>
+        <location filename="../main.py" line="2866"/>
+        <location filename="../main.py" line="3518"/>
+        <location filename="../main.py" line="3641"/>
         <source>Cancel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1662"/>
+        <location filename="../main.py" line="1670"/>
         <source>Joined video created:
 
 %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1669"/>
+        <location filename="../main.py" line="1677"/>
         <source>Could not create the joined video:
 
 %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1683"/>
+        <location filename="../main.py" line="1691"/>
         <source>That entry&apos;s file could no longer be found:
 
 %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1711"/>
+        <location filename="../main.py" line="1719"/>
         <source>Logs</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1712"/>
+        <location filename="../main.py" line="1720"/>
         <source>No log folder is available yet.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1776"/>
-        <location filename="../main.py" line="1799"/>
-        <location filename="../main.py" line="1809"/>
-        <location filename="../main.py" line="1825"/>
-        <location filename="../main.py" line="1842"/>
-        <location filename="../main.py" line="1855"/>
-        <location filename="../main.py" line="1878"/>
+        <location filename="../main.py" line="1784"/>
+        <location filename="../main.py" line="1807"/>
+        <location filename="../main.py" line="1817"/>
+        <location filename="../main.py" line="1833"/>
+        <location filename="../main.py" line="1850"/>
+        <location filename="../main.py" line="1863"/>
+        <location filename="../main.py" line="1886"/>
         <source>Detect Commercials</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1777"/>
-        <location filename="../main.py" line="2024"/>
-        <location filename="../main.py" line="3129"/>
-        <location filename="../main.py" line="3321"/>
-        <location filename="../main.py" line="3433"/>
+        <location filename="../main.py" line="1785"/>
+        <location filename="../main.py" line="2032"/>
+        <location filename="../main.py" line="3137"/>
+        <location filename="../main.py" line="3333"/>
+        <location filename="../main.py" line="3445"/>
         <source>Open a video first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1800"/>
+        <location filename="../main.py" line="1808"/>
         <source>The Comskip program hasn&apos;t been set yet.
 
 Add the path to Comskip (and optionally its .ini file) in Tools &gt; Settings &gt; Folders, then try again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1810"/>
+        <location filename="../main.py" line="1818"/>
         <source>This will replace your current scene markers with Comskip&apos;s detected scenes. Continue?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1819"/>
+        <location filename="../main.py" line="1827"/>
         <source>Detecting commercials (Comskip)…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1843"/>
+        <location filename="../main.py" line="1851"/>
         <source>Comskip finished but its output could not be read:
 
 %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1856"/>
+        <location filename="../main.py" line="1864"/>
         <source>Comskip found no commercials to remove (the whole file is one scene).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1892"/>
+        <location filename="../main.py" line="1900"/>
         <source>Import Project</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1933"/>
+        <location filename="../main.py" line="1941"/>
         <source>This project file could not be read:
 
 %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1943"/>
+        <location filename="../main.py" line="1951"/>
         <source>Locate video file</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1945"/>
+        <location filename="../main.py" line="1953"/>
         <source>There was a problem opening the video file associated with this project.
 The original file may not exist or may be mapped to a different drive or folder.
 
@@ -2045,137 +2045,137 @@ Do you wish to manually search for the file?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1970"/>
+        <location filename="../main.py" line="1978"/>
         <source>Locate video for project</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2030"/>
+        <location filename="../main.py" line="2038"/>
         <source>No scenes marked to keep. Mark at least one scene before saving a project.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2053"/>
+        <location filename="../main.py" line="2061"/>
         <source>The project could not be saved:
 
 %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2135"/>
+        <location filename="../main.py" line="2143"/>
         <source>Save Project As</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2223"/>
+        <location filename="../main.py" line="2231"/>
         <source>Language changed</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2225"/>
+        <location filename="../main.py" line="2233"/>
         <source>The interface language will change when Snipwright is restarted.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2227"/>
+        <location filename="../main.py" line="2235"/>
         <source>Restart now?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2229"/>
+        <location filename="../main.py" line="2237"/>
         <source>Restart now</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1221"/>
-        <location filename="../main.py" line="2231"/>
+        <location filename="../main.py" line="1229"/>
+        <location filename="../main.py" line="2239"/>
         <source>Later</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2639"/>
+        <location filename="../main.py" line="2647"/>
         <source>Open Multiple Files</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2640"/>
+        <location filename="../main.py" line="2648"/>
         <source>These files could not be read and were not added:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2667"/>
+        <location filename="../main.py" line="2675"/>
         <source>External tools</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2668"/>
+        <location filename="../main.py" line="2676"/>
         <source>The preview works without them, but exporting, joining and showing stream info need ffmpeg and ffprobe.
 
 </source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2730"/>
+        <location filename="../main.py" line="2738"/>
         <source>That file no longer exists:
 %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2809"/>
+        <location filename="../main.py" line="2817"/>
         <source>(no recent files)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2831"/>
+        <location filename="../main.py" line="2839"/>
         <source>Clear Recent</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2857"/>
+        <location filename="../main.py" line="2865"/>
         <source>Quick Stream Fix on open (remuxing)…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2863"/>
+        <location filename="../main.py" line="2871"/>
         <source>Opening</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2886"/>
+        <location filename="../main.py" line="2894"/>
         <source>Quick Stream Fix on open failed</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2887"/>
+        <location filename="../main.py" line="2895"/>
         <source>%s
 
 Opening the original file instead.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="2948"/>
+        <location filename="../main.py" line="2956"/>
         <source>Indexing video…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3128"/>
-        <location filename="../main.py" line="3142"/>
+        <location filename="../main.py" line="3136"/>
+        <location filename="../main.py" line="3150"/>
         <source>Export</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3143"/>
+        <location filename="../main.py" line="3151"/>
         <source>No segments marked to keep. Mark at least one green segment before exporting.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1621"/>
-        <location filename="../main.py" line="3196"/>
+        <location filename="../main.py" line="1629"/>
+        <location filename="../main.py" line="3204"/>
         <source>mkvmerge not found</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3197"/>
+        <location filename="../main.py" line="3205"/>
         <source>mkvmerge (mkvtoolnix) isn&apos;t installed or set in Settings.
 
 MKV export still works and stays lossless, but the audio is stored in a less-portable wrapper rather than native AAC.  It plays in Plex/Jellyfin and other ffmpeg-based players.
@@ -2186,137 +2186,137 @@ Export to MKV anyway?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3330"/>
+        <location filename="../main.py" line="3342"/>
         <source>No segments marked to keep. Mark at least one green segment before queueing.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3279"/>
+        <location filename="../main.py" line="3291"/>
         <source>Couldn&apos;t create the batch queue folder:
 
 %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3297"/>
+        <location filename="../main.py" line="3309"/>
         <source>The project couldn&apos;t be saved for batching:
 
 %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3352"/>
+        <location filename="../main.py" line="3364"/>
         <source>&quot;%s&quot; is already in the batch queue.
 
 Add it again?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3359"/>
+        <location filename="../main.py" line="3371"/>
         <source>Already in the batch queue: %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3397"/>
+        <location filename="../main.py" line="3409"/>
         <source>Already Quick Stream Fixed</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3398"/>
+        <location filename="../main.py" line="3410"/>
         <source>This file appears to have already been processed by Quick Stream Fix.
 
 Run Quick Stream Fix on it again anyway?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3432"/>
-        <location filename="../main.py" line="3443"/>
-        <location filename="../main.py" line="3511"/>
-        <location filename="../main.py" line="3634"/>
+        <location filename="../main.py" line="3444"/>
+        <location filename="../main.py" line="3455"/>
+        <location filename="../main.py" line="3523"/>
+        <location filename="../main.py" line="3646"/>
         <source>Quick Stream Fix</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3445"/>
+        <location filename="../main.py" line="3457"/>
         <source>How would you like to run Quick Stream Fix?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3447"/>
+        <location filename="../main.py" line="3459"/>
         <source>Repair and reload: repair to temporary storage and reload it now, carrying your current scene markers across (recommended when editing).
 
 Repair and save a copy: write a permanently-fixed copy to a location you choose, without changing what&apos;s currently open.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3454"/>
+        <location filename="../main.py" line="3466"/>
         <source>Repair and reload</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3455"/>
+        <location filename="../main.py" line="3467"/>
         <source>Repair and save a copy…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3505"/>
-        <location filename="../main.py" line="3628"/>
+        <location filename="../main.py" line="3517"/>
+        <location filename="../main.py" line="3640"/>
         <source>Repairing stream (remuxing)…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3524"/>
-        <location filename="../main.py" line="3938"/>
+        <location filename="../main.py" line="3536"/>
+        <location filename="../main.py" line="3958"/>
         <source>Re-indexing repaired stream…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3564"/>
+        <location filename="../main.py" line="3576"/>
         <source>Stream repaired and reloaded - check your scene markers.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3569"/>
-        <location filename="../main.py" line="3995"/>
+        <location filename="../main.py" line="3581"/>
+        <location filename="../main.py" line="4015"/>
         <source>Stream repaired</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3570"/>
+        <location filename="../main.py" line="3582"/>
         <source>The stream has been repaired and reloaded.
 
 Your scene markers have been carried over, but the repair can shift them slightly. Please check each scene (double-click a scene to jump to its start) and adjust if needed.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3578"/>
+        <location filename="../main.py" line="3590"/>
         <source>Stream repaired and reloaded.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3589"/>
-        <location filename="../main.py" line="3661"/>
+        <location filename="../main.py" line="3601"/>
+        <location filename="../main.py" line="3673"/>
         <source>Quick Stream Fix failed</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3619"/>
+        <location filename="../main.py" line="3631"/>
         <source>Quick Stream Fix - Save As</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3652"/>
+        <location filename="../main.py" line="3664"/>
         <source>Quick Stream Fix complete</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3653"/>
+        <location filename="../main.py" line="3665"/>
         <source>Saved:
 %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="1622"/>
+        <location filename="../main.py" line="1630"/>
         <source>mkvmerge (mkvtoolnix) isn&apos;t installed or set in Settings.
 
 MKV export will still work and stays lossless, but the audio is stored in a less-portable wrapper that some video players may reject, rather than native AAC.
@@ -2327,78 +2327,78 @@ Export to MKV anyway?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3760"/>
+        <location filename="../main.py" line="3780"/>
         <source>Export produced no video</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3761"/>
+        <location filename="../main.py" line="3781"/>
         <source>The export contained no usable video. This can happen with some broadcast recordings whose streams need repairing first.
 
 Would you like to run Quick Stream Fix on the source? The repaired file will be reloaded with your scene markers so you can check them before saving.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3778"/>
+        <location filename="../main.py" line="3798"/>
         <source>Export failed</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3861"/>
+        <location filename="../main.py" line="3881"/>
         <source>Export moved to the Batch Manager - it carries on in the background. Tools → Batch Manager to watch it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3918"/>
+        <location filename="../main.py" line="3938"/>
         <source>Repairing the stream (Quick Stream Fix)…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3924"/>
+        <location filename="../main.py" line="3944"/>
         <source>Repairing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3989"/>
+        <location filename="../main.py" line="4009"/>
         <source>Stream repaired and reloaded - check your scene markers, then Save Video.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="3996"/>
+        <location filename="../main.py" line="4016"/>
         <source>The stream has been repaired and reloaded.
 
 Your scene markers have been carried over, but the repair can shift them slightly. Please check each scene (double-click a scene to jump to its start) and adjust if needed, then click Save Video when you&apos;re happy.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="4011"/>
+        <location filename="../main.py" line="4031"/>
         <source>Repair failed</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="4012"/>
+        <location filename="../main.py" line="4032"/>
         <source>The stream could not be repaired automatically:
 
 %s</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="4922"/>
+        <location filename="../main.py" line="4942"/>
         <source>Mark IN and OUT first, then cut.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="4952"/>
+        <location filename="../main.py" line="4972"/>
         <source>Mark IN and OUT first, then trim.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="5805"/>
+        <location filename="../main.py" line="5825"/>
         <source>Batch running</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../main.py" line="5806"/>
+        <location filename="../main.py" line="5826"/>
         <source>A batch is still running. Quitting will stop it after the current job.
 
 Quit anyway?</source>
@@ -2605,27 +2605,27 @@ Anything still in use is skipped - open in the editor, being exported, or needed
 <context>
     <name>PathRow</name>
     <message>
-        <location filename="../ui/settings_widgets.py" line="60"/>
+        <location filename="../ui/settings_widgets.py" line="72"/>
         <source>Remember last used folder</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/settings_widgets.py" line="61"/>
+        <location filename="../ui/settings_widgets.py" line="73"/>
         <source>Always use this folder</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/settings_widgets.py" line="68"/>
+        <location filename="../ui/settings_widgets.py" line="80"/>
         <source>(no folder set)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/settings_widgets.py" line="71"/>
+        <location filename="../ui/settings_widgets.py" line="83"/>
         <source>Browse…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/settings_widgets.py" line="88"/>
+        <location filename="../ui/settings_widgets.py" line="100"/>
         <source>Choose folder</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2633,12 +2633,12 @@ Anything still in use is skipped - open in the editor, being exported, or needed
 <context>
     <name>PlainFolderRow</name>
     <message>
-        <location filename="../ui/settings_widgets.py" line="120"/>
+        <location filename="../ui/settings_widgets.py" line="132"/>
         <source>Browse…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/settings_widgets.py" line="130"/>
+        <location filename="../ui/settings_widgets.py" line="142"/>
         <source>Choose folder</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2646,116 +2646,181 @@ Anything still in use is skipped - open in the editor, being exported, or needed
 <context>
     <name>ProfileEditDialog</name>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="322"/>
-        <location filename="../ui/profile_manager_dialog.py" line="565"/>
-        <location filename="../ui/profile_manager_dialog.py" line="580"/>
+        <location filename="../ui/profile_manager_dialog.py" line="330"/>
+        <location filename="../ui/profile_manager_dialog.py" line="682"/>
+        <location filename="../ui/profile_manager_dialog.py" line="697"/>
         <source>Output Profile</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="338"/>
+        <location filename="../ui/profile_manager_dialog.py" line="346"/>
         <source>Profile name:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="340"/>
+        <location filename="../ui/profile_manager_dialog.py" line="348"/>
         <source>Container:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="343"/>
+        <location filename="../ui/profile_manager_dialog.py" line="351"/>
         <source>Video:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="364"/>
+        <location filename="../ui/profile_manager_dialog.py" line="372"/>
         <source>How far apart keyframes are placed - VideoReDo called this Max GOP length. Wider spacing makes a smaller file at the same quality; closer spacing makes seeking finer and re-cutting the result quicker. Automatic uses 5 seconds for HEVC and 1 second when cropping.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="371"/>
+        <location filename="../ui/profile_manager_dialog.py" line="379"/>
         <source>Audio:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="375"/>
+        <location filename="../ui/profile_manager_dialog.py" line="383"/>
         <source>AAC bitrate:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="355"/>
-        <location filename="../ui/profile_manager_dialog.py" line="360"/>
-        <location filename="../ui/profile_manager_dialog.py" line="376"/>
+        <location filename="../ui/profile_manager_dialog.py" line="363"/>
+        <location filename="../ui/profile_manager_dialog.py" line="368"/>
+        <location filename="../ui/profile_manager_dialog.py" line="384"/>
         <source>Automatic</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="350"/>
+        <location filename="../ui/profile_manager_dialog.py" line="358"/>
         <source>Encoder speed:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="353"/>
+        <location filename="../ui/profile_manager_dialog.py" line="361"/>
         <source>Quality (CRF):</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="358"/>
+        <location filename="../ui/profile_manager_dialog.py" line="366"/>
         <source>Keyframes every:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="361"/>
+        <location filename="../ui/profile_manager_dialog.py" line="369"/>
         <source> seconds</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="378"/>
+        <location filename="../ui/profile_manager_dialog.py" line="386"/>
         <source>%d kbps</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="381"/>
-        <source>Display aspect:</source>
+        <location filename="../ui/profile_manager_dialog.py" line="389"/>
+        <source>The bitrate used whenever the audio is encoded to AAC - either because Audio is set to AAC, or because surround is being downmixed.&lt;br&gt;&lt;br&gt;Automatic lets ffmpeg choose, which works out at around 128 kbps. That is thin for a surround track downmixed from a Blu-ray; 256 kbps or more suits those better.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="384"/>
-        <source>Cropping:</source>
+        <location filename="../ui/profile_manager_dialog.py" line="396"/>
+        <source>Surround audio:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="393"/>
-        <source>Crop pixels:</source>
+        <location filename="../ui/profile_manager_dialog.py" line="397"/>
+        <source>Keep as it is</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="427"/>
-        <source>Preview…</source>
+        <location filename="../ui/profile_manager_dialog.py" line="410"/>
+        <source>Loudness:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="434"/>
-        <source>Default directory:</source>
+        <location filename="../ui/profile_manager_dialog.py" line="411"/>
+        <source>Leave alone</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="440"/>
-        <source>(use the export folder)</source>
+        <location filename="../ui/profile_manager_dialog.py" line="412"/>
+        <source>Normalise (EBU R128)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="442"/>
-        <source>Choose…</source>
+        <location filename="../ui/profile_manager_dialog.py" line="413"/>
+        <source>Compress dynamic range</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="414"/>
+        <source>Change level</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="417"/>
+        <source>&lt;b&gt;Normalise&lt;/b&gt; brings the whole programme to a set loudness, the way broadcasters do. -23 LUFS is the broadcast standard; -16 suits headphones and quiet rooms.&lt;br&gt;&lt;br&gt;&lt;b&gt;Compress dynamic range&lt;/b&gt; lifts quiet dialogue without the loud moments becoming painful - useful for drama mixed very quietly.&lt;br&gt;&lt;br&gt;&lt;b&gt;Change level&lt;/b&gt; applies a plain gain, up or down.&lt;br&gt;&lt;br&gt;Any of these re-encodes the audio; leaving it alone keeps the lossless copy.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="429"/>
+        <source>Target:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="438"/>
+        <source>Audio delay:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="441"/>
+        <source> ms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../ui/profile_manager_dialog.py" line="444"/>
+        <source>Shifts the sound relative to the picture, for a recording that arrived out of sync.&lt;br&gt;&lt;br&gt;Use a positive value when the sound is early, negative when it lags. The audio is still copied losslessly - only its timing changes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="450"/>
+        <source>Display aspect:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="453"/>
+        <source>Cropping:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="462"/>
+        <source>Crop pixels:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="496"/>
+        <source>Preview…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="503"/>
+        <source>Default directory:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="509"/>
+        <source>(use the export folder)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="511"/>
+        <source>Choose…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="513"/>
         <source>Clear</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="451"/>
+        <location filename="../ui/profile_manager_dialog.py" line="520"/>
         <source>Display aspect is applied losslessly on export: 4:3 or 16:9 is stamped into the video&apos;s aspect signalling without re-encoding, so a wrongly-flagged recording plays at the right shape.  &apos;Source&apos; leaves it untouched.
 
 Cropping removes black bars, but unlike everything else it re-encodes the video (slower, not lossless).  &apos;Auto-detect&apos; finds the bars per file; &apos;Fixed pixels&apos; uses the amounts above.
@@ -2764,39 +2829,59 @@ Encoder speed and Quality apply only when the video is re-encoded (HEVC, or crop
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="571"/>
+        <location filename="../ui/profile_manager_dialog.py" line="632"/>
+        <source> LUFS</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="639"/>
+        <source> dB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="688"/>
         <source>A CRF below 18 gives very large files for little visible gain.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="576"/>
+        <location filename="../ui/profile_manager_dialog.py" line="693"/>
         <source>A CRF above 30 is likely to show visible compression artefacts.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="581"/>
+        <location filename="../ui/profile_manager_dialog.py" line="698"/>
         <source>%s
 
 Use it anyway?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="523"/>
+        <location filename="../ui/profile_manager_dialog.py" line="592"/>
         <source>Set cropping to Auto-detect or Fixed to preview.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="528"/>
+        <location filename="../ui/profile_manager_dialog.py" line="398"/>
+        <source>Downmix to stereo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="402"/>
+        <source>A 5.1 broadcast mix played through two speakers often has very quiet dialogue, because the centre channel carrying it isn&apos;t there. Downmixing to stereo puts the dialogue back into both speakers.&lt;br&gt;&lt;br&gt;Only tracks with more than two channels are affected, and those are re-encoded; everything else is copied untouched.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/profile_manager_dialog.py" line="597"/>
         <source>Open a recording first to preview the crop.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="557"/>
+        <location filename="../ui/profile_manager_dialog.py" line="674"/>
         <source>Choose default output folder</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="565"/>
+        <location filename="../ui/profile_manager_dialog.py" line="682"/>
         <source>Please give the profile a name.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2805,111 +2890,111 @@ Use it anyway?</source>
     <name>ProfileEditor</name>
     <message>
         <location filename="../addons/output_profiles.py" line="23"/>
-        <location filename="../addons/output_profiles.py" line="110"/>
-        <location filename="../addons/output_profiles.py" line="248"/>
-        <location filename="../ui/profile_manager_dialog.py" line="53"/>
+        <location filename="../addons/output_profiles.py" line="182"/>
+        <location filename="../addons/output_profiles.py" line="330"/>
+        <location filename="../ui/profile_manager_dialog.py" line="61"/>
         <source>Match Source</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../addons/output_profiles.py" line="24"/>
-        <location filename="../addons/output_profiles.py" line="250"/>
-        <location filename="../ui/profile_manager_dialog.py" line="54"/>
+        <location filename="../addons/output_profiles.py" line="332"/>
+        <location filename="../ui/profile_manager_dialog.py" line="62"/>
         <source>Matroska MKV</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="58"/>
+        <location filename="../ui/profile_manager_dialog.py" line="66"/>
         <source>Copy (lossless)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../addons/output_profiles.py" line="109"/>
-        <location filename="../ui/profile_manager_dialog.py" line="59"/>
+        <location filename="../addons/output_profiles.py" line="181"/>
+        <location filename="../ui/profile_manager_dialog.py" line="67"/>
         <source>HEVC (re-encode)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="62"/>
+        <location filename="../ui/profile_manager_dialog.py" line="70"/>
         <source>Smart copy (lossless)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="63"/>
+        <location filename="../ui/profile_manager_dialog.py" line="71"/>
         <source>Re-encode to AAC</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="66"/>
+        <location filename="../ui/profile_manager_dialog.py" line="74"/>
         <source>Source</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="73"/>
+        <location filename="../ui/profile_manager_dialog.py" line="81"/>
         <source>Slower (best quality)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="74"/>
+        <location filename="../ui/profile_manager_dialog.py" line="82"/>
         <source>Slow</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="75"/>
+        <location filename="../ui/profile_manager_dialog.py" line="83"/>
         <source>Default</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="76"/>
+        <location filename="../ui/profile_manager_dialog.py" line="84"/>
         <source>Fast</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="77"/>
+        <location filename="../ui/profile_manager_dialog.py" line="85"/>
         <source>Fastest (lowest quality)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="81"/>
+        <location filename="../ui/profile_manager_dialog.py" line="89"/>
         <source>None (lossless)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="82"/>
+        <location filename="../ui/profile_manager_dialog.py" line="90"/>
         <source>Auto-detect bars</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="83"/>
+        <location filename="../ui/profile_manager_dialog.py" line="91"/>
         <source>Fixed pixels</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="160"/>
-        <location filename="../ui/profile_manager_dialog.py" line="407"/>
+        <location filename="../ui/profile_manager_dialog.py" line="168"/>
+        <location filename="../ui/profile_manager_dialog.py" line="476"/>
         <source>Top</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="161"/>
-        <location filename="../ui/profile_manager_dialog.py" line="408"/>
+        <location filename="../ui/profile_manager_dialog.py" line="169"/>
+        <location filename="../ui/profile_manager_dialog.py" line="477"/>
         <source>Bottom</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="162"/>
-        <location filename="../ui/profile_manager_dialog.py" line="409"/>
+        <location filename="../ui/profile_manager_dialog.py" line="170"/>
+        <location filename="../ui/profile_manager_dialog.py" line="478"/>
         <source>Left</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="163"/>
-        <location filename="../ui/profile_manager_dialog.py" line="410"/>
+        <location filename="../ui/profile_manager_dialog.py" line="171"/>
+        <location filename="../ui/profile_manager_dialog.py" line="479"/>
         <source>Right</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../addons/output_profiles.py" line="118"/>
+        <location filename="../addons/output_profiles.py" line="190"/>
         <source>Smart</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2917,93 +3002,93 @@ Use it anyway?</source>
 <context>
     <name>ProfileManagerDialog</name>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="620"/>
+        <location filename="../ui/profile_manager_dialog.py" line="741"/>
         <source>Manage Output Profiles</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="632"/>
+        <location filename="../ui/profile_manager_dialog.py" line="753"/>
         <source>On</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="632"/>
+        <location filename="../ui/profile_manager_dialog.py" line="753"/>
         <source>Fav</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="632"/>
+        <location filename="../ui/profile_manager_dialog.py" line="753"/>
         <source>Profile</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="633"/>
+        <location filename="../ui/profile_manager_dialog.py" line="754"/>
         <source>Codec</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="633"/>
+        <location filename="../ui/profile_manager_dialog.py" line="754"/>
         <source>Container</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="633"/>
+        <location filename="../ui/profile_manager_dialog.py" line="754"/>
         <source>Output Mode</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="651"/>
+        <location filename="../ui/profile_manager_dialog.py" line="772"/>
         <source>Add…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="652"/>
+        <location filename="../ui/profile_manager_dialog.py" line="773"/>
         <source>Edit…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="653"/>
+        <location filename="../ui/profile_manager_dialog.py" line="774"/>
         <source>Duplicate</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="654"/>
+        <location filename="../ui/profile_manager_dialog.py" line="775"/>
         <source>Delete</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="655"/>
+        <location filename="../ui/profile_manager_dialog.py" line="776"/>
         <source>Move Up</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="656"/>
+        <location filename="../ui/profile_manager_dialog.py" line="777"/>
         <source>Move Down</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="742"/>
-        <location filename="../ui/profile_manager_dialog.py" line="780"/>
+        <location filename="../ui/profile_manager_dialog.py" line="863"/>
+        <location filename="../ui/profile_manager_dialog.py" line="901"/>
         <source>Built-in profile</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="744"/>
+        <location filename="../ui/profile_manager_dialog.py" line="865"/>
         <source>“%s” is a built-in profile and can&apos;t be edited here.  Use Duplicate to make your own editable copy.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="781"/>
+        <location filename="../ui/profile_manager_dialog.py" line="902"/>
         <source>“%s” is a built-in profile and can&apos;t be deleted.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="786"/>
+        <location filename="../ui/profile_manager_dialog.py" line="907"/>
         <source>Delete Profile</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/profile_manager_dialog.py" line="787"/>
+        <location filename="../ui/profile_manager_dialog.py" line="908"/>
         <source>Delete the profile “%s”?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3994,131 +4079,151 @@ Your recordings and projects are not affected. Continue?</source>
 <context>
     <name>TrimCopyDialog</name>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="81"/>
+        <location filename="../ui/trim_copy_dialog.py" line="93"/>
         <source>Trim and Copy Source File</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="104"/>
         <location filename="../ui/trim_copy_dialog.py" line="116"/>
+        <location filename="../ui/trim_copy_dialog.py" line="128"/>
         <source>…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="107"/>
+        <location filename="../ui/trim_copy_dialog.py" line="119"/>
         <source>Source File:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="111"/>
+        <location filename="../ui/trim_copy_dialog.py" line="123"/>
         <source>—</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="112"/>
+        <location filename="../ui/trim_copy_dialog.py" line="124"/>
         <source>Size:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="119"/>
+        <location filename="../ui/trim_copy_dialog.py" line="131"/>
         <source>Output File:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="128"/>
+        <location filename="../ui/trim_copy_dialog.py" line="140"/>
         <source>Output Options</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="132"/>
+        <location filename="../ui/trim_copy_dialog.py" line="144"/>
         <source>From Beginning</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="133"/>
+        <location filename="../ui/trim_copy_dialog.py" line="145"/>
         <source>To End Of File</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="136"/>
+        <location filename="../ui/trim_copy_dialog.py" line="148"/>
         <source>Start At MByte:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="145"/>
+        <location filename="../ui/trim_copy_dialog.py" line="157"/>
         <source>Use Selection Markers</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="163"/>
+        <location filename="../ui/trim_copy_dialog.py" line="175"/>
         <source>MBytes To Output:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="187"/>
+        <location filename="../ui/trim_copy_dialog.py" line="199"/>
         <source>Start Copy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="190"/>
-        <location filename="../ui/trim_copy_dialog.py" line="370"/>
+        <location filename="../ui/trim_copy_dialog.py" line="202"/>
+        <location filename="../ui/trim_copy_dialog.py" line="411"/>
         <source>Close</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="222"/>
+        <location filename="../ui/trim_copy_dialog.py" line="239"/>
         <source>Select Source File</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="243"/>
+        <location filename="../ui/trim_copy_dialog.py" line="240"/>
+        <source>All files (*)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/trim_copy_dialog.py" line="264"/>
         <source>Select Output File</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="301"/>
-        <location filename="../ui/trim_copy_dialog.py" line="309"/>
-        <location filename="../ui/trim_copy_dialog.py" line="320"/>
-        <location filename="../ui/trim_copy_dialog.py" line="329"/>
-        <location filename="../ui/trim_copy_dialog.py" line="333"/>
-        <location filename="../ui/trim_copy_dialog.py" line="345"/>
-        <location filename="../ui/trim_copy_dialog.py" line="377"/>
-        <location filename="../ui/trim_copy_dialog.py" line="384"/>
+        <location filename="../ui/trim_copy_dialog.py" line="322"/>
+        <location filename="../ui/trim_copy_dialog.py" line="330"/>
+        <location filename="../ui/trim_copy_dialog.py" line="341"/>
+        <location filename="../ui/trim_copy_dialog.py" line="350"/>
+        <location filename="../ui/trim_copy_dialog.py" line="354"/>
+        <location filename="../ui/trim_copy_dialog.py" line="365"/>
+        <location filename="../ui/trim_copy_dialog.py" line="386"/>
+        <location filename="../ui/trim_copy_dialog.py" line="418"/>
+        <location filename="../ui/trim_copy_dialog.py" line="425"/>
         <source>Trim and Copy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="302"/>
+        <location filename="../ui/trim_copy_dialog.py" line="265"/>
+        <source>Same as source (*%s);;All files (*)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/trim_copy_dialog.py" line="323"/>
         <source>Please choose a valid source file first.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="310"/>
+        <location filename="../ui/trim_copy_dialog.py" line="331"/>
         <source>Could not work out byte offsets from the selection markers for this file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="321"/>
+        <location filename="../ui/trim_copy_dialog.py" line="342"/>
         <source>That selection produces an empty file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="330"/>
+        <location filename="../ui/trim_copy_dialog.py" line="351"/>
         <source>Please choose an output file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="334"/>
+        <location filename="../ui/trim_copy_dialog.py" line="355"/>
         <source>The output file must be different from the source file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="355"/>
+        <location filename="../ui/trim_copy_dialog.py" line="367"/>
+        <source>%s files keep their index in a header at one end of the file, and a trimmed copy leaves that index describing data that is no longer there. The result will most likely not play.
+
+To cut this recording properly, use Save Video instead, which rebuilds the file correctly.
+
+Continue anyway?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../ui/trim_copy_dialog.py" line="396"/>
         <source>Cancel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/trim_copy_dialog.py" line="385"/>
+        <location filename="../ui/trim_copy_dialog.py" line="426"/>
         <source>Copy failed:
 
 %s</source>
@@ -4128,27 +4233,27 @@ Your recordings and projects are not affected. Continue?</source>
 <context>
     <name>UserGuideDialog</name>
     <message>
-        <location filename="../ui/help_dialog.py" line="50"/>
+        <location filename="../ui/help_dialog.py" line="99"/>
         <source>Snipwright User Guide</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/help_dialog.py" line="64"/>
+        <location filename="../ui/help_dialog.py" line="127"/>
         <source>User guide not found</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/help_dialog.py" line="65"/>
+        <location filename="../ui/help_dialog.py" line="128"/>
         <source>The guide file appears to be missing from this installation.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/help_dialog.py" line="72"/>
+        <location filename="../ui/help_dialog.py" line="135"/>
         <source>Open in Browser</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../ui/help_dialog.py" line="76"/>
+        <location filename="../ui/help_dialog.py" line="139"/>
         <source>Close</source>
         <translation type="unfinished"></translation>
     </message>

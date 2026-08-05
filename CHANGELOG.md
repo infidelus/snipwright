@@ -6,6 +6,161 @@ All notable changes to Snipwright are documented here. Releases before
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] - 2026-08-05
+
+### Added
+
+- **Audio delay in output profiles.** A recording that arrives with the sound
+  running ahead of or behind the picture can be corrected on export: set
+  **Audio delay** in the profile, positive when the sound is early and negative
+  when it lags. This changes only the timing, so the audio is still copied
+  losslessly. (Prompted by VideoReDo's "Audio Sync Adjustment", which Snipwright
+  had no equivalent of at all.)
+- **Trim and Copy Source File is now documented** in both user guides: what it
+  is for, what each of the four start/stop options does, and honestly what its
+  limits are — it copies bytes rather than rebuilding the file, so the result is
+  approximate even when snapped to a keyframe, and it cannot work on MP4.
+- **Loudness processing in output profiles.** Broadcast recordings vary a good
+  deal in level, and some drama is mixed so quietly it's hard to hear. A profile
+  can now **Normalise (EBU R128)** to a target loudness — -23 LUFS is the
+  broadcast standard, -16 suits headphones — **Compress dynamic range**, which
+  lifts quiet dialogue without the loud moments becoming painful, or apply a
+  plain **Change level** in dB.
+
+  Normalisation measures the recording first and then applies the correction, so
+  it hits the target exactly; a single pass estimates as it goes and lands a
+  couple of LUFS out. Any loudness processing re-encodes the audio, so leaving it
+  alone is what keeps the lossless copy.
+- **Surround downmix.** **Surround audio → Fold down to stereo** in a profile
+  folds a 5.1 mix to two channels. A broadcast surround mix played through two
+  speakers often has nearly inaudible dialogue, because the centre channel
+  carrying it isn't there. Only tracks with more than two channels are touched —
+  a stereo track is copied untouched rather than needlessly re-encoded.
+
+  Both apply before any container conversion, so they hold for `.ts`, `.mkv` and
+  `.mp4` alike, and a failure leaves the cut untouched rather than losing it.
+
+### Changed
+
+- **"Match Source" wrote MPEG-TS into files named `.mkv` and `.mp4`.** The
+  format was only resolved to a real container when a profile forced MKV or MP4;
+  matching the source fell through to the MPEG-TS path while still taking the
+  source's extension. The result played, but was mislabelled — MediaInfo reports
+  it as MPEG-TS with an invalid extension — and had no chapters, because
+  chapters are written during a Matroska mux that never ran. Matching now
+  resolves to the destination's actual container. (Spotted by Sean, from a
+  Blu-ray export that had lost its chapter markers.)
+- **Trim and Copy offered only transport streams, and produced broken MP4s.**
+  The source filter listed a handful of extensions, which was both too narrow —
+  MKV trims perfectly well — and too broad, since MP4 does not. There is now a
+  single **All files** entry, and pressing **Start Copy** on an MP4, MOV or M4V
+  asks first: those containers keep their index in a header, so a byte-range
+  copy leaves it describing data that is no longer there and the result won't
+  open. The output filter also defaults to the source's own extension rather
+  than always offering `.ts`.
+- **The user guide stayed dark in the light theme.** Its stylesheet was written
+  for the dark look and hard-coded into the HTML, so anyone using the light
+  theme opened Help and got white text on a dark background. The guide is now
+  recoloured as it loads. There is still one guide file per language — the light
+  palette is a substitution table rather than a second copy to keep in step —
+  and only the stylesheet changes, verified by comparing the document body
+  before and after.
+- **MP4 exports re-encoded audio that didn't need it.** The MP4 path always
+  re-encoded to 192 kbps AAC, which was there for broadcast LATM and MP2 that
+  MP4 genuinely cannot carry — but it applied to everything, so an MP4 source
+  with AAC or E-AC-3 had good audio decoded and re-encoded for no reason. That
+  cost time, and could make the output *larger* than the source. Audio MP4 can
+  carry is now copied untouched. (Found by Sean while testing on Windows.)
+- **Folder settings showed forward slashes on Windows.** Qt's file dialogs
+  return them on every platform; the settings page now displays paths the way
+  the platform writes them.
+- **An MKV whose audio wouldn't play is now re-encoded rather than shipped.**
+  Some broadcasts - Channel 4 HD films among them - change their AAC channel
+  configuration part-way through. Matroska stores one configuration for the
+  track, so whichever is written, the frames using the other fail to decode:
+  `channel element 1.0 is not allocated`, and a file with no usable sound.
+  Snipwright already detected this and fell back from mkvmerge to ffmpeg, but
+  that hits the same wall, so it shipped the file anyway with a footnote
+  suggesting AAC - after an export that may have taken an hour.
+
+  The result is now checked again after the fallback, and if it still won't
+  decode the audio is re-encoded to AAC, which collapses the stream to one
+  configuration. Lossless where possible, playable always. Setting Audio to
+  Re-encode AAC in the profile still skips the attempt entirely.
+- **The source file's index is now cached between exports.** Working out where
+  a file can be cut means walking every packet in it, and that was repeated in
+  full every time the same unchanged file was exported — over three minutes for
+  a 21 GB Blu-ray on a network share. The result is now written beside the
+  frame-index cache and reused, so a second export of the same file starts
+  almost immediately.
+
+  The cache holds only the computed index; the file itself is re-opened each
+  time. It is keyed on path, size and modification time, so an edited or
+  replaced file gets a fresh index rather than a stale one, and it ages out
+  under the same **Delete cached data older than** setting as everything else.
+  Verified attribute by attribute, and by comparing the cut plans a cached and
+  a freshly-walked index produce.
+- **Exports no longer scan the source file twice before cutting starts.**
+  Working out the cut plan requires walking the whole file to map its GOPs and
+  packet timestamps, and that was being done once to work out the segments and
+  again immediately afterwards to describe them. On a 21 GB Blu-ray held on a
+  network share the second pass alone took three minutes and twenty-three
+  seconds, with nothing happening on screen. The second scan is gone; the plan
+  it produces is identical, verified segment boundary by segment boundary.
+
+  (This is a separate index from the one Snipwright caches on disk. That cache
+  works correctly — it was smartcut's own, which is built fresh each time.)
+- **Cutting no longer holds the whole file's audio in memory.** Every audio
+  packet was collected up front — the original smartcut code carried a note
+  saying as much — which is unnoticeable for a Freeview recording and punishing
+  for anything larger. A Blu-ray with six DTS tracks meant about 3.5 GB of
+  compressed audio plus a Python object for each of some two and a half million
+  packets, most of the 15 GB working set observed while cutting one.
+
+  Packets are now read from the file as the cut needs them, keeping a bounded
+  window rather than the lot. Measured on a 700 MB recording, one audio track
+  went from 254 MB held to effectively nothing. The saving scales with the file,
+  so it matters most on exactly the material that was worst affected.
+
+### Fixed
+
+- **Loudness normalisation changed the audio's sample rate.** ffmpeg's
+  `loudnorm` works internally at 192 kHz and leaves its output there, so an
+  8 kHz recording came out at 96 kHz — twelve times the data for no gain
+  whatsoever, since upsampling cannot add detail that was never there. The audio
+  is now resampled back to whatever the source used.
+- **Audio delay, downmix and loudness failed on anything that wasn't MPEG-TS.**
+  The adjustment pass always wrote MPEG-TS, which was fine while it only ran on
+  the intermediate that MKV and MP4 exports go through — but a "match source"
+  export writes straight to the final file, so an AVI had MPEG-TS written into
+  it under an `.avi` name, and PCM audio in MPEG-TS fails outright. It now keeps
+  whatever container the file is already in.
+- **A failed audio adjustment was reported as an unqualified success.** The cut
+  is deliberately kept when an adjustment fails — losing a good export over a
+  sync tweak would be worse — but the summary said "Export complete" with no
+  mention that the loudness or delay you asked for hadn't been applied. It now
+  says so plainly.
+- **A downmixed surround track was encoded at ffmpeg's default bitrate.** The
+  AAC bitrate control was enabled only when Audio was set to AAC, so a profile
+  that copied audio while downmixing left the field greyed out — no bitrate
+  reached ffmpeg, and it fell back to its own default of about 128 kbps. A 5.1
+  DTS-HD track from a Blu-ray came out as thin stereo. The control is now
+  enabled whenever the audio will be encoded, downmix included, and its tooltip
+  says what a sensible figure looks like.
+- **Saving a video crashed if the profile set an audio delay or downmix.**
+  `ExportWorker` never received the two new settings, so the export raised a
+  TypeError before it began. The static keyword-argument check that exists to
+  catch exactly this only understood function calls, not constructors, so a bad
+  keyword on a class went unnoticed; it now covers constructors too, and ignores
+  names defined more than once in the tree rather than checking one class
+  against another's signature.
+- **A crash parsing HEVC streams with an explicit aspect ratio.** The H.265
+  parser referenced `EXTENDED_SAR` without ever defining it, so any stream
+  setting `aspect_ratio_idc` to 255 — the value meaning "the aspect ratio is
+  given explicitly rather than by table index" — would have raised a NameError
+  rather than parsing. This is in the vendored smartcut code, which came from a
+  project that is no longer maintained, so it is ours to fix.
+
 ## [2.1.0] - 2026-08-01
 
 ### Added

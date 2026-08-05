@@ -39,6 +39,18 @@ def hint(text):
     return label
 
 
+def native_path(path):
+    """A path shown the way the platform writes it.
+
+    Qt's file dialogs return forward slashes on every platform, so a Windows
+    user picking a folder saw C:/Users/... where every other Windows
+    application shows C:\\Users\\...  Only the display changes; the value is a
+    valid path either way.
+    """
+    import os
+    return os.path.normpath(path) if path else path
+
+
 class PathRow(QWidget):
     """A folder setting: a 'Last used / Fixed folder' mode chooser plus a
     folder field with a Browse button (the field is only enabled in fixed
@@ -64,7 +76,7 @@ class PathRow(QWidget):
         self._mode.currentIndexChanged.connect(self._sync_enabled)
         row.addWidget(self._mode)
 
-        self._folder = QLineEdit(folder or "")
+        self._folder = QLineEdit(native_path(folder or ""))
         self._folder.setPlaceholderText(self.tr("(no folder set)"))
         row.addWidget(self._folder, 1)
 
@@ -88,7 +100,7 @@ class PathRow(QWidget):
             self, self.tr("Choose folder"), start
         )
         if chosen:
-            self._folder.setText(chosen)
+            self._folder.setText(native_path(chosen))
 
     def mode(self):
         return self._mode.currentData()
@@ -113,7 +125,7 @@ class PlainFolderRow(QWidget):
         row = QHBoxLayout()
         row.setSpacing(6)
 
-        self._folder = QLineEdit(folder or "")
+        self._folder = QLineEdit(native_path(folder or ""))
         self._folder.setPlaceholderText(placeholder)
         row.addWidget(self._folder, 1)
 
@@ -130,7 +142,7 @@ class PlainFolderRow(QWidget):
             self, self.tr("Choose folder"), start
         )
         if chosen:
-            self._folder.setText(chosen)
+            self._folder.setText(native_path(chosen))
 
     def folder(self):
         return self._folder.text().strip()

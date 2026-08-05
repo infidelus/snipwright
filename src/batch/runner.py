@@ -185,6 +185,10 @@ def _index_and_export(
         encoder_preset=getattr(profile, "preset", "faster"),
         encoder_crf=(profile.effective_crf()
                      if hasattr(profile, "effective_crf") else None),
+        audio_sync_ms=getattr(profile, "audio_sync_ms", 0),
+        downmix=getattr(profile, "downmix", "keep"),
+        level_mode=getattr(profile, "level_mode", "none"),
+        level_value=getattr(profile, "level_value", 0.0),
         encoder_gop_seconds=(profile.effective_gop_seconds()
                              if hasattr(profile, "effective_gop_seconds")
                              else None),

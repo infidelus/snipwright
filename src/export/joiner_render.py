@@ -669,6 +669,10 @@ class JoinerRenderWorker(QThread):
             encoder_preset=getattr(p, "preset", "faster"),
             encoder_crf=(p.effective_crf()
                          if hasattr(p, "effective_crf") else None),
+            audio_sync_ms=getattr(p, "audio_sync_ms", 0),
+            downmix=getattr(p, "downmix", "keep"),
+            level_mode=getattr(p, "level_mode", "none"),
+            level_value=getattr(p, "level_value", 0.0),
             encoder_gop_seconds=(p.effective_gop_seconds()
                                  if hasattr(p, "effective_gop_seconds")
                                  else None),

@@ -62,7 +62,44 @@ DEFAULT_GOP_SECONDS = {"hevc": 5, "copy": 1}
 ASPECT_MODES = ("source", "4:3", "16:9")
 CROP_MODES = ("none", "auto", "fixed")  # off | auto-detect bars | fixed pixels
 AAC_AUTO = 0                            # 0 == let the bitrate follow the source
-AAC_BITRATES = (128, 160, 192, 224, 256, 288, 315, 320, 384)
+# Spread wider than the old 128-384: a 5.1 Blu-ray track folded to stereo
+# wants headroom at the top, and speech-only material is fine well below
+# 128.  Matches the range VideoReDo offers.
+AAC_BITRATES = (64, 96, 128, 160, 192, 224, 256, 288, 320, 384, 448)
+
+# Audio delay, in milliseconds, applied to every audio track on export.
+# Broadcast recordings occasionally arrive with the sound a little ahead of or
+# behind the picture - a fault in the transmission or the tuner, not something
+# cutting can fix - and without this the only remedy is another tool entirely.
+# Positive delays the audio (use when sound arrives early), negative advances it.
+AUDIO_SYNC_NONE = 0
+AUDIO_SYNC_MIN, AUDIO_SYNC_MAX = -5000, 5000     # +/- five seconds is ample
+
+# What to do with surround audio.  "keep" leaves the channel layout alone;
+# "stereo" folds it down.  A 5.1 broadcast mix played through two speakers often
+# has dialogue that is nearly inaudible, because the centre channel carrying it
+# is simply absent - a downmix puts it back into both speakers.
+DOWNMIX_MODES = ("keep", "stereo")
+
+# Loudness processing.  Broadcast recordings vary a good deal in level between
+# channels and between programmes, and some drama is mixed so quietly that it
+# is hard to hear without reaching for the remote.
+#
+#   "none"     - leave the audio alone (and keep copying it losslessly)
+#   "normalise"- EBU R128 loudness normalisation to a target, the broadcast
+#                standard; evens out the whole programme without pumping
+#   "dynamic"  - dynamic range compression, which lifts quiet dialogue at the
+#                cost of the loud moments being less loud
+#   "gain"     - a plain level change, up or down, applied uniformly
+LEVEL_MODES = ("none", "normalise", "dynamic", "gain")
+
+# Target loudness for "normalise", in LUFS.  -23 is the EBU R128 broadcast
+# standard; -16 suits headphones and quiet rooms better.
+LEVEL_TARGET_MIN, LEVEL_TARGET_MAX = -40.0, -5.0
+LEVEL_TARGET_DEFAULT = -23.0
+
+# Gain in dB for "gain" mode.
+LEVEL_GAIN_MIN, LEVEL_GAIN_MAX = -30.0, 30.0
 
 
 class OutputProfile:
@@ -72,6 +109,8 @@ class OutputProfile:
                  aspect="source", crop_mode="none", crop=(0, 0, 0, 0),
                  video="copy", preset=DEFAULT_PRESET, crf=CRF_AUTO,
                  gop_seconds=GOP_AUTO,
+                 audio_sync_ms=AUDIO_SYNC_NONE, downmix="keep",
+                 level_mode="none", level_value=LEVEL_TARGET_DEFAULT,
                  output_dir="", favourite=False, enabled=True, builtin=False):
         self.name = name
         self.container = container          # "match" | "mkv" | "mp4"
@@ -97,10 +136,43 @@ class OutputProfile:
         self.crop = tuple(int(x) for x in crop)[:4] if crop else (0, 0, 0, 0)
         if len(self.crop) != 4:
             self.crop = (0, 0, 0, 0)
+        # Audio delay in milliseconds, and whether to fold surround to stereo.
+        # Both apply however the audio is handled - a delay is a timestamp
+        # change, so it works even on a straight copy; a downmix necessarily
+        # re-encodes the audio, and says so in the editor.
+        self.audio_sync_ms = self._clean_sync(audio_sync_ms)
+        self.downmix = downmix if downmix in DOWNMIX_MODES else "keep"
+        # Loudness processing.  `level_value` means different things per mode -
+        # a LUFS target for "normalise", a dB change for "gain" - so it is
+        # clamped against whichever range applies.
+        self.level_mode = level_mode if level_mode in LEVEL_MODES else "none"
+        self.level_value = self._clean_level(self.level_mode, level_value)
         self.output_dir = output_dir        # per-profile default destination
         self.favourite = favourite
         self.enabled = enabled
         self.builtin = builtin
+
+    @staticmethod
+    def _clean_level(mode, value):
+        """Clamp the level figure to whatever the mode means by it."""
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return LEVEL_TARGET_DEFAULT if mode == "normalise" else 0.0
+        if mode == "normalise":
+            return max(LEVEL_TARGET_MIN, min(LEVEL_TARGET_MAX, v))
+        if mode == "gain":
+            return max(LEVEL_GAIN_MIN, min(LEVEL_GAIN_MAX, v))
+        return v
+
+    @staticmethod
+    def _clean_sync(value):
+        """Clamp the audio delay, treating anything unparseable as no delay."""
+        try:
+            ms = int(value)
+        except (TypeError, ValueError):
+            return AUDIO_SYNC_NONE
+        return max(AUDIO_SYNC_MIN, min(AUDIO_SYNC_MAX, ms))
 
     # -- display helpers for the list columns ------------------------------
     @property
@@ -207,6 +279,10 @@ class OutputProfile:
             "preset": self.preset,
             "crf": self.crf,
             "gop_seconds": self.gop_seconds,
+            "audio_sync_ms": self.audio_sync_ms,
+            "downmix": self.downmix,
+            "level_mode": self.level_mode,
+            "level_value": self.level_value,
             "output_dir": self.output_dir,
             "favourite": self.favourite,
             "enabled": self.enabled,
@@ -232,6 +308,12 @@ class OutputProfile:
             # which for HEVC is a longer gap than the one second Snipwright used
             # to hard-code - so they produce smaller files at the same quality.
             gop_seconds=d.get("gop_seconds", GOP_AUTO),
+            # Absent from older profiles, and the defaults are "do nothing",
+            # so an existing profile behaves exactly as it always has.
+            audio_sync_ms=d.get("audio_sync_ms", AUDIO_SYNC_NONE),
+            downmix=d.get("downmix", "keep"),
+            level_mode=d.get("level_mode", "none"),
+            level_value=d.get("level_value", LEVEL_TARGET_DEFAULT),
             output_dir=d.get("output_dir", ""),
             favourite=bool(d.get("favourite", False)),
             enabled=bool(d.get("enabled", True)),

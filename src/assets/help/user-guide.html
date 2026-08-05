@@ -338,7 +338,9 @@ MKV</strong> and <strong>MP4</strong>), and each of them is simply a saved combi
 these fields. Note that &ldquo;Match Source&rdquo; is both the name of a built-in profile and
 one of the Container choices, which is worth keeping straight. A profile controls:</p>
 <ul>
-  <li><strong>Container</strong> &mdash; match the source, or force MKV or MP4.</li>
+  <li><strong>Container</strong> &mdash; match the source, or force MKV or MP4. Matching
+  means what it says: an MKV recording is written as Matroska, complete with a chapter at
+  each join, and a broadcast <code>.ts</code> stays a <code>.ts</code>.</li>
   <li><strong>Video</strong> &mdash; <strong>Copy&nbsp;(lossless)</strong> keeps the video
   stream-copied, which is the default and preserves quality; <strong>HEVC&nbsp;(re-encode)</strong>
   re-encodes to H.265 for a much smaller file, at the cost of some quality and a good deal
@@ -346,6 +348,27 @@ one of the Container choices, which is worth keeping straight. A profile control
   unless you specifically want smaller files.</li>
   <li><strong>Audio</strong> &mdash; smart copy (lossless) or re-encode to AAC at a chosen
   or automatic bitrate.</li>
+  <li><strong>Surround audio</strong> &mdash; leave the channel layout alone, or downmix it
+  to stereo. A 5.1 broadcast mix played through two speakers often has very quiet dialogue,
+  because the centre channel carrying it simply isn't there; downmixing to stereo puts
+  the dialogue back into both speakers. Only tracks with more than two channels are affected, and
+  those are re-encoded &mdash; a stereo track is copied untouched rather than needlessly
+  re-encoded. Because a downmix encodes, the <strong>AAC bitrate</strong> above applies to it,
+  and is enabled whenever downmixing is on even if Audio is set to copy.</li>
+  <div class="note">Leaving the bitrate on <strong>Automatic</strong> lets ffmpeg choose, which
+  works out at around 128&nbsp;kbps. That is thin for a surround track downmixed from a
+  Blu-ray; 256&nbsp;kbps or higher suits those better.</div>
+  <li><strong>Loudness</strong> &mdash; leave the audio alone, or process it:
+  <strong>Normalise&nbsp;(EBU&nbsp;R128)</strong> brings the whole programme to a set
+  loudness the way broadcasters do (&minus;23&nbsp;LUFS is the broadcast standard;
+  &minus;16 suits headphones and quiet rooms); <strong>Compress dynamic range</strong> lifts
+  quiet dialogue without the loud moments becoming painful, which is what you want for drama
+  mixed very quietly; <strong>Change level</strong> applies a plain gain up or down. Any of
+  these re-encodes the audio, so leaving it alone is what keeps the lossless copy.</li>
+  <li><strong>Audio delay</strong> &mdash; shifts the sound relative to the picture, in
+  milliseconds, for a recording that arrived out of sync. Use a positive value when the sound
+  is early and a negative one when it lags. This is only a change of timing, so the audio is
+  still copied losslessly.</li>
   <li><strong>Encoder speed</strong> and <strong>Quality&nbsp;(CRF)</strong> &mdash; these
   apply only when the video is actually re-encoded (HEVC output, or cropping); for a
   lossless copy they're greyed out. A slower preset gives better quality for the same file
@@ -400,6 +423,33 @@ format are joined losslessly by stream copy &mdash; an MKV gets a chapter at eac
 &mdash; while a mix of formats is re-encoded to a common one (Snipwright recommends
 suitable settings). Title cards and fades apply during a re-encoded join, so adding them
 to otherwise matching clips trades a little speed and quality for the effect.</p>
+
+<h3>Trim and Copy Source File</h3>
+<p><strong>Tools &rarr; Trim and Copy Source File</strong> takes a chunk out of a recording by
+copying bytes straight from one file to another. Nothing is decoded, nothing is re-encoded and
+nothing is examined &mdash; which makes it very fast indeed, and useful for two things in
+particular: salvaging a usable piece of a recording that is too damaged to open properly, and
+cutting a small sample out of a large file to send to someone.</p>
+<p>Choose where the copy starts and stops:</p>
+<ul>
+  <li><strong>From Beginning</strong> &mdash; from the start of the file.</li>
+  <li><strong>To End Of File</strong> &mdash; through to the end.</li>
+  <li><strong>Start At MByte</strong> &mdash; from a position you give in megabytes, for
+  skipping past a damaged opening.</li>
+  <li><strong>Use Selection Markers</strong> &mdash; the in and out points from the editor,
+  available when a recording is open.</li>
+</ul>
+<div class="note">The result is approximate rather than frame-accurate. With
+<strong>Use Selection Markers</strong> Snipwright looks up the keyframe at or before your in
+point, so the copy at least starts on a clean picture &mdash; but it will begin slightly before
+where you marked, and the file is not rebuilt, so its timing still refers to the original
+recording. With a plain byte offset the cut lands wherever that offset falls, and the picture
+may take a moment to appear. To cut a recording <em>properly</em> &mdash; frame-accurately,
+with the timing rebuilt &mdash; use <strong>Save Video</strong> instead.</div>
+<div class="note">This does not work for MP4, MOV or M4V files. Those containers keep their
+index in a header at one end of the file, and a copy that starts or ends anywhere else leaves
+that index describing data that is no longer there, so the result will not open at all.
+Snipwright asks before going ahead with one.</div>
 
 <h2 id="renaming">6. Renaming recordings</h2>
 <p>Snipwright can rename recordings into a tidy layout that media servers like

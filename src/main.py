@@ -169,6 +169,14 @@ class MainWindow(QMainWindow):
             prune_index_cache(max_age)
             prune_qsf_registry(max_age)
 
+            # smartcut keeps its own index of each source file, cached beside
+            # ours; age it out on the same setting rather than letting it grow
+            # without limit.
+            from smartcut.index_cache import prune as prune_smartcut_index
+            gone = prune_smartcut_index(max_age)
+            if gone:
+                log.info("Removed %d cached source index/indices.", gone)
+
         except Exception:
             pass
 
@@ -3233,6 +3241,10 @@ class MainWindow(QMainWindow):
             encoder_preset=getattr(profile, "preset", "faster"),
             encoder_crf=(profile.effective_crf()
                          if hasattr(profile, "effective_crf") else None),
+            audio_sync_ms=getattr(profile, "audio_sync_ms", 0),
+            downmix=getattr(profile, "downmix", "keep"),
+            level_mode=getattr(profile, "level_mode", "none"),
+            level_value=getattr(profile, "level_value", 0.0),
             encoder_gop_seconds=(profile.effective_gop_seconds()
                                  if hasattr(profile, "effective_gop_seconds")
                                  else None),
@@ -3695,6 +3707,10 @@ class MainWindow(QMainWindow):
             encoder_preset="faster",
             encoder_crf=None,
             encoder_gop_seconds=None,
+            audio_sync_ms=0,
+            downmix="keep",
+            level_mode="none",
+            level_value=0.0,
     ):
         from ui.export_dialogs import (
             ExportProgressDialog,
@@ -3721,6 +3737,10 @@ class MainWindow(QMainWindow):
             encoder_preset=encoder_preset,
             encoder_crf=encoder_crf,
             encoder_gop_seconds=encoder_gop_seconds,
+            audio_sync_ms=audio_sync_ms,
+            downmix=downmix,
+            level_mode=level_mode,
+            level_value=level_value,
         )
 
         # Keep a reference so the thread isn't garbage-collected.

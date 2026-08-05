@@ -19,6 +19,7 @@ from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
+    QDoubleSpinBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -47,6 +48,13 @@ from addons.output_profiles import (
     GOP_MAX,
     CRF_MAX,
     DEFAULT_PRESET,
+    AUDIO_SYNC_MIN,
+    AUDIO_SYNC_MAX,
+    LEVEL_TARGET_MIN,
+    LEVEL_TARGET_MAX,
+    LEVEL_TARGET_DEFAULT,
+    LEVEL_GAIN_MIN,
+    LEVEL_GAIN_MAX,
 )
 
 _CONTAINERS = [
@@ -377,6 +385,67 @@ class ProfileEditDialog(QDialog):
         for b in AAC_BITRATES:
             self.bitrate_combo.addItem(self.tr("%d kbps") % b, b)
         _select_data(self.bitrate_combo, profile.audio_bitrate)
+        self.bitrate_combo.setToolTip(self.tr(
+            "The bitrate used whenever the audio is encoded to AAC - either "
+            "because Audio is set to AAC, or because surround is being "
+            "downmixed.<br><br>Automatic lets ffmpeg choose, which works out "
+            "at around 128 kbps. That is thin for a surround track downmixed "
+            "from a Blu-ray; 256 kbps or more suits those better."
+        ))
+
+        self.downmix_combo = row(self.tr("Surround audio:"), QComboBox())
+        self.downmix_combo.addItem(self.tr("Keep as it is"), "keep")
+        self.downmix_combo.addItem(self.tr("Downmix to stereo"), "stereo")
+        _select_data(self.downmix_combo, getattr(profile, "downmix", "keep"))
+        self.downmix_combo.currentIndexChanged.connect(self._on_audio_changed)
+        self.downmix_combo.setToolTip(self.tr(
+            "A 5.1 broadcast mix played through two speakers often has very "
+            "quiet dialogue, because the centre channel carrying it isn't "
+            "there. Downmixing to stereo puts the dialogue back into both "
+            "speakers.<br><br>Only tracks with more than two channels are "
+            "affected, and those are re-encoded; everything else is copied "
+            "untouched."
+        ))
+
+        self.level_combo = row(self.tr("Loudness:"), QComboBox())
+        self.level_combo.addItem(self.tr("Leave alone"), "none")
+        self.level_combo.addItem(self.tr("Normalise (EBU R128)"), "normalise")
+        self.level_combo.addItem(self.tr("Compress dynamic range"), "dynamic")
+        self.level_combo.addItem(self.tr("Change level"), "gain")
+        _select_data(self.level_combo, getattr(profile, "level_mode", "none"))
+        self.level_combo.setToolTip(self.tr(
+            "<b>Normalise</b> brings the whole programme to a set loudness, "
+            "the way broadcasters do. -23 LUFS is the broadcast standard; -16 "
+            "suits headphones and quiet rooms.<br><br>"
+            "<b>Compress dynamic range</b> lifts quiet dialogue without the "
+            "loud moments becoming painful - useful for drama mixed very "
+            "quietly.<br><br>"
+            "<b>Change level</b> applies a plain gain, up or down."
+            "<br><br>Any of these re-encodes the audio; leaving it alone keeps "
+            "the lossless copy."
+        ))
+        self.level_combo.currentIndexChanged.connect(self._on_level_changed)
+
+        self.level_spin = row(self.tr("Target:"), QDoubleSpinBox())
+        self.level_spin.setDecimals(1)
+        self.level_spin.setSingleStep(0.5)
+        # Set the range BEFORE the value.  A QDoubleSpinBox clamps whatever it
+        # is given to its current range, and the default range is 0..99 - so
+        # setting a LUFS target of -16 first would silently become 0.
+        self._on_level_changed()
+        self.level_spin.setValue(float(getattr(profile, "level_value", -23.0)))
+
+        self.sync_spin = row(self.tr("Audio delay:"), QSpinBox())
+        self.sync_spin.setRange(AUDIO_SYNC_MIN, AUDIO_SYNC_MAX)
+        self.sync_spin.setSingleStep(10)
+        self.sync_spin.setSuffix(self.tr(" ms"))
+        self.sync_spin.setValue(getattr(profile, "audio_sync_ms", 0))
+        self.sync_spin.setToolTip(self.tr(
+            "Shifts the sound relative to the picture, for a recording that "
+            "arrived out of sync.<br><br>Use a positive value when the sound "
+            "is early, negative when it lags. The audio is still copied "
+            "losslessly - only its timing changes."
+        ))
 
         self.aspect_combo = row(self.tr("Display aspect:"), _combo(_ASPECT))
         _select_data(self.aspect_combo, profile.aspect)
@@ -548,8 +617,56 @@ class ProfileEditDialog(QDialog):
             _select_data(self.crop_combo, "fixed")
             self._on_crop_changed()
 
+    def _on_level_changed(self):
+        """Re-purpose the value box for whichever loudness mode is chosen.
+
+        The same box is a LUFS target for normalisation and a dB change for
+        gain, and means nothing for the other two - so its range, suffix and
+        label all follow the mode rather than sitting there as a bare number
+        the user has to interpret.
+        """
+        mode = self.level_combo.currentData()
+        if mode == "normalise":
+            self.level_spin.setEnabled(True)
+            self.level_spin.setRange(LEVEL_TARGET_MIN, LEVEL_TARGET_MAX)
+            self.level_spin.setSuffix(self.tr(" LUFS"))
+            if not (LEVEL_TARGET_MIN <= self.level_spin.value()
+                    <= LEVEL_TARGET_MAX):
+                self.level_spin.setValue(LEVEL_TARGET_DEFAULT)
+        elif mode == "gain":
+            self.level_spin.setEnabled(True)
+            self.level_spin.setRange(LEVEL_GAIN_MIN, LEVEL_GAIN_MAX)
+            self.level_spin.setSuffix(self.tr(" dB"))
+            if self.level_spin.value() < LEVEL_GAIN_MIN \
+                    or self.level_spin.value() > LEVEL_GAIN_MAX:
+                self.level_spin.setValue(0.0)
+        else:
+            # "none" has nothing to set; "dynamic" has no single figure.
+            self.level_spin.setEnabled(False)
+            self.level_spin.setSuffix("")
+        # Any loudness processing encodes, so the bitrate applies.
+        if hasattr(self, "bitrate_combo"):
+            self._on_audio_changed()
+
     def _on_audio_changed(self):
-        self.bitrate_combo.setEnabled(self.audio_combo.currentData() == "aac")
+        """Enable the AAC bitrate when anything will actually encode AAC.
+
+        That is not only "Audio: AAC" - a surround downmix has to re-encode the
+        folded tracks whatever the audio mode says, and those land as AAC too.
+        Leaving the control greyed in that case meant no bitrate reached ffmpeg
+        and its default applied, so a 5.1 DTS-HD track could be folded down to
+        a rather thin 130 kbps without the setting that governs it being
+        reachable.
+        """
+        level = getattr(self, "level_combo", None)
+        encodes_aac = (
+            self.audio_combo.currentData() == "aac"
+            or self.downmix_combo.currentData() == "stereo"
+            # Any loudness processing re-encodes every track, so the bitrate
+            # governs the result just as much as it does for a downmix.
+            or (level is not None and level.currentData() != "none")
+        )
+        self.bitrate_combo.setEnabled(encodes_aac)
 
     def _choose_dir(self):
         start = self.dir_edit.text().strip() or ""
@@ -589,6 +706,10 @@ class ProfileEditDialog(QDialog):
             self.container_combo.currentData(),
             audio=self.audio_combo.currentData(),
             audio_bitrate=self.bitrate_combo.currentData(),
+            audio_sync_ms=self.sync_spin.value(),
+            downmix=self.downmix_combo.currentData(),
+            level_mode=self.level_combo.currentData(),
+            level_value=self.level_spin.value(),
             aspect=self.aspect_combo.currentData(),
             video=self.video_combo.currentData(),
             preset=self.preset_combo.currentData(),

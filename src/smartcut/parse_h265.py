@@ -1352,6 +1352,16 @@ class seq_parameter_set_rbsp(object):
         return self
 
 
+# H.265 Table E.1: aspect_ratio_idc 255 means the sample aspect ratio is given
+# explicitly as sar_width/sar_height rather than by an index into the table.
+#
+# This constant was referenced below but never defined - a NameError waiting for
+# the first HEVC stream that used an explicit aspect ratio.  Snipwright vendors
+# smartcut from a project that is no longer maintained, so fixing it here is the
+# only option available.
+EXTENDED_SAR = 255
+
+
 class vui_parameters(object):
     def __init__(self, s):
         self.aspect_ratio_info_present_flag = s.read('uint:1')

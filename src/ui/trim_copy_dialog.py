@@ -62,6 +62,18 @@ def _fmt_size(num_bytes):
     return "%.3f MB" % (mb,)
 
 
+# Containers that keep their index in a header rather than inline with the
+# data.  Trimming is a byte-range copy, so cutting one of these anywhere but the
+# very start leaves the index describing data that is no longer there - the file
+# then won't open at all ("moov atom not found").  MPEG-TS, MPEG-PS and Matroska
+# are all self-describing enough to survive it; MP4 and its relatives are not.
+_UNTRIMMABLE_EXTS = {".mp4", ".m4v", ".mov", ".m4a", ".3gp"}
+
+
+def _is_untrimmable(path):
+    return os.path.splitext(path or "")[1].lower() in _UNTRIMMABLE_EXTS
+
+
 def _ensure_extension(path, selected_filter):
     """Append the extension from the chosen save-dialog filter when the user
     didn't type one.  Qt doesn't always add it itself, so the output could end
@@ -218,9 +230,14 @@ class TrimCopyDialog(QDialog):
             or self._source_dir
             or os.path.expanduser("~")
         )
+        # A single "All files" entry, as VideoReDo has.  Trimming is a byte-range
+        # copy, so what matters is whether a container survives being cut at an
+        # arbitrary offset - not its extension.  Naming a few extensions in a
+        # filter implied a support list that was both too narrow (MKV works) and
+        # too broad (MP4 does not).  The check below is on the actual file.
         path, _ = QFileDialog.getOpenFileName(
             self, self.tr("Select Source File"), start_dir,
-            "Transport streams (*.ts *.TS *.m2ts *.M2TS *.mpg *.MPG *.mpeg *.MPEG);;All files (*)",
+            self.tr("All files (*)"),
         )
         if path:
             # Browsing to a different source drops the editor's markers, since
@@ -239,9 +256,13 @@ class TrimCopyDialog(QDialog):
             or os.path.dirname(self.source_edit.text() or "")
             or os.path.expanduser("~")
         )
+        # Default the output to the source's own extension: a trimmed copy is
+        # the same container as its source, so offering only .ts produced
+        # mislabelled files.
+        src_ext = os.path.splitext(self.source_edit.text() or "")[1] or ".ts"
         path, selected = QFileDialog.getSaveFileName(
             self, self.tr("Select Output File"), start_dir,
-            "Transport stream (*.ts *.TS);;All files (*)",
+            self.tr("Same as source (*%s);;All files (*)") % src_ext,
             "",
             QFileDialog.Option.DontConfirmOverwrite,
         )
@@ -334,6 +355,26 @@ class TrimCopyDialog(QDialog):
                                 self.tr("The output file must be different from the "
                                 "source file."))
             return
+
+        # Asked here rather than when the file is chosen: the dialog pre-fills
+        # whatever is open in the editor, so warning at selection fires before
+        # the user has decided anything.  By this point they have chosen a
+        # source, an output and pressed the button.
+        if _is_untrimmable(src):
+            if QMessageBox.question(
+                self, self.tr("Trim and Copy"),
+                self.tr(
+                    "%s files keep their index in a header at one end of the "
+                    "file, and a trimmed copy leaves that index describing data "
+                    "that is no longer there. The result will most likely not "
+                    "play.\n\nTo cut this recording properly, use Save Video "
+                    "instead, which rebuilds the file correctly."
+                    "\n\nContinue anyway?"
+                ) % os.path.splitext(src)[1].upper().lstrip("."),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            ) != QMessageBox.Yes:
+                return
 
         plan = self._planned_range()
         if plan is None:

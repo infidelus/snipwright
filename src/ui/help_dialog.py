@@ -42,6 +42,55 @@ def guide_path():
     return _GUIDE
 
 
+# The guide's stylesheet is written for the dark theme, which left the help
+# window stubbornly dark for anyone using the light one.  Rather than keep two
+# copies of every guide in step, the dark palette is swapped for a light one
+# when the guide is loaded.  One substitution table, one guide file per
+# language.
+_LIGHT_PALETTE = (
+    ("color: #d6d6d6", "color: #202124"),           # body text
+    ("background-color: #1e1e22", "background-color: #ffffff"),
+    ("h1 { color: #ffffff", "h1 { color: #101114"),
+    ("color: #5aa9ff", "color: #1a5fb4"),           # headings and links
+    ("1px solid #34343a", "1px solid #d0d3d8"),     # h2 underline
+    ("h3 { color: #cfd3d6", "h3 { color: #33383d"),
+    ("background-color: #2a2a30", "background-color: #eef0f3"),
+    ("color: #e6c07b", "color: #8a5a00"),           # inline code
+    ("1px solid #3a3a42", "1px solid #c8ccd2"),     # table rules
+    ("th { background-color: #eef0f3; color: #ffffff",
+     "th { background-color: #eef0f3; color: #101114"),
+    ("color: #9aa0a6", "color: #5f6368"),           # captions and lead text
+    ("background-color: #26262c", "background-color: #eef3fb"),
+    # The note border uses the same accent as headings and links, so it is
+    # already handled by the "color: #5aa9ff" rule above - except that this one
+    # is a border rather than a colour property, so it needs its own entry.
+    ("3px solid #5aa9ff", "3px solid #1a5fb4"),
+)
+
+
+def _is_dark(widget):
+    """Whether the application is currently showing a dark palette.
+
+    Asked of the widget rather than the config, so it follows the desktop when
+    the theme is set to System.
+    """
+    colour = widget.palette().color(widget.backgroundRole())
+    # Perceived brightness; the midpoint is a good enough divider here.
+    return (colour.red() * 299 + colour.green() * 587
+            + colour.blue() * 114) / 1000 < 128
+
+
+def _guide_html(path, dark):
+    """The guide's HTML, recoloured for the light theme when needed."""
+    with open(path, encoding="utf-8") as f:
+        html = f.read()
+    if dark:
+        return html
+    for old, new in _LIGHT_PALETTE:
+        html = html.replace(old, new)
+    return html
+
+
 class UserGuideDialog(QDialog):
     """A simple HTML viewer for the bundled user guide."""
 
@@ -55,9 +104,23 @@ class UserGuideDialog(QDialog):
         self._guide = guide_path()
         self._browser = QTextBrowser()
         self._browser.setOpenExternalLinks(True)     # http links open in the browser
-        self._browser.setStyleSheet("QTextBrowser { background-color: #1e1e22; }")
+        dark = _is_dark(self)
+        self._browser.setStyleSheet(
+            "QTextBrowser { background-color: %s; }"
+            % ("#1e1e22" if dark else "#ffffff")
+        )
         if os.path.exists(self._guide):
-            self._browser.setSource(QUrl.fromLocalFile(self._guide))
+            # setHtml rather than setSource, so the light palette can be
+            # substituted first.  The base URL keeps the guide's images and
+            # internal anchors working exactly as before.
+            self._browser.setSearchPaths([os.path.dirname(self._guide)])
+            self._browser.document().setBaseUrl(
+                QUrl.fromLocalFile(os.path.dirname(self._guide) + os.sep)
+            )
+            try:
+                self._browser.setHtml(_guide_html(self._guide, dark))
+            except OSError:
+                self._browser.setSource(QUrl.fromLocalFile(self._guide))
         else:
             self._browser.setHtml(
                 "<h2>%s</h2><p>%s</p>" % (

@@ -2,7 +2,10 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import cast
 
+import logging
 import numpy as np
+
+from smartcut.lazy_packets import LazyAudioPackets
 from av import AudioStream, Packet, VideoStream
 from av import open as av_open
 from av import time_base as AV_TIME_BASE
@@ -36,7 +39,10 @@ class AudioTrack:
     path: str
     index: int
 
-    packets: list[Packet] = field(default_factory = lambda: [])
+    packets: object = field(default_factory=lambda: [])
+    # Timestamps gathered during the index pass; `packets` is built from these
+    # once the file has been walked.
+    packet_pts: list = field(default_factory=lambda: [])
     frame_times_pts: np.ndarray = field(default_factory = lambda: np.empty(()))
     frame_times: np.ndarray = field(default_factory = lambda: np.empty(()))
 
@@ -129,7 +135,20 @@ class MediaContainer:
         current_gop_has_leading = False
         current_gop_has_rasl = False
 
-        for packet in av_container.demux(streams):
+        # A cached index means the file has been walked before and has not
+        # changed since.  Walking it again reads every packet - three and a
+        # half minutes for a Blu-ray on a network share - to arrive at exactly
+        # the same numbers.
+        self._from_cache = False
+        try:
+            from smartcut import index_cache
+            if index_cache.load(self, path):
+                self._from_cache = True
+        except Exception:
+            logging.getLogger("snipwright").debug(
+                "Cached smartcut index unavailable", exc_info=True)
+
+        for packet in () if self._from_cache else av_container.demux(streams):
             if packet.pts is None:
                 continue
 
@@ -211,8 +230,12 @@ class MediaContainer:
                 track = stream_index_to_audio_track[packet.stream_index]
                 track.last_packet = packet
 
-                # NOTE: storing the audio packets like this keeps the whole compressed audio loaded in RAM
-                track.packets.append(packet)
+                # Record only the timestamp, not the packet.  Keeping every
+                # packet here held the entire compressed audio in RAM - about
+                # 250 MB per track on a Blu-ray, and six tracks is most of a
+                # 15 GB working set.  The cutter needs random access to the
+                # packets, but it can have that lazily; see LazyAudioPackets.
+                track.packet_pts.append(packet.pts)
             elif packet.stream.type == 'subtitle':
                 self.subtitle_tracks[stream_index_to_subtitle_track[packet.stream_index]].append(packet)
 
@@ -226,7 +249,7 @@ class MediaContainer:
                 if stream_duration > self.duration:
                     self.duration = stream_duration
 
-        if self.video_stream is not None:
+        if self.video_stream is not None and not self._from_cache:
             # Finalize last GOP's leading picture tracking if still active
             if tracking_leading_in_cra:
                 self.gop_leading_end_dts.append(None if not current_gop_has_leading else last_seen_video_dts)
@@ -244,14 +267,39 @@ class MediaContainer:
             frame_pts_sorted = np.sort(np.array(frame_pts))
             self.video_frame_times_pts = frame_pts_sorted
 
-        # Collect PTS arrays for audio tracks
+        # Collect PTS arrays for audio tracks, and give each track a lazy view
+        # over its packets rather than the packets themselves.
         for t in self.audio_tracks:
-            frame_pts_array = np.array(list(map(lambda p: p.pts, t.packets)))
-            t.frame_times_pts = frame_pts_array
+            if not self._from_cache:
+                t.frame_times_pts = np.array(t.packet_pts)
+            try:
+                t.packets = LazyAudioPackets(
+                    # On a cache hit packet_pts is empty - the count comes from
+                    # the cached timestamp array instead.
+                    self.path, t.av_stream.index, len(t.frame_times_pts)
+                )
+            except Exception:
+                # If anything about the lazy reader does not suit this file,
+                # fall back to an empty list rather than failing the cut: the
+                # audio cutter treats an empty packet list as "nothing to
+                # copy", which is wrong but survivable, and the log will say.
+                logging.getLogger("snipwright").exception(
+                    "Lazy audio reader unavailable for stream %s",
+                    getattr(t.av_stream, "index", "?"))
+                t.packets = []
+            # The pts list has served its purpose; the numpy array replaces it.
+            t.packet_pts = []
 
-        # Parallelize Fraction array multiplication (expensive due to per-element Fraction creation)
+        # Parallelize Fraction array multiplication (expensive due to per-element
+        # Fraction creation).  Runs whether the index came from the cache or from
+        # walking the file: these arrays are derived, and recomputing them is
+        # cheaper than storing arrays of Fraction objects.
         from concurrent.futures import ThreadPoolExecutor
         tasks: list[tuple[np.ndarray, Fraction]] = []
+
+        # Run for a cached index too: frame_times is derived from the pts array
+        # and the time base, and recomputing it costs a fraction of a second -
+        # far less than the space storing an array of Fractions would take.
         if self.video_stream is not None and self.video_stream.time_base is not None:
             tasks.append((self.video_frame_times_pts, self.video_stream.time_base))
         for t in self.audio_tracks:
@@ -271,6 +319,17 @@ class MediaContainer:
                 if t.av_stream.time_base is not None:
                     t.frame_times = results[result_idx]
                     result_idx += 1
+
+        # Store what the walk produced, so the next export of this file skips
+        # it.  Only when it was actually computed - re-saving a cache hit would
+        # just rewrite the same file.
+        if not self._from_cache:
+            try:
+                from smartcut import index_cache
+                index_cache.save(self, path)
+            except Exception:
+                logging.getLogger("snipwright").debug(
+                    "Couldn't cache the smartcut index", exc_info=True)
 
     def close(self) -> None:
         self.av_container.close()

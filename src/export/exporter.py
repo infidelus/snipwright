@@ -12,7 +12,9 @@ with the primary track only, so a problematic secondary track never blocks
 the export.  What survived is reported back.
 
 Output:
-  - "match" -> same container as the source (e.g. .ts)
+  - "match" -> same container as the source: an .mkv source is written as
+               Matroska (with chapters), an .mp4 as MP4, and anything else
+               passes through as it is
   - "mkv"   -> Matroska, always with a chapter per kept segment
   - "mp4"   -> MP4 (cannot carry DVB subtitles; they are dropped)
   - ".ts" and "mkv" keep any DVB subtitle track, cut to match the video
@@ -23,6 +25,7 @@ requested frames.  Runs on a worker thread.
 
 import bisect
 import os
+import re
 import shutil
 import subprocess
 
@@ -839,13 +842,21 @@ def _video_settings(source_interlaced):
 
 
 def _run_smartcut(source_path, out_path, segments, n_audio, keep_ranges, fps,
-                  progress_cb=None, cancel_cb=None, source_interlaced=None):
+                  progress_cb=None, cancel_cb=None, source_interlaced=None,
+                  media_container=None):
     """Export, passing through only usable audio tracks.
 
     Broken secondary tracks (0 channels / no sample rate) are detected and
     excluded up front, because passing them through can make smartcut silently
     drop the video.  If the export still fails, we retry with the primary
     track only as a last resort.
+
+    `media_container` lets the caller hand over one it has already built.
+    Constructing a MediaContainer walks the entire file to map its GOPs and
+    packet timestamps - three and a half minutes for a 21 GB Blu-ray on a
+    network share - and the caller has invariably built one already to work out
+    the segments.  Building a second was doubling that wait before any cutting
+    began.
 
     Returns the number of audio tracks actually written.
     """
@@ -859,7 +870,8 @@ def _run_smartcut(source_path, out_path, segments, n_audio, keep_ranges, fps,
         "Usable audio tracks: %s (of %d)", usable, n_audio
     )
 
-    mc = MediaContainer(source_path)
+    mc = media_container if media_container is not None \
+        else MediaContainer(source_path)
     seg_info = _build_seg_info(mc, segments, keep_ranges, fps)
 
     _log_segment_plan(seg_info, total_scenes)
@@ -1184,6 +1196,34 @@ def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
         _write_mkv_chapters_ffmpeg(ts_path, mkv_path, segment_durations,
                                    aspect=aspect, cancel_cb=cancel_cb,
                                    ad_source=ad_source)
+
+        # Verify the rebuild too.  When a broadcast changes its channel
+        # configuration part-way through - Channel 4 HD films do - no lossless
+        # route can work: Matroska stores one configuration for the track, so
+        # whichever is written, the frames using the other one fail to decode
+        # ("channel element 1.0 is not allocated").  Both mkvmerge and ffmpeg
+        # hit the same wall, and shipping the result means an export that took
+        # an hour produces a file that will not play.
+        #
+        # So re-encode the audio, which normalises the stream to one
+        # configuration.  It is a real loss of quality, and it is still far
+        # better than a file nobody can watch.
+        if _mkv_audio_ok(mkv_path, cancel_cb=cancel_cb):
+            return True
+        logger.warning(
+            "The rebuilt MKV audio won't decode either - this recording "
+            "changes its channel configuration part-way through, which no "
+            "lossless route can put into Matroska. Re-encoding the audio to "
+            "AAC so the file plays."
+        )
+        _busy("recode_audio")
+        if _reencode_mkv_audio(mkv_path, cancel_cb=cancel_cb):
+            logger.info("MKV audio re-encoded to AAC (verified decodable).")
+        else:
+            logger.error(
+                "Couldn't re-encode the MKV audio; the file's audio may not "
+                "play. Export it again with Audio set to AAC in the profile."
+            )
         return True
     else:
         logger.warning(
@@ -1297,6 +1337,53 @@ def _write_mkv_chapters_mkvmerge(ts_path, mkv_path, segment_durations, exe,
             os.remove(chapter_path)
 
 
+def _reencode_mkv_audio(mkv_path, cancel_cb=None):
+    """Re-encode an MKV's audio in place, leaving video and subtitles alone.
+
+    The last resort for a recording whose channel configuration varies: a
+    decode-and-re-encode collapses it to one configuration, which is what
+    Matroska can actually store.  Returns True if the result decodes.
+    """
+    tmp = mkv_path + ".aac.mkv"
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-i", mkv_path,
+        "-map", "0", "-map", "-0:d", "-ignore_unknown",
+        "-c:v", "copy", "-c:s", "copy",
+        # Two channels: the varying configuration is precisely the problem, so
+        # settle on the one every player handles.
+        "-c:a", "aac", "-ac", "2", "-b:a", "192k",
+        tmp,
+    ]
+    try:
+        proc = _run_cancellable(cmd, cancel_cb=cancel_cb)
+    except OSError as exc:
+        logger.warning("Audio re-encode couldn't run: %s", exc)
+        _safe_remove(tmp)
+        return False
+
+    if proc.returncode != 0 or not os.path.exists(tmp) \
+            or os.path.getsize(tmp) == 0:
+        logger.warning("Audio re-encode failed (rc=%s): %s",
+                       proc.returncode, (proc.stderr or "").strip()[:300])
+        _safe_remove(tmp)
+        return False
+
+    if not _mkv_audio_ok(tmp, cancel_cb=cancel_cb):
+        logger.warning("The re-encoded audio still won't decode; keeping the "
+                       "original file rather than a worse copy of it.")
+        _safe_remove(tmp)
+        return False
+
+    try:
+        os.replace(tmp, mkv_path)
+    except OSError as exc:
+        logger.warning("Couldn't put the re-encoded audio in place: %s", exc)
+        _safe_remove(tmp)
+        return False
+    return True
+
+
 def _write_mkv_chapters_ffmpeg(ts_path, mkv_path, segment_durations,
                                aspect="source", cancel_cb=None, ad_source=None):
     """Fallback MKV mux via ffmpeg (lossless, but audio stays LATM-in-ACM)."""
@@ -1355,6 +1442,27 @@ def _write_mkv_chapters_ffmpeg(ts_path, mkv_path, segment_durations,
     finally:
         if os.path.exists(meta_path):
             os.remove(meta_path)
+
+
+def _audio_codec_names(path):
+    """[(stream index, codec name)] for the audio streams in `path`."""
+    out = []
+    try:
+        text = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=index,codec_name",
+             "-of", "csv=p=0", path],
+            capture_output=True, text=True,
+        ).stdout
+    except OSError:
+        return out
+    seen = set()
+    for line in text.splitlines():
+        parts = [x for x in line.split(",") if x]
+        if len(parts) >= 2 and parts[0] not in seen:
+            seen.add(parts[0])
+            out.append((parts[0], parts[1].strip()))
+    return out
 
 
 def _transcode_to_mp4(
@@ -1416,10 +1524,24 @@ def _transcode_to_mp4(
         if interlaced:
             cmd += ["-vf", "yadif"]
 
-    cmd += [
-        "-c:a", "aac",
-        "-b:a", "192k",
-    ]
+    # Copy the audio when MP4 can carry it as it is.  Re-encoding was there for
+    # broadcast LATM AAC and MP2, which MP4 cannot hold - but it was applied to
+    # everything, so an MP4 source with E-AC-3 or AAC had perfectly good audio
+    # decoded and re-encoded for no reason: slower, and larger, since 192 kbps
+    # AAC can exceed what a well-encoded source was already using.
+    MP4_NATIVE_AUDIO = ("aac", "eac3", "ac3", "mp3", "alac", "opus", "flac")
+    src_audio = {name for _idx, name in _audio_codec_names(ts_path)}
+    if src_audio and src_audio.issubset(set(MP4_NATIVE_AUDIO)):
+        logger.info("MP4: copying the audio as-is (%s).",
+                    ", ".join(sorted(src_audio)))
+        cmd += ["-c:a", "copy"]
+    else:
+        if src_audio:
+            logger.info(
+                "MP4: re-encoding the audio to AAC - MP4 can't carry %s.",
+                ", ".join(sorted(src_audio - set(MP4_NATIVE_AUDIO))),
+            )
+        cmd += ["-c:a", "aac", "-b:a", "192k"]
     # Reproduce the source's audio dispositions and language.  MP4 is the one
     # container whose players don't surface the visual-impaired disposition as
     # a label, so for an audio-description track we ALSO set the handler name
@@ -2346,6 +2468,266 @@ def _unwritable_audio_streams(path):
     return dead
 
 
+def _level_filter(mode, value, sample_rate=0):
+    """The ffmpeg filter for a loudness mode, or None for no processing.
+
+    Kept as one small function so the mapping from a profile setting to an
+    ffmpeg filter is in one readable place rather than spread through the
+    command builder.
+    """
+    if mode == "normalise":
+        # EBU R128.  The measurements are filled in by the caller after a
+        # measuring pass - see _measure_loudness.  Without them loudnorm has to
+        # estimate as it goes and misses the target by a couple of LUFS, which
+        # rather defeats the point of asking for a specific loudness.
+        #
+        # loudnorm works internally at 192 kHz and leaves its output there, so
+        # it has to be resampled back afterwards.  Without this, 8 kHz CCTV
+        # audio came out at 96 kHz - twelve times the data for no gain
+        # whatsoever, since upsampling cannot add detail that was never there.
+        f = "loudnorm=I=%.1f:TP=-1.5:LRA=11" % float(value)
+        if sample_rate:
+            f += ",aresample=%d" % int(sample_rate)
+        return f
+    if mode == "dynamic":
+        # Compresses the range, which is what makes quiet dialogue audible
+        # without the loud moments becoming painful.
+        return "dynaudnorm=f=200:g=15"
+    if mode == "gain":
+        return "volume=%.1fdB" % float(value)
+    return None
+
+
+def _container_for(path):
+    """(ffmpeg format name, file extension) for an existing file.
+
+    Asks ffprobe rather than trusting the extension, then narrows the answer to
+    something ffmpeg will accept as an output format - the probe reports
+    "matroska,webm" for an .mkv, which is a list of possibilities rather than a
+    muxer name.
+    """
+    fmt = ""
+    try:
+        fmt = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=format_name",
+             "-of", "default=nw=1:nk=1", path],
+            capture_output=True, text=True,
+        ).stdout.strip()
+    except OSError:
+        pass
+
+    first = (fmt.split(",")[0] or "").strip()
+    ext = os.path.splitext(path)[1] or ".ts"
+    known = {
+        "mpegts": "mpegts", "matroska": "matroska", "webm": "matroska",
+        "mov": "mp4", "mp4": "mp4", "m4a": "mp4",
+        "avi": "avi", "mpeg": "mpeg", "asf": "asf", "flv": "flv",
+    }
+    if first in known:
+        return known[first], ext
+    # Unrecognised: fall back on the extension, and finally on MPEG-TS, which
+    # is what every intermediate in this exporter uses.
+    by_ext = {".mkv": "matroska", ".mp4": "mp4", ".m2ts": "mpegts",
+              ".ts": "mpegts", ".avi": "avi", ".mov": "mp4",
+              ".mpg": "mpeg", ".mpeg": "mpeg"}
+    return by_ext.get(ext.lower(), "mpegts"), ext
+
+
+def _measure_loudness(path, stream_index, target):
+    """Measure a track's loudness, returning loudnorm parameters for pass two.
+
+    loudnorm in one pass has to estimate the programme's loudness while it is
+    still reading it, and lands a couple of LUFS off.  Measuring first and
+    handing the figures back gets it exact.  Returns a filter string, or None
+    if the measurement failed - in which case the caller falls back to the
+    single-pass form rather than giving up on normalising at all.
+    """
+    cmd = [
+        "ffmpeg", "-hide_banner", "-nostats", "-i", path,
+        "-map", "0:a:%d" % stream_index,
+        "-af", "loudnorm=I=%.1f:TP=-1.5:LRA=11:print_format=json" % target,
+        "-f", "null", "-",
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.debug("Loudness measurement failed: %s", exc)
+        return None
+
+    text = proc.stderr or ""
+    match = re.search(r"\{[^{}]*input_i[^{}]*\}", text, re.S)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(0))
+        return (
+            "loudnorm=I=%.1f:TP=-1.5:LRA=11"
+            ":measured_I=%s:measured_TP=%s:measured_LRA=%s"
+            ":measured_thresh=%s:offset=%s:linear=true"
+            % (target, data["input_i"], data["input_tp"], data["input_lra"],
+               data["input_thresh"], data["target_offset"])
+        )
+    except (ValueError, KeyError) as exc:
+        logger.debug("Couldn't read loudness measurements: %s", exc)
+        return None
+
+
+def _apply_audio_adjustments(path, sync_ms=0, downmix="keep",
+                             audio_bitrate=0, level_mode="none",
+                             level_value=0.0, progress_cb=None,
+                             cancel_cb=None):
+    """Delay the audio and/or fold surround down to stereo, in place.
+
+    Runs on the cut intermediate, before any container conversion, so both
+    adjustments apply whatever the eventual output format.
+
+    The two are quite different in cost.  A delay is only a timestamp shift, so
+    the audio is still stream-copied and nothing is re-encoded.  A downmix has
+    to decode and re-encode the affected tracks - there is no way to fold six
+    channels into two without doing so - and only tracks that actually have
+    more than two channels are touched; a stereo track is copied untouched
+    rather than needlessly re-encoded.
+
+    Returns True if the file was changed, False if there was nothing to do or
+    the attempt failed (in which case the file is left exactly as it was - an
+    adjustment that cannot be made is not worth losing a good cut over).
+    """
+    want_sync = bool(sync_ms)
+    want_downmix = downmix == "stereo"
+    level = _level_filter(level_mode, level_value)
+    if not (want_sync or want_downmix or level):
+        return False
+
+    try:
+        tracks = _audio_track_info(path)
+    except Exception:
+        tracks = []
+    if not tracks:
+        return False
+
+    # Only fold tracks that are actually surround.  _audio_track_info returns
+    # (channels, profile) tuples, not dicts.
+    surround = [i for i, t in enumerate(tracks) if (t[0] or 0) > 2]
+    if want_downmix and not surround:
+        want_downmix = False
+        logger.info("Downmix requested but no track has more than two "
+                    "channels - leaving the audio alone.")
+    if not (want_sync or want_downmix or level):
+        return False
+
+    if progress_cb is not None:
+        progress_cb({"percent": -1, "phase": "graft_audio"})
+
+    # Normalisation is measured first so it can hit the target exactly.  The
+    # measurement is of the primary track: applying one programme-wide offset
+    # keeps the tracks in step with each other, which matters when one of them
+    # is a commentary or description meant to sit alongside the main mix.
+    if level_mode == "normalise":
+        # Keep the source's sample rate: loudnorm would otherwise leave its
+        # 192 kHz working rate in the output.
+        rate = 0
+        try:
+            rate = int(subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "a:0",
+                 "-show_entries", "stream=sample_rate",
+                 "-of", "default=nw=1:nk=1", path],
+                capture_output=True, text=True,
+            ).stdout.strip().splitlines()[0])
+        except (ValueError, IndexError, OSError):
+            rate = 0
+        level = _level_filter(level_mode, level_value, rate)
+        measured = _measure_loudness(path, 0, float(level_value))
+        if measured:
+            level = measured + (",aresample=%d" % rate if rate else "")
+        else:
+            logger.info("Couldn't measure loudness; normalising in one pass, "
+                        "which lands within a couple of LUFS of the target.")
+
+    # Write back in the container the file is already in.  Forcing MPEG-TS was
+    # fine while this only ever ran on the .ts intermediate that .mkv and .mp4
+    # exports go through, but a "match source" export writes straight to the
+    # final file - so an AVI would have had MPEG-TS written into it under an
+    # .avi name, and PCM audio in MPEG-TS fails outright ("first pts and dts
+    # value must be set").
+    fmt, ext = _container_for(path)
+    tmp = path + ".sync" + ext
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"]
+    if want_sync:
+        # -itsoffset before the SECOND input shifts only that input's
+        # timestamps.  The file is opened twice: once for video, once for the
+        # audio being moved.  Positive delays the sound, negative advances it.
+        cmd += ["-i", path, "-itsoffset", "%.3f" % (sync_ms / 1000.0),
+                "-i", path,
+                "-map", "0:v", "-map", "1:a", "-map", "0:s?"]
+    else:
+        cmd += ["-i", path, "-map", "0"]
+    cmd += ["-map", "-0:d", "-ignore_unknown"]
+
+    cmd += ["-c:v", "copy", "-c:s", "copy"]
+    if want_downmix or level:
+        # A level filter has to touch every track - you cannot change the
+        # loudness of packets you are copying.  A downmix on its own only
+        # touches the surround tracks and copies the rest untouched.
+        for pos in range(len(tracks)):
+            fold = pos in surround and want_downmix
+            if fold or level:
+                cmd += ["-c:a:%d" % pos, "aac"]
+                if fold:
+                    cmd += ["-ac:a:%d" % pos, "2"]
+                if level:
+                    cmd += ["-filter:a:%d" % pos, level]
+                if audio_bitrate:
+                    cmd += ["-b:a:%d" % pos, "%dk" % audio_bitrate]
+            else:
+                cmd += ["-c:a:%d" % pos, "copy"]
+    else:
+        cmd += ["-c:a", "copy"]
+    if fmt == "mpegts":
+        # Zero-based timestamps, as the cut stages produce.
+        cmd += ["-muxpreload", "0", "-muxdelay", "0"]
+    cmd += ["-f", fmt, tmp]
+
+    what = []
+    if want_sync:
+        what.append("audio delay %+d ms" % sync_ms)
+    if want_downmix:
+        what.append("downmix %d surround track(s) to stereo" % len(surround))
+    if level:
+        what.append({"normalise": "loudness normalisation to %.1f LUFS"
+                                  % float(level_value),
+                     "dynamic": "dynamic range compression",
+                     "gain": "level change of %+.1f dB" % float(level_value),
+                     }.get(level_mode, level_mode))
+    logger.info("Applying %s.", " and ".join(what))
+
+    try:
+        proc, err_file = popen_progress(cmd)
+        proc.wait()
+        err = read_stderr(err_file)
+    except OSError as exc:
+        logger.warning("Audio adjustment could not run (%s); "
+                       "keeping the file as cut.", exc)
+        _safe_remove(tmp)
+        return False
+
+    if proc.returncode != 0 or not os.path.exists(tmp) \
+            or os.path.getsize(tmp) == 0:
+        logger.warning(
+            "Audio adjustment failed (rc=%s); keeping the file as cut. "
+            "ffmpeg: %s", proc.returncode, (err or "").strip()[:300]
+        )
+        _safe_remove(tmp)
+        return False
+
+    try:
+        os.replace(tmp, path)
+    except OSError as exc:
+        logger.warning("Couldn't put the adjusted audio in place (%s).", exc)
+        _safe_remove(tmp)
+        return False
+    return True
+
+
 def _finalise_ts_audio_meta(path, ad_source=None, progress_cb=None):
     """Restore the source's audio dispositions/language on a finished .ts.
 
@@ -2425,6 +2807,10 @@ def export_ranges(
         encoder_preset="faster",
         encoder_crf=None,
         encoder_gop_seconds=None,
+        audio_sync_ms=0,
+        downmix="keep",
+        level_mode="none",
+        level_value=0.0,
 ):
     """Cut and export the kept ranges.
 
@@ -2522,6 +2908,28 @@ def export_ranges(
             "total_scenes": len(keep_ranges),
         })
 
+    # Set when the profile asks for an audio adjustment and it actually
+    # succeeded.  A failure leaves the cut intact, but the user asked for
+    # something and did not get it - the summary has to say so rather than
+    # reporting an unqualified success.
+    audio_adjust_ok = None
+
+    # "match" means "the same container as the source", and that has to be
+    # resolved to a real one.  Treating it as though it were always MPEG-TS
+    # meant a Matroska source produced an MPEG-TS file carrying an .mkv name -
+    # playable, but mislabelled, and with no chapters, because chapters are
+    # written during the Matroska mux that never ran.
+    if out_format == "match":
+        by_ext = {".mkv": "mkv", ".mp4": "mp4", ".m4v": "mp4", ".mov": "mp4"}
+        resolved = by_ext.get(os.path.splitext(out_path)[1].lower())
+        if resolved:
+            logger.info(
+                "Match Source: writing %s to suit the destination's %s "
+                "extension.", resolved.upper(),
+                os.path.splitext(out_path)[1],
+            )
+            out_format = resolved
+
     want_mkv = out_format == "mkv"
     want_mp4 = out_format == "mp4"
     needs_temp_ts = want_mkv or want_mp4
@@ -2551,6 +2959,9 @@ def export_ranges(
             source_path, cut_target, segments, n_audio, keep_ranges, fps,
             progress_cb=progress_cb, cancel_cb=cancel_cb,
             source_interlaced=getattr(frame_index, "interlaced", None),
+            # Hand over the container built above rather than have it walk the
+            # whole file a second time.
+            media_container=source,
         )
 
         #
@@ -2752,6 +3163,28 @@ def export_ranges(
                 logger.info(
                     "Cut audio is undecodable; skipping rebuild on request."
                 )
+
+        # Audio delay, surround downmix and loudness processing, applied to the
+        # cut intermediate while it still exists - every output format is
+        # derived from it below,
+        # so doing it here means the adjustment holds for .ts, .mkv and .mp4
+        # alike.  A failure leaves the cut untouched: a sync tweak is not worth
+        # losing a good export over.
+        if (audio_sync_ms or downmix == "stereo"
+                or level_mode != "none") and audio_written > 0:
+            if cancel_cb is None or not cancel_cb():
+                try:
+                    audio_adjust_ok = _apply_audio_adjustments(
+                        cut_target, sync_ms=audio_sync_ms, downmix=downmix,
+                        audio_bitrate=audio_bitrate, level_mode=level_mode,
+                        level_value=level_value, progress_cb=progress_cb,
+                        cancel_cb=cancel_cb,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Audio adjustment raised; keeping the cut as it was."
+                    )
+                    audio_adjust_ok = False
 
         # The display aspect, if any, was stamped onto the source before the cut
         # for .ts/.mp4; .mkv sets it on the container in the mux below.
@@ -2963,6 +3396,22 @@ def export_ranges(
     # Which tracks had nothing to contribute in the kept scenes?  Only worth
     # the probe when something actually went missing.
     silent_here = 0
+    if audio_adjust_ok is False:
+        asked = []
+        if audio_sync_ms:
+            asked.append("an audio delay")
+        if downmix == "stereo":
+            asked.append("a surround downmix")
+        if level_mode != "none":
+            asked.append("loudness processing")
+        errors.append((
+            "audio adjustment not applied",
+            "The cut itself is fine, but %s could not be applied to it - see "
+            "the log for what ffmpeg reported. The audio in this file is "
+            "exactly as it was in the source."
+            % (" and ".join(asked) or "the requested audio change"),
+        ))
+
     if dropped > 0:
         try:
             silent_here = len(
@@ -3097,13 +3546,14 @@ def export_ranges(
     if audio_repackaged:
         notes.append((
             "repackaged audio",
-            "Audio repackaged losslessly for the MKV: some broadcasts carry the "
-            "AAC channel configuration in-band (LATM) and it isn't constant, "
-            "which a single fixed Matroska header can't represent.  The frames "
-            "were kept untouched (no re-encode) so the audio stays playable in "
-            "Plex, Jellyfin and other ffmpeg-based players.  For maximum "
-            "portability (e.g. a hardware player) use a profile with Audio set "
-            "to Re-encode AAC.",
+            "Audio repackaged for the MKV: some broadcasts carry the AAC "
+            "channel configuration in-band (LATM) and it isn't constant, which "
+            "a single fixed Matroska header can't represent. Snipwright keeps "
+            "the frames untouched wherever it can, and checks the result plays; "
+            "if it doesn't, the audio is re-encoded to AAC so the file is "
+            "watchable rather than lossless-but-silent. The log says which "
+            "happened. Setting Audio to Re-encode AAC in the profile skips the "
+            "attempt and goes straight to the portable result.",
         ))
 
     if collapsed:
@@ -3205,7 +3655,9 @@ class ExportWorker(QThread):
                  audio_mode="copy", audio_bitrate=0, aspect="source",
                  crop_mode="none", crop=(0, 0, 0, 0), video_mode="copy",
                  encoder_preset="faster", encoder_crf=None,
-                 encoder_gop_seconds=None):
+                 encoder_gop_seconds=None,
+                 audio_sync_ms=0, downmix="keep",
+                 level_mode="none", level_value=0.0):
         super().__init__(parent)
         self.source_path = source_path
         self.out_path = out_path
@@ -3221,6 +3673,10 @@ class ExportWorker(QThread):
         self.encoder_preset = encoder_preset
         self.encoder_crf = encoder_crf
         self.encoder_gop_seconds = encoder_gop_seconds
+        self.audio_sync_ms = audio_sync_ms
+        self.downmix = downmix
+        self.level_mode = level_mode
+        self.level_value = level_value
         self._cancel = False
 
     def cancel(self):
@@ -3243,6 +3699,10 @@ class ExportWorker(QThread):
                 encoder_preset=self.encoder_preset,
                 encoder_crf=self.encoder_crf,
                 encoder_gop_seconds=self.encoder_gop_seconds,
+                audio_sync_ms=self.audio_sync_ms,
+                downmix=self.downmix,
+                level_mode=self.level_mode,
+                level_value=self.level_value,
                 progress_cb=self.progress.emit,
                 cancel_cb=lambda: self._cancel,
             )
