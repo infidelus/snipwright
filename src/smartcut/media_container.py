@@ -22,6 +22,20 @@ from smartcut.nal_tools import (
 )
 
 
+# Stand-in decode time for a packet the demuxer gave no DTS at all.
+#
+# In practice only the opening packets of a file lack one: until enough
+# pictures have been read to absorb the reorder delay, there is no decode time
+# to report.  Matroska is the common case - the first two packets of an HEVC
+# recording with B-pyramids typically arrive with pts set and dts None.
+#
+# The same value is recorded as a GOP's start DTS when its opening packet has
+# none, so `gop_start_times_dts[i] == UNKNOWN_DTS` means "GOP i begins before
+# any decode time is known" - which can only be the first GOP of the file.
+# The cutter relies on that reading; see VideoCutter.fetch_frame.
+UNKNOWN_DTS = -100_000_000
+
+
 def ts_to_time(ts: float) -> Fraction:
     return Fraction(round(ts*1000), 1000)
 
@@ -184,7 +198,7 @@ class MediaContainer:
                             self.gop_has_rasl.append(current_gop_has_rasl)
 
                         self.video_keyframe_indices.append(len(frame_pts))
-                        dts = packet.dts if packet.dts is not None else -100_000_000
+                        dts = packet.dts if packet.dts is not None else UNKNOWN_DTS
                         self.gop_start_times_dts.append(dts)
                         self.gop_start_nal_types.append(nal_type)
 
@@ -215,7 +229,7 @@ class MediaContainer:
                         # Found first non-leading picture
                         if current_gop_has_leading:
                             # Record boundary only if there were actual leading pictures
-                            dts = packet.dts if packet.dts is not None else -100_000_000
+                            dts = packet.dts if packet.dts is not None else UNKNOWN_DTS
                             self.gop_leading_end_dts.append(dts)
                         else:
                             # No leading pictures in this CRA GOP
@@ -260,7 +274,7 @@ class MediaContainer:
             # exported segments), last_seen_video_dts stays None, so we use the
             # same sentinel value used for gop_start_times_dts when DTS is missing.
             if len(self.gop_end_times_dts) < len(self.gop_start_times_dts):
-                fallback_dts = last_seen_video_dts if last_seen_video_dts is not None else -100_000_000
+                fallback_dts = last_seen_video_dts if last_seen_video_dts is not None else UNKNOWN_DTS
                 self.gop_end_times_dts.append(fallback_dts)
             assert len(self.gop_start_times_dts) == len(self.gop_end_times_dts), \
                 f"GOP DTS array length mismatch: start={len(self.gop_start_times_dts)}, end={len(self.gop_end_times_dts)}"

@@ -21,7 +21,7 @@ from batch.job import (
     build_dest_path, container_to_fmt,
 )
 from addons.output_profiles import resolve_profile
-from export.exporter import export_ranges, ExportError
+from export.exporter import export_ranges, ExportError, ExportCancelled
 from media.frame_index import build_index_sync
 from project.vprj import read_source_filename, load_vprj
 from utils.winepath import resolve_source
@@ -136,6 +136,10 @@ def _index_and_export(
 
     data = load_vprj(job.vprj_path, index)
     keep_ranges = list(data.keep_ranges)
+    # The project carries the user's chapter marks too.  Batch exports left
+    # them behind while the Save Video dialog did not, so the same project
+    # produced chapters one way and only scene joins the other.
+    markers = list(getattr(data, "markers", None) or [])
     if not keep_ranges:
         raise JobError("The project has no kept segments to export.")
 
@@ -173,6 +177,7 @@ def _index_and_export(
         keep_ranges,
         index,
         out_format=profile.container,
+        markers=markers,
         progress_cb=progress_cb,
         cancel_cb=cancel_cb,
         rebuild_audio=True,
@@ -363,7 +368,32 @@ class BatchRunner(QThread):
                 log.warning("Batch job failed: %s - %s", job.name, exc)
                 self._persist_now()
                 self.job_failed.emit(self.current_index, str(exc))
+            except ExportCancelled:
+                # Stopping the batch mid-export unwinds through here.  It is
+                # not a failure: it used to be logged as "Batch job crashed"
+                # with a traceback, which reads like something went wrong
+                # when the user simply pressed stop.
+                job.status = CANCELLED
+                log.info("Batch job cancelled: %s", job.name)
+                self._persist_now()
+
+                if self._stop:
+                    cancelled = True
+                    break
+
+                # Nobody asked to stop the queue, so only this job ends here -
+                # halting the rest on one abort would strand the queue.
+                continue
             except Exception as exc:    # never let one job kill the batch
+                # An abort can also surface as a generic error from a killed
+                # subprocess, so anything arriving after a stop is a
+                # cancellation - the single-file export path already does this.
+                if self._stop:
+                    job.status = CANCELLED
+                    cancelled = True
+                    log.info("Batch job cancelled: %s", job.name)
+                    self._persist_now()
+                    break
                 job.status = FAILED
                 job.message = str(exc)
                 failed += 1

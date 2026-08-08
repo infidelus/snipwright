@@ -30,6 +30,7 @@ import shutil
 import subprocess
 
 from utils.proc import popen_progress, read_stderr
+from media.pixfmt import for_output as pixfmt_for_output
 import time
 import logging
 import json
@@ -556,6 +557,12 @@ class _Cancel:
 class _Cancelled(Exception):
     """Raised when the user aborts an export, so the run unwinds promptly and
     the caller can clean up partial files instead of finishing the job."""
+
+
+# Callers outside this module need to tell an abort apart from a failure - the
+# batch runner logged a cancelled job as a crash, complete with traceback,
+# because all it could catch was Exception.  Same class, public name.
+ExportCancelled = _Cancelled
 
 
 def _run_cancellable(cmd, cancel_cb=None):
@@ -1148,8 +1155,89 @@ def _mkv_audio_ok(mkv_path, cancel_cb=None):
     )
 
 
+def _chapter_marks(segment_durations, extra_marks=None):
+    """Chapter start times for the output, in seconds, plus its total length.
+
+    A chapter starts at every scene join, as it always has.  `extra_marks` are
+    the user's own chapter marks (the A key), already converted to output time
+    by `_marks_in_output`.  Both end up in one sorted list.
+
+    Marks that coincide with a scene join are dropped rather than written
+    twice: a mark placed on a cut point is the same chapter either way, and
+    two chapters a millisecond apart is a mess to navigate.
+    """
+    starts = []
+    cursor = 0.0
+
+    for dur in segment_durations:
+        starts.append(cursor)
+        cursor += float(dur)
+
+    total = cursor
+
+    for mark in (extra_marks or []):
+        mark = float(mark)
+        if 0.0 <= mark < total:
+            starts.append(mark)
+
+    starts.sort()
+
+    # About one frame's worth: closer together than this and they are the
+    # same point as far as anyone navigating the file is concerned.
+    tolerance = 0.05
+
+    merged = []
+    for start in starts:
+        if merged and start - merged[-1] < tolerance:
+            continue
+        merged.append(start)
+
+    return merged, total
+
+
+def _marks_in_output(markers, keep_ranges, frame_index, segment_durations):
+    """Convert source-frame chapter marks into output times, in seconds.
+
+    A mark only survives if it falls inside a kept range - one sitting in cut
+    material has nowhere to go.  Its position is measured from the start of
+    the range it lands in, then offset by the scenes already written, so it
+    stays on the same picture it was placed on.
+
+    Times come from the frame index rather than frame arithmetic, for the same
+    reason the scene joins do: on field-coded HD the per-frame spacing is not
+    a uniform 1/fps, so counting frames drifts.
+    """
+    if not markers:
+        return []
+
+    out = []
+
+    for mark in sorted(markers):
+
+        offset = 0.0
+
+        for (start, end), duration in zip(keep_ranges, segment_durations):
+
+            if start <= mark <= end:
+                try:
+                    into = (
+                        frame_index.seconds_of(mark)
+                        - frame_index.seconds_of(start)
+                    )
+                except Exception:
+                    break
+
+                out.append(offset + max(0.0, into))
+                break
+
+            offset += float(duration)
+
+    return out
+
+
 def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
-                        cancel_cb=None, progress_cb=None, ad_source=None):
+                        cancel_cb=None, progress_cb=None, ad_source=None,
+                        extra_marks=None):
     """Build the final .mkv from the cut .ts, one chapter per scene.
 
     mkvmerge (mkvtoolnix) is preferred: it repackages the broadcast LATM-muxed
@@ -1181,7 +1269,8 @@ def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
         _busy("finalise_mkv")
         _write_mkv_chapters_mkvmerge(ts_path, mkv_path, segment_durations, exe,
                                      aspect=aspect, cancel_cb=cancel_cb,
-                                     ad_source=ad_source)
+                                     ad_source=ad_source,
+                                     extra_marks=extra_marks)
         if _mkv_audio_ok(mkv_path, cancel_cb=cancel_cb):
             logger.info(
                 "MKV audio repackaged to native AAC by mkvmerge "
@@ -1195,7 +1284,8 @@ def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
         _busy("rebuild_audio")
         _write_mkv_chapters_ffmpeg(ts_path, mkv_path, segment_durations,
                                    aspect=aspect, cancel_cb=cancel_cb,
-                                   ad_source=ad_source)
+                                   ad_source=ad_source,
+                                   extra_marks=extra_marks)
 
         # Verify the rebuild too.  When a broadcast changes its channel
         # configuration part-way through - Channel 4 HD films do - no lossless
@@ -1236,18 +1326,21 @@ def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
         _busy("rebuild_audio")
         _write_mkv_chapters_ffmpeg(ts_path, mkv_path, segment_durations,
                                    aspect=aspect, cancel_cb=cancel_cb,
-                                   ad_source=ad_source)
+                                   ad_source=ad_source,
+                                   extra_marks=extra_marks)
         return True
 
 
 def _write_mkv_chapters_mkvmerge(ts_path, mkv_path, segment_durations, exe,
-                                 aspect="source", cancel_cb=None, ad_source=None):
+                                 aspect="source", cancel_cb=None, ad_source=None,
+                                 extra_marks=None):
     """Mux the cut .ts into .mkv with mkvmerge (native AAC, lossless)."""
     # mkvmerge's simple/OGM chapter format: absolute HH:MM:SS.mmm timestamps.
     lines = []
-    cursor_ms = 0
-    for i, dur in enumerate(segment_durations, start=1):
-        start_ms = cursor_ms
+    starts, _total = _chapter_marks(segment_durations, extra_marks)
+
+    for i, start in enumerate(starts, start=1):
+        start_ms = int(round(start * 1000))
         total_s = start_ms // 1000
         h, rem = divmod(total_s, 3600)
         m, s = divmod(rem, 60)
@@ -1256,7 +1349,6 @@ def _write_mkv_chapters_mkvmerge(ts_path, mkv_path, segment_durations, exe,
         lines.append(
             "CHAPTER%02dNAME=Chapter %02d (%02d:%02d:%02d)" % (i, i, h, m, s)
         )
-        cursor_ms = start_ms + int(round(float(dur) * 1000))
 
     chapter_path = mkv_path + ".chapters.txt"
     with open(chapter_path, "w") as f:
@@ -1385,13 +1477,18 @@ def _reencode_mkv_audio(mkv_path, cancel_cb=None):
 
 
 def _write_mkv_chapters_ffmpeg(ts_path, mkv_path, segment_durations,
-                               aspect="source", cancel_cb=None, ad_source=None):
+                               aspect="source", cancel_cb=None, ad_source=None,
+                               extra_marks=None):
     """Fallback MKV mux via ffmpeg (lossless, but audio stays LATM-in-ACM)."""
     chapters = [";FFMETADATA1"]
-    cursor_ms = 0
-    for i, dur in enumerate(segment_durations, start=1):
-        start_ms = cursor_ms
-        end_ms = cursor_ms + int(round(float(dur) * 1000))
+    starts, total = _chapter_marks(segment_durations, extra_marks)
+
+    for i, start in enumerate(starts, start=1):
+        start_ms = int(round(start * 1000))
+
+        # Each chapter runs to the next one, the last to the end of the file.
+        next_start = starts[i] if i < len(starts) else total
+        end_ms = int(round(next_start * 1000))
 
         # Human-readable timecode of the chapter start (HH:MM:SS).
         total_s = start_ms // 1000
@@ -1406,7 +1503,6 @@ def _write_mkv_chapters_ffmpeg(ts_path, mkv_path, segment_durations,
             f"END={end_ms}",
             f"title=Chapter {i:02d} ({tc})",
         ]
-        cursor_ms = end_ms
 
     meta_path = mkv_path + ".chapters.txt"
     with open(meta_path, "w") as f:
@@ -1519,7 +1615,8 @@ def _transcode_to_mp4(
             "-c:v", "libx264",
             "-preset", "medium",
             "-crf", "20",
-            "-pix_fmt", "yuv420p",
+            # Keep the source's bit depth rather than flattening 10-bit to 8.
+            "-pix_fmt", pixfmt_for_output(ts_path, "libx264"),
         ]
         if interlaced:
             cmd += ["-vf", "yadif"]
@@ -2811,6 +2908,7 @@ def export_ranges(
         downmix="keep",
         level_mode="none",
         level_value=0.0,
+        markers=None,
 ):
     """Cut and export the kept ranges.
 
@@ -2899,6 +2997,20 @@ def export_ranges(
             return (b - a + 1) / fps
 
     segment_durations = [_segment_duration(a, b) for a, b in keep_ranges]
+
+    # The user's own chapter marks (the A key), moved into output time.  Marks
+    # that fall in cut material have nowhere to land and are dropped, which is
+    # worth saying: a mark placed in an advert quietly vanishing looks like a
+    # fault otherwise.
+    chapter_marks = _marks_in_output(
+        markers, keep_ranges, frame_index, segment_durations
+    )
+
+    if markers:
+        logger.info(
+            "Chapter marks: %d of %d kept (%d fell in cut material)",
+            len(chapter_marks), len(markers), len(markers) - len(chapter_marks),
+        )
 
     if progress_cb is not None:
         progress_cb({
@@ -3194,6 +3306,7 @@ def export_ranges(
                 cut_target, out_path, segment_durations,
                 aspect=aspect, cancel_cb=cancel_cb, progress_cb=progress_cb,
                 ad_source=source_path,
+                extra_marks=chapter_marks,
             )
         elif want_mp4:
             #
@@ -3293,7 +3406,23 @@ def export_ranges(
                         rect = candidate
             # Re-encode when we have a crop to apply, or HEVC was requested.
             if rect is not None or reencode_hevc:
-                codec = "libx265" if reencode_hevc else "libx264"
+                # When HEVC was asked for, encode HEVC.  Otherwise this is a
+                # crop on a profile set to copy the video: the user did not ask
+                # to change codec, so keep the one the source already used.
+                # Defaulting to H.264 turned an HEVC recording into H.264 - a
+                # bigger file for the same picture, and for a 10-bit source it
+                # meant the High 10 profile, which fewer players will decode
+                # than the HEVC it started as.
+                if reencode_hevc:
+                    codec = "libx265"
+                else:
+                    src_codec = _crop.source_codec(out_path)
+                    codec = "libx265" if src_codec == "hevc" else "libx264"
+                    if src_codec == "hevc":
+                        logger.info(
+                            "Cropping an HEVC recording: re-encoding as HEVC "
+                            "rather than H.264, to keep the codec it came in."
+                        )
                 phase = "encode" if reencode_hevc else "crop"
                 n_scenes = len(keep_ranges)
 
@@ -3475,12 +3604,30 @@ def export_ranges(
             phantom = _empty_audio_tracks(source_path)
         except Exception:
             phantom = 0
-        if dropped <= sbr:
+        if silent_here and dropped <= silent_here:
+            # Checked first, and deliberately ahead of the SBR case below: a
+            # description track is usually both HE-AAC *and* silent across the
+            # kept scenes, and the SBR branch used to win, reporting a track
+            # that "can't be carried over" when in truth there was nothing in
+            # it to carry.  A Top Gear export showed this - the AD track holds
+            # audio either side of the programme but none within it.
+            notes.append((
+                "%d silent audio track%s not carried over" % (dropped, plural),
+                "The recording has %s audio track%s - typically audio "
+                "description - that carries no audio at all within the scenes "
+                "you kept. There was nothing to copy, so it is not in the "
+                "output. Nothing was lost, and the main audio is unaffected."
+                % ("an" if dropped == 1 else "%d" % dropped, plural),
+            ))
+        elif dropped <= sbr:
+            # Note that VideoReDo does *not* always drop these - a log from a
+            # Channel 4 HD recording shows it carrying an HE-AACv2 description
+            # track straight through - so don't claim otherwise here.
             notes.append((
                 "%d audio-description track%s not carried over" % (dropped, plural),
                 "These carry SBR/PS extensions that can't be re-encoded in sync "
-                "from a mid-stream cut, so they are dropped on purpose "
-                "(VideoReDo drops them too).",
+                "from a mid-stream cut, so they are dropped on purpose. The "
+                "main audio is unaffected.",
             ))
         elif dropped <= sbr + phantom + silent_here:
             # The track is real and carries audio elsewhere in the recording,
@@ -3657,7 +3804,7 @@ class ExportWorker(QThread):
                  encoder_preset="faster", encoder_crf=None,
                  encoder_gop_seconds=None,
                  audio_sync_ms=0, downmix="keep",
-                 level_mode="none", level_value=0.0):
+                 level_mode="none", level_value=0.0, markers=None):
         super().__init__(parent)
         self.source_path = source_path
         self.out_path = out_path
@@ -3677,6 +3824,7 @@ class ExportWorker(QThread):
         self.downmix = downmix
         self.level_mode = level_mode
         self.level_value = level_value
+        self.markers = markers or []
         self._cancel = False
 
     def cancel(self):
@@ -3703,6 +3851,7 @@ class ExportWorker(QThread):
                 downmix=self.downmix,
                 level_mode=self.level_mode,
                 level_value=self.level_value,
+                markers=self.markers,
                 progress_cb=self.progress.emit,
                 cancel_cb=lambda: self._cancel,
             )

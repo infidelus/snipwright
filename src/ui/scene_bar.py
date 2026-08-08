@@ -287,50 +287,19 @@ class SceneBar(QWidget):
         #
         # Active unfinished selection markers
         #
-
-        painter.setPen(
-            QPen(
-                QColor("#d0d0d0"),
-                1,
-            )
-        )
-
-        #
-        # Pending IN marker
+        # Drawn as a dark line inside a light one.  A single pale colour was
+        # used here, which disappeared against the yellow of a highlighted
+        # scene; a single dark colour would disappear against the dark red of
+        # the cut areas instead.  The pair reads on every colour the bar can
+        # draw - red, green, yellow, and the white playhead.
         #
 
         if selection.pending_in is not None:
-            x = int(
-                selection.pending_in
-                /
-                total
-                *
-                w
-            )
-
-            #
-            # Left bracket
-            #
-
-            painter.drawLine(
-                x,
-                0,
-                x,
+            self._draw_pending_bracket(
+                painter,
+                int(selection.pending_in / total * w),
                 h,
-            )
-
-            painter.drawLine(
-                x,
-                0,
-                x + 5,
-                0,
-            )
-
-            painter.drawLine(
-                x,
-                h - 1,
-                x + 5,
-                h - 1,
+                arm=5,
             )
 
         #
@@ -338,40 +307,41 @@ class SceneBar(QWidget):
         #
 
         if selection.pending_out is not None:
-            x = int(
-                selection.pending_out
-                /
-                total
-                *
-                w
-            )
-
-            #
-            # Right bracket
-            #
-
-            painter.drawLine(
-                x,
-                0,
-                x,
+            self._draw_pending_bracket(
+                painter,
+                int(selection.pending_out / total * w),
                 h,
-            )
-
-            painter.drawLine(
-                x - 5,
-                0,
-                x,
-                0,
-            )
-
-            painter.drawLine(
-                x - 5,
-                h - 1,
-                x,
-                h - 1,
+                arm=-5,
             )
 
         painter.end()
+
+    def _draw_pending_bracket(
+            self,
+            painter,
+            x,
+            h,
+            arm,
+    ):
+        """Draw one IN/OUT bracket at `x`.
+
+        `arm` is how far the top and bottom arms reach, and which way: positive
+        turns the bracket right (IN), negative turns it left (OUT).
+        """
+        from PySide6.QtGui import QColor, QPen
+
+        def bracket(colour, width):
+            painter.setPen(QPen(QColor(colour), width))
+
+            painter.drawLine(x, 0, x, h)
+
+            painter.drawLine(x, 0, x + arm, 0)
+
+            painter.drawLine(x, h - 1, x + arm, h - 1)
+
+        # Light halo first, dark line over it.
+        bracket("#f0f0f0", 3)
+        bracket("#101010", 1)
 
     def seek_from_x(
             self,
@@ -422,6 +392,15 @@ class SceneBar(QWidget):
 
         if event.button() != Qt.LeftButton:
             return
+
+        # Clicking the timeline means "take me here", which is no longer the
+        # highlighted scene - leaving the yellow highlight on a row you have
+        # navigated away from is just a distraction.  The IN/OUT markers stay
+        # put: they are the edit in progress, not a highlight.
+        clear = getattr(self.window, "clear_scene_selection", None)
+
+        if clear is not None:
+            clear()
 
         self.scrubbing = True
 

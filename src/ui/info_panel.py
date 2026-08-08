@@ -235,9 +235,32 @@ class InfoPanel(QWidget):
             0.0,
         )
 
-        def mb_for(frame_count):
+        file_bytes = getattr(
+            window,
+            "source_size_bytes",
+            0,
+        )
+
+        index = getattr(
+            window,
+            "index",
+            None,
+        )
+
+        def mb_for(ranges, frame_count):
+            """Size of the given frame ranges, in MB.
+
+            Measured from the index's per-frame byte totals where they exist,
+            so a range that runs above or below the file's average bitrate
+            reports its real size.  The flat share is only the fallback for an
+            index built before those totals were recorded.
+            """
             if not total_frames:
                 return 0.0
+
+            if index is not None:
+                return index.estimated_mb(ranges, file_bytes)
+
             return file_mb * (frame_count / total_frames)
 
         #
@@ -248,30 +271,67 @@ class InfoPanel(QWidget):
             frame_to_timecode(window.current_frame)
         )
 
+        # Everything before the cursor, so the figure reads as "how far into
+        # the file am I" - frame 0 is therefore 0.00, not one frame's worth.
+        cursor_ranges = (
+            [(0, window.current_frame - 1)]
+            if window.current_frame > 0
+            else []
+        )
+
         self.rows["Cursor"]["mb"].setText(
-            f"{mb_for(window.current_frame):.2f}"
+            f"{mb_for(cursor_ranges, window.current_frame):.2f}"
         )
 
         #
-        # Selection: duration + size of the highlighted saved range.
+        # Selection: duration + size of what's currently selected - the marked
+        # IN/OUT span, or the row highlighted in the scene list.
         #
 
         selection_text = "--:--:--.--"
         selection_frames = 0
+        selection_ranges = []
 
-        if window.selected_scene is not None:
+        pending_in = window.selection.pending_in
+        pending_out = window.selection.pending_out
 
-            ranges = window.selection.ranges
+        if pending_in is not None and pending_out is not None:
+
+            # The markers come first: marking IN/OUT is the primary way of
+            # selecting something, and this row used to sit empty through the
+            # whole of it, filling in only once a scene had been added and
+            # clicked in the list.  VideoReDo shows the marked span here.
+            start = min(pending_in, pending_out)
+            end = max(pending_in, pending_out)
+
+            selection_frames = end - start + 1
+            selection_ranges = [(start, end)]
+            selection_text = frame_to_timecode(selection_frames)
+
+        elif window.selected_scene is not None:
+
+            # Falls back to the highlighted row for the case where the markers
+            # have been cleared but a scene is still selected.  Read from the
+            # scene list rather than the kept ranges, because Cut Mode lists
+            # the cuts - row N there is not kept range N.
+            scene_list = getattr(window, "scene_list", None)
+
+            ranges = (
+                scene_list.displayed_ranges()
+                if scene_list is not None
+                else window.selection.ranges
+            )
 
             if 0 <= window.selected_scene < len(ranges):
                 start, end = ranges[window.selected_scene]
                 selection_frames = end - start + 1
+                selection_ranges = [(start, end)]
                 selection_text = frame_to_timecode(selection_frames)
 
         self.rows["Selection"]["time"].setText(selection_text)
 
         self.rows["Selection"]["mb"].setText(
-            f"{mb_for(selection_frames):.2f}"
+            f"{mb_for(selection_ranges, selection_frames):.2f}"
         )
 
         #
@@ -279,8 +339,9 @@ class InfoPanel(QWidget):
         #
 
         total_kept = 0
+        kept_ranges = list(window.selection.ranges)
 
-        for start, end in window.selection.ranges:
+        for start, end in kept_ranges:
             total_kept += end - start + 1
 
         self.rows["Output"]["time"].setText(
@@ -288,7 +349,7 @@ class InfoPanel(QWidget):
         )
 
         self.rows["Output"]["mb"].setText(
-            f"{mb_for(total_kept):.2f}"
+            f"{mb_for(kept_ranges, total_kept):.2f}"
         )
 
         #
@@ -296,8 +357,13 @@ class InfoPanel(QWidget):
         #
 
         if total_frames:
+            # A duration, like Selection and Output - so a whole file kept
+            # reads the same on both rows.  This used to show the last
+            # frame's timecode (count - 1), which put Program one frame
+            # behind Output for an uncut recording.  Cursor stays a
+            # position, so at the last frame it reads one frame lower.
             self.rows["Program"]["time"].setText(
-                frame_to_timecode(total_frames - 1)
+                frame_to_timecode(total_frames)
             )
             self.rows["Program"]["mb"].setText(
                 f"{file_mb:.2f}"

@@ -65,7 +65,10 @@ distilling the part many people relied on most into a free, open-source tool.
 - **External tools:**
   - **ffmpeg** — required (PyAV builds against it for decoding/muxing).
   - **mkvmerge** (from MKVToolNix) — required only for MKV output.
-  - **Comskip** — optional, for the Watcher's automatic commercial detection.
+  - **Comskip** — optional, for automatic commercial detection (Tools →
+    Detect Commercials, and the Watcher).
+    Prebuilt binaries are the easy route; if you want to build it yourself,
+    [COMSKIP.md](COMSKIP.md) covers what actually works on Linux and Windows.
 - **A TMDB API key** — optional, only needed for the TV/Film renamers. A free
   key is available from your account at themoviedb.org.
 

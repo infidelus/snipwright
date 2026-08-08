@@ -6,6 +6,9 @@ recordings.  It records, in display (PTS) order:
 
   - every frame's PTS                (so frame N  <->  index N, exactly)
   - which PTS values are keyframes   (so we can seek reliably)
+  - a running total of video packet bytes up to each frame (so the Info
+    panel can report the real size of a range rather than assuming a flat
+    bitrate across the file)
   - the source fps, dimensions, codec, time_base, start PTS, interlaced flag
     (so nothing is hard-coded to 25fps / PAL)
 
@@ -22,6 +25,7 @@ import os
 import struct
 import time
 from array import array
+from itertools import accumulate
 from pathlib import Path
 
 import av
@@ -39,7 +43,9 @@ CACHE_DIR = (
     / "index"
 )
 
-CACHE_VERSION = 3
+# 4 added the cumulative video byte totals used for size estimates.  A bump
+# invalidates every cached index, so each file is re-scanned once.
+CACHE_VERSION = 4
 
 
 class FrameIndex:
@@ -55,10 +61,18 @@ class FrameIndex:
             time_base,
             start_pts,
             interlaced,
+            cum_bytes=None,
     ):
 
         # Display-ordered frame PTS as a packed int64 array.
         self.pts = pts
+
+        # Running total of video packet bytes, inclusive: cum_bytes[i] is the
+        # number of bytes of coded video from the start of the file up to and
+        # including frame i.  Optional - an index from an older cache, or one
+        # built by a caller that did not collect sizes, leaves it None and the
+        # size estimates fall back to a flat share of the file.
+        self.cum_bytes = cum_bytes
 
         # Sorted list of keyframe PTS.
         self.keyframe_pts = keyframe_pts
@@ -127,6 +141,92 @@ class FrameIndex:
         return self.index_of_pts(target_pts)
 
     # ------------------------------------------------------------------ #
+    # Size estimates
+    # ------------------------------------------------------------------ #
+
+    @property
+    def total_video_bytes(self):
+        """Bytes of coded video across the whole file, or 0 if not recorded."""
+        if not self.cum_bytes:
+            return 0
+        return int(self.cum_bytes[-1])
+
+    def video_bytes_between(self, start, end):
+        """Bytes of coded video in frames start..end, inclusive.
+
+        Returns 0 when byte totals were not recorded (an index restored from
+        an older cache), which callers treat as "fall back to a flat share".
+        """
+        if not self.cum_bytes:
+            return 0
+
+        last = len(self.cum_bytes) - 1
+
+        start = max(0, min(int(start), last))
+        end = max(0, min(int(end), last))
+
+        if end < start:
+            return 0
+
+        before = self.cum_bytes[start - 1] if start > 0 else 0
+
+        return int(self.cum_bytes[end] - before)
+
+    def estimated_bytes(self, ranges, file_size):
+        """Best estimate of the bytes that frame `ranges` occupy in the source.
+
+        `ranges` is a list of inclusive (start, end) frame pairs.
+
+        The video is measured exactly, from the byte totals collected while
+        indexing.  Everything else in the container - audio, subtitles, PSI,
+        transport padding - is spread evenly across the file's running time,
+        which is close enough because those streams are near constant rate.
+
+        This replaced a flat "share of the file by frame count", which was out
+        by 5.7% on a Top Gear recording (2172 MB predicted, 2297 MB written):
+        the kept programme ran above the file's average bitrate, and a purely
+        proportional estimate cannot see that.
+        """
+        try:
+            file_size = int(file_size or 0)
+        except (TypeError, ValueError):
+            file_size = 0
+
+        total_frames = self.frame_count
+
+        if not total_frames or file_size <= 0:
+            return 0
+
+        kept_frames = 0
+        kept_video = 0
+
+        for start, end in ranges or []:
+            if end < start:
+                continue
+            kept_frames += end - start + 1
+            kept_video += self.video_bytes_between(start, end)
+
+        if kept_frames <= 0:
+            return 0
+
+        video_total = self.total_video_bytes
+
+        # No byte totals (older cached index): the old flat estimate is all
+        # that is available.
+        if video_total <= 0:
+            return file_size * (kept_frames / total_frames)
+
+        # Guard against a source whose video bytes exceed the file size - it
+        # should not happen, but a bad estimate is better than a negative one.
+        other_bytes = max(0, file_size - video_total)
+
+        return kept_video + other_bytes * (kept_frames / total_frames)
+
+    def estimated_mb(self, ranges, file_size):
+        """estimated_bytes() expressed in MB, as the Info panel shows it."""
+        return self.estimated_bytes(ranges, file_size) / (1024 * 1024)
+
+    # ------------------------------------------------------------------ #
     # Disk cache
     # ------------------------------------------------------------------ #
 
@@ -148,6 +248,7 @@ class FrameIndex:
             "interlaced": self.interlaced,
             "n_pts": len(self.pts),
             "n_kf": len(self.keyframe_pts),
+            "n_bytes": len(self.cum_bytes) if self.cum_bytes else 0,
         }
 
         with open(path, "wb") as f:
@@ -163,6 +264,9 @@ class FrameIndex:
             array("q", self.pts).tofile(f)
 
             array("q", self.keyframe_pts).tofile(f)
+
+            if self.cum_bytes:
+                array("q", self.cum_bytes).tofile(f)
 
     @staticmethod
     def load(path):
@@ -187,6 +291,14 @@ class FrameIndex:
             kf = array("q")
             kf.fromfile(f, header["n_kf"])
 
+            n_bytes = header.get("n_bytes") or 0
+
+            if n_bytes:
+                cum_bytes = array("q")
+                cum_bytes.fromfile(f, n_bytes)
+            else:
+                cum_bytes = None
+
         return FrameIndex(
             pts=pts,
             keyframe_pts=list(kf),
@@ -197,6 +309,7 @@ class FrameIndex:
             time_base=tuple(header["time_base"]),
             start_pts=header["start_pts"],
             interlaced=header["interlaced"],
+            cum_bytes=cum_bytes,
         )
 
 
@@ -240,7 +353,13 @@ def build_frame_index(
     stream = container.streams.video[0]
 
     pts_list = []
+    size_list = []
     keyframe_pts = []
+
+    # Bytes from packets the demuxer gave no PTS for.  They still occupy space
+    # in the file, so they are carried on to the next frame that does have one
+    # rather than being lost from the running total.
+    pending_bytes = 0
 
     for packet in container.demux(stream):
 
@@ -248,10 +367,15 @@ def build_frame_index(
             container.close()
             return None
 
+        packet_bytes = int(getattr(packet, "size", 0) or 0)
+
         if packet.pts is None:
+            pending_bytes += packet_bytes
             continue
 
         pts_list.append(packet.pts)
+        size_list.append(packet_bytes + pending_bytes)
+        pending_bytes = 0
 
         if packet.is_keyframe:
             keyframe_pts.append(packet.pts)
@@ -287,7 +411,16 @@ def build_frame_index(
 
     container.close()
 
-    pts_list.sort()
+    # Sort PTS and sizes together: the sizes are only meaningful while they
+    # stay attached to the frame they came from.
+    if pts_list:
+        ordered = sorted(
+            zip(pts_list, size_list),
+            key=lambda pair: pair[0],
+        )
+        pts_list = [pair[0] for pair in ordered]
+        size_list = [pair[1] for pair in ordered]
+
     keyframe_pts = sorted(set(keyframe_pts))
 
     # --- Field-coded (PAFF) detection and collapse ---------------------- #
@@ -331,22 +464,34 @@ def build_frame_index(
         if has_field_pairs:
             start = pts_list[0]
             collapsed = []
-            seen_slots = set()
-            for p in pts_list:
+            collapsed_sizes = []
+            slot_at = {}
+            for p, size in zip(pts_list, size_list):
                 slot = round((p - start) / ticks_per_frame)
-                if slot not in seen_slots:
-                    seen_slots.add(slot)
+                if slot not in slot_at:
+                    slot_at[slot] = len(collapsed)
                     collapsed.append(p)
+                    collapsed_sizes.append(size)
+                else:
+                    # Second field of the same frame: its bytes belong to the
+                    # frame that survives, or the file's total would come out
+                    # short by half on field-coded sources.
+                    collapsed_sizes[slot_at[slot]] += size
             pts_list = collapsed
+            size_list = collapsed_sizes
             # Keep only keyframes that survive in the collapsed set.
             kf = set(keyframe_pts)
             keyframe_pts = [p for p in pts_list if p in kf]
 
     interlaced = _probe_interlaced(path)
 
+    # Running total, so a range's size is one subtraction rather than a walk.
+    cum_bytes = array("q", accumulate(size_list))
+
     return FrameIndex(
         pts=array("q", pts_list),
         keyframe_pts=keyframe_pts,
+        cum_bytes=cum_bytes,
         fps=fps,
         width=width,
         height=height,

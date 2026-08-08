@@ -222,6 +222,17 @@ removes every cut and restores the whole recording.</p>
 </ol>
 <p>Repeat for each segment you want to keep. If you mark In/Out across an existing scene,
 the new selection replaces it, so correcting a cut is just a matter of re-marking it.</p>
+<p>The In and Out markers stay where they are after you add a scene, and each is replaced only
+when you next place it. So if you notice a boundary is a frame or two out immediately after
+adding, nudge that one marker and press <strong>Add Selection</strong> again &mdash; the scene
+you just made is adjusted rather than a second one added. The same applies to
+<strong>Cut Selection</strong> in Cut Mode.</p>
+<p>Selecting a row in the list beside the video &mdash; by clicking it or with the
+<kbd>Up</kbd>/<kbd>Down</kbd> keys &mdash; loads it into the In and Out markers and takes
+the playhead to its start, which is the quickest way to correct one you have already made:
+select it, nudge whichever marker is wrong, and press <strong>Add Selection</strong>
+(or <strong>Cut Selection</strong> in Cut Mode) to replace it. The <strong>Selection</strong>
+row of the Info panel shows the duration and size of whatever is marked.</p>
 <p><strong>Add Unselected</strong> (<kbd>Ctrl+Insert</kbd>) does the inverse: it fills in
 every gap as a kept scene &mdash; handy when it is quicker to mark the parts you want to
 remove and then invert. <strong>Clear All Scenes</strong> (<kbd>Shift+Insert</kbd>) starts
@@ -234,8 +245,12 @@ over.</p>
   <li><strong style="color:#8a2a2a">Red</strong> &mdash; will not be kept.</li>
   <li><strong style="color:#d0b000">Yellow</strong> &mdash; the scene currently selected in
   the list. This is only a highlight so you can see which row is which part of the
-  recording; it does not indicate a problem with the video.</li>
+  recording; it does not indicate a problem with the video. Clicking anywhere on the bar
+  clears it, since you have moved away from that scene &mdash; your In and Out markers stay
+  where they are.</li>
   <li><strong style="color:#00d8ff">Cyan</strong> &mdash; scene markers.</li>
+  <li><strong>Dark brackets</strong> &mdash; your In and Out points, drawn with a light
+  outline so they stay visible over any of the colours above.</li>
 </ul>
 
 <h2 id="detect">4. Automatic ad detection and projects</h2>
@@ -369,6 +384,11 @@ one of the Container choices, which is worth keeping straight. A profile control
   milliseconds, for a recording that arrived out of sync. Use a positive value when the sound
   is early and a negative one when it lags. This is only a change of timing, so the audio is
   still copied losslessly.</li>
+  <li><strong>Bit depth</strong> &mdash; re-encoding keeps whatever the source had. A 10-bit
+  recording stays 10-bit rather than being flattened to 8, which would show as banding in
+  skies and gradients. Note that 10-bit H.264 means the High&nbsp;10 profile, which some
+  hardware players refuse; HEVC is the safer choice for 10-bit material. This only applies
+  when the video is actually re-encoded &mdash; a lossless copy is untouched either way.</li>
   <li><strong>Encoder speed</strong> and <strong>Quality&nbsp;(CRF)</strong> &mdash; these
   apply only when the video is actually re-encoded (HEVC output, or cropping); for a
   lossless copy they're greyed out. A slower preset gives better quality for the same file

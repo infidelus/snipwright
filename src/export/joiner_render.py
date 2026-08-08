@@ -18,6 +18,8 @@ import json
 import shutil
 import subprocess
 
+from media.pixfmt import for_output as pixfmt_for_output
+
 from utils.proc import popen_progress, read_stderr
 import tempfile
 
@@ -30,6 +32,20 @@ from export.exporter import (
     _transcode_to_mp4,
     _Cancelled as _ExporterCancelled,
 )
+
+
+def _joiner_pix_fmt(segments):
+    """Pixel format for a joined render, taken from the first clip.
+
+    A joiner run can mix sources and one output format has to serve them all,
+    so the first clip is the reference: if it is 10-bit the output stays
+    10-bit, and an 8-bit clip joined into it is carried at the higher depth,
+    which costs a little size but loses nothing.
+    """
+    for path in (segments or []):
+        if isinstance(path, str) and path:
+            return pixfmt_for_output(path)
+    return "yuv420p"
 
 
 def _find_font(bold=False):
@@ -467,7 +483,8 @@ class JoinerRenderWorker(QThread):
             "-filter_complex", ";".join(filters),
             "-map", "[outv]", "-map", "[outa]",
             "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-            "-pix_fmt", "yuv420p",
+            # Keep the source bit depth; see media/pixfmt.py.
+            "-pix_fmt", _joiner_pix_fmt(segments),
             "-c:a", "aac", "-b:a", "192k",
             "-progress", "pipe:1", joined,
         ]
@@ -589,6 +606,8 @@ class JoinerRenderWorker(QThread):
             "-vf", vf,
             "-c:v", "libx264", "-preset", "medium", "-crf", "20",
             "-r", "%d" % fps,
+            # A title card is generated, not decoded from anything, so there is
+            # no source depth to preserve - 8-bit is right and universally safe.
             "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "192k",
             "-t", "%.3f" % duration, out,

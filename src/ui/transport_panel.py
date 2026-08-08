@@ -535,6 +535,15 @@ class VolumeControl(QWidget):
         if audio is not None:
             audio.set_volume(value / 100.0)
 
+        # Audio only decodes while the volume is above zero, so crossing zero
+        # changes whether it should be running at all.  Without this, starting
+        # playback at zero and then raising the slider stayed silent until you
+        # paused and played again: the sink's volume went up but nothing was
+        # feeding it.
+        update = getattr(self.window, "_update_audio", None)
+        if update is not None:
+            update()
+
     def _persist(self):
         if hasattr(self.window, "_save_volume"):
             self.window._save_volume(self.slider.value())

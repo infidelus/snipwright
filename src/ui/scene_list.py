@@ -310,8 +310,6 @@ class SceneList(
         row = self.currentRow()
 
         if row >= 0:
-            self.window.selected_scene = row
-
-            self.window.update_timecode()
-
-            self.window.info_panel.update_info()
+            # The same path a click takes, so Up/Down also moves the playhead
+            # and loads the row into the IN/OUT markers.
+            self.window.select_scene_row(row)

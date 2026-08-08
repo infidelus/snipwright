@@ -24,6 +24,8 @@ import time
 import threading
 import logging
 
+from utils.applog import log_verbose
+
 log = logging.getLogger("snipwright")
 
 try:
@@ -273,7 +275,11 @@ class _DecodeThread(threading.Thread):
                     n_decoded, n_skipped, n_written, dec_err, res_err,
                 )
             else:
-                log.debug(
+                # Verbose only - one line per play, and it says nothing that
+                # matters unless sound is being investigated.  The warning
+                # above, for a play that produced no sound, always logs.
+                log_verbose(
+                    log,
                     "audio: %s start=%.2fs seek=%s decoded=%d wrote=%d skipped=%d",
                     name, self._start, seek_mode, n_decoded, n_written, n_skipped,
                 )
@@ -343,6 +349,12 @@ class AudioController:
         # the picture without any manual per-file tuning.  Set in set_source.
         self._av_start_delay = 0.0
 
+        # The device last announced at INFO.  The sink is rebuilt before
+        # playback whenever it is missing or in an error state, so without
+        # this the same "output device ready" line appeared on every play.
+        # A genuine change of device still deserves an INFO line.
+        self._announced_device = None
+
         if self.available:
             self._fmt = QAudioFormat()
             self._fmt.setSampleRate(_RATE)
@@ -395,8 +407,19 @@ class AudioController:
                 dev_name = device.description()
             except Exception:
                 dev_name = "?"
-            log.info("audio: output device ready (%s) — %d Hz, %d ch",
-                     dev_name, _RATE, _CHANNELS)
+            if dev_name != self._announced_device:
+                log.info("audio: output device ready (%s) — %d Hz, %d ch",
+                         dev_name, _RATE, _CHANNELS)
+                self._announced_device = dev_name
+            else:
+                # Same device as last time: the sink was simply rebuilt, which
+                # happens on any play where it had gone into an error state.
+                log_verbose(
+                    log,
+                    "audio: output device rebuilt (%s) — %d Hz, %d ch",
+                    dev_name, _RATE, _CHANNELS,
+                )
+
             return True
         except Exception as exc:
             self.available = False
@@ -406,14 +429,51 @@ class AudioController:
                         "off; will retry on play", exc)
             return False
 
-    def _sink_is_healthy(self):
-        """Whether the current sink exists and isn't in an error state."""
+    def _sink_error(self):
+        """The sink's current error, or None when there is no sink at all."""
         if self._sink is None:
-            return False
+            return None
         try:
-            return self._sink.error() == QAudio.Error.NoError
+            return self._sink.error()
         except Exception:
-            return True    # can't tell - assume usable rather than thrash
+            # Can't tell - report no error rather than thrash the device.
+            return QAudio.Error.NoError
+
+    def _sink_usable(self, err):
+        """Whether a sink reporting `err` is worth keeping.
+
+        Underrun is not a fault.  The buffer running dry is what happens at
+        the end of every playback, and Qt keeps reporting it until the sink is
+        started again - so counting it as an error rebuilt the device before
+        every single play.
+
+        Compared both by equality and by numeric value.  `error()` can hand
+        back an enum member or a plain int depending on the PySide6 build, and
+        those never compare equal to each other; note also that `int()` on a
+        PySide6 enum member raises, so the value has to come from `.value`.
+        Anything unrecognisable counts as unusable, so the device is rebuilt -
+        the same as before this check existed.
+        """
+        if err is None:
+            return False
+
+        def numeric(value):
+            value = getattr(value, "value", value)
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        err_value = numeric(err)
+
+        for good in (QAudio.Error.NoError, QAudio.Error.UnderrunError):
+            if err == good:
+                return True
+            good_value = numeric(good)
+            if err_value is not None and err_value == good_value:
+                return True
+
+        return False
 
     # -- source ----------------------------------------------------------
 
@@ -472,7 +532,19 @@ class AudioController:
         # since gone into an error state, rebuild it now - the device is very
         # likely available by the time the user actually presses play.  This is
         # what lets audio recover without restarting the whole app.
-        if not self._sink_is_healthy():
+        #
+        # The error is read once and reused for the log: reading it twice
+        # reported "sink unusable (error=NoError)", which cannot both be true
+        # and made the log useless for working out what was wrong.
+        err = self._sink_error()
+
+        if not self._sink_usable(err):
+            log_verbose(
+                log,
+                "audio: sink unusable (error=%r, type=%s) - rebuilding",
+                err,
+                type(err).__name__,
+            )
             self._create_sink()
         if not self.available or self._sink is None or self._src is None:
             return
@@ -485,7 +557,11 @@ class AudioController:
         # position is on the video timeline, so shift it by the video/audio
         # start-time difference to land on the matching sound.
         decode_from = max(0.0, float(seconds) + self._av_start_delay)
-        log.debug(
+
+        # Verbose only: this fires on every play, including each nudge of the
+        # playhead during scrubbing.
+        log_verbose(
+            log,
             "audio: play_from seconds=%.2f av_start_delay=%.3f decode_from=%.2f",
             float(seconds), self._av_start_delay, decode_from,
         )

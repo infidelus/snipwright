@@ -241,3 +241,19 @@ def log_directory():
 def is_verbose():
     """True if verbose logging is enabled (capture extra diagnostics)."""
     return _verbose
+
+
+def log_verbose(logger, msg, *args):
+    """Log at DEBUG, but only when verbose logging is switched on.
+
+    The file handler records DEBUG and up, so a plain ``logger.debug()`` always
+    lands in the log file.  That is right for diagnostics tied to something the
+    user asked for - an export writes a handful of lines and they are what a
+    problem report is read from.  It is wrong for anything that fires every
+    time the playhead moves or a row is clicked, which buries the rest.
+
+    Those lines go through here instead: still available when verbose logging
+    is on, silent otherwise.
+    """
+    if _verbose:
+        logger.debug(msg, *args)

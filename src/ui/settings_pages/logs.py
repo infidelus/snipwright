@@ -44,9 +44,10 @@ class LoggingPage(SettingsPage):
         self._verbose_logging.setChecked(s.get("verbose_logging", False))
         self.add(self._verbose_logging)
         self.add(hint(
-            self.tr("Record extra-detailed export diagnostics (including the cutter's "
-            "own output) to the log. Useful for chasing problems; off by "
-            "default to keep logs readable.")
+            self.tr("Record extra detail in the log: export diagnostics (including the "
+            "cutter's own output), plus playback and scene-selection activity. "
+            "Useful for chasing problems; off by default, because those last "
+            "two write a line every time you press play or click a scene.")
         ))
 
     def save(self, config):

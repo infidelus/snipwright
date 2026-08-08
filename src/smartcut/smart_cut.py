@@ -44,6 +44,30 @@ def _packet_sort_key(packet: Packet) -> float:
     return float(ts * tb) if tb else float(ts)
 
 
+def _sane_timestamps(packet):
+    """Last-ditch guard for a packet whose presentation time precedes its decode time.
+
+    A frame cannot be shown before it has been decoded, so pts < dts is never
+    valid and MPEG-TS rejects such a packet outright with EINVAL.
+
+    This used to be covering a live fault in hybrid_recode_cra_segment, where
+    packets from the head of the file leaked into a much later CRA segment (see
+    VideoCutter.fetch_frame).  That is fixed at source, and the guard no longer
+    fires on any export it was written for - the generators now enforce
+    pts >= dts themselves in VideoCutter._fix_packet_timestamps.
+
+    It is kept because the cost is a single comparison and the alternative is a
+    dead export: any future generator that lets an inverted pair through gets a
+    playable file with one badly-timed packet rather than a traceback.  It can
+    only touch a packet the muxer would refuse anyway, so no export that
+    succeeds today is changed by it.
+    """
+    if packet.pts is not None and packet.dts is not None \
+            and packet.pts < packet.dts:
+        packet.pts = packet.dts
+    return packet
+
+
 def _interleave_by_time(packets: list[Packet]) -> list[Packet]:
     """Order a batch of packets from several streams by decode time.
 
@@ -233,7 +257,7 @@ def smart_cut(media_container: MediaContainer, positive_segments: list[tuple[Fra
                             print(f"BAD DTS: seg {s.start_time:.3f}-{s.end_time:.3f} gop={s.gop_index} recode={s.require_recode} pts={packet.pts} dts={packet.dts}")
                         seg_packets.append(packet)
                 for packet in _interleave_by_time(seg_packets):
-                    output_av_container.mux(packet)
+                    output_av_container.mux(_sane_timestamps(packet))
             # Flush: same interleave so any tail packets stay ordered.
             fin_packets = []
             for g in generators:
@@ -242,7 +266,7 @@ def smart_cut(media_container: MediaContainer, positive_segments: list[tuple[Fra
                         print(f"BAD DTS in finish: pts={packet.pts} dts={packet.dts}", flush=True)
                     fin_packets.append(packet)
             for packet in _interleave_by_time(fin_packets):
-                output_av_container.mux(packet)
+                output_av_container.mux(_sane_timestamps(packet))
             if progress is not None:
                 progress.emit(previously_done_segments)
 

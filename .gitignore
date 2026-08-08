@@ -25,3 +25,7 @@ snipwright-[0-9]*/
 
 # Local release notes — read by gh at release time, never committed
 release-notes.md
+
+# Packaging checksum list — regenerated for each hand-over so the delivered
+# copy can be diffed against this one.  It describes a build, not the project.
+MANIFEST.txt

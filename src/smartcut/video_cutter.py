@@ -14,7 +14,7 @@ from av.packet import Packet
 from av.stream import Disposition
 from av.video.frame import PictureType, VideoFrame
 
-from smartcut.media_container import MediaContainer
+from smartcut.media_container import UNKNOWN_DTS, MediaContainer
 from smartcut.media_utils import VideoExportMode, VideoExportQuality, get_crf_for_quality
 from smartcut.misc_data import CutSegment
 from smartcut.nal_tools import get_h265_nal_unit_type, is_leading_picture_nal_type
@@ -197,7 +197,7 @@ class VideoCutter:
         video_settings: VideoSettings,
         log_level: str | None,
         initial_position: Fraction = Fraction(0),
-        initial_last_dts: int = -100_000_000,
+        initial_last_dts: int = UNKNOWN_DTS,
     ) -> None:
         self.media_container = media_container
         self.log_level = log_level
@@ -436,6 +436,13 @@ class VideoCutter:
                 # Subsequent packets, ensure monotonic increase
                 # Don't jump DTS up to match PTS - just increment minimally to preserve PTS >= DTS
                 packet.dts = self.last_dts + 1
+            # The same PTS >= DTS guard as the branch above.  Its absence here
+            # was why a misplaced packet left this method with pts=-8480 and
+            # dts=1241 and killed the export, rather than merely being clamped:
+            # the invented DTS is a position in the output, and a PTS earlier
+            # than it is meaningless.
+            if packet.pts is not None and packet.pts < packet.dts:
+                packet.pts = packet.dts
             self.last_dts = packet.dts
 
         # Fix packet duration - needed by MP4 muxer to output valid frames
@@ -579,7 +586,14 @@ class VideoCutter:
         for packet in self.fetch_packet(s.gop_start_dts, s.gop_end_dts):
             # Apply timing adjustments
             segment_start_offset = self.segment_start_in_output / self.out_time_base
-            pts = packet.pts if packet.pts else 0
+            # See the note in the hybrid path below: a truthiness test here
+            # turns a missing timestamp into a time at the start of the file.
+            if packet.pts is not None:
+                pts = packet.pts
+            elif packet.dts is not None:
+                pts = packet.dts
+            else:
+                pts = segment_start_pts
             packet.pts = int((pts - segment_start_pts) * self.in_time_base / self.out_time_base + segment_start_offset)
             if packet.dts is not None:
                 packet.dts = int((packet.dts - segment_start_pts) * self.in_time_base / self.out_time_base + segment_start_offset)
@@ -646,13 +660,25 @@ class VideoCutter:
             if frame.pts is not None:
                 all_frames.append(frame)
 
-        # Get CRA PTS (collected_packets has only non-leading packets, i.e., just CRA)
-        assert len(collected_packets) > 0, "No CRA packet found in GOP"
-        cra_pts = collected_packets[0].pts
-        assert cra_pts is not None, "CRA packet has no PTS"
-
         # Get GOP start time to filter out priming frames from previous GOPs
         gop_start_time = self.media_container.gop_start_times_pts_s[s.gop_index]
+
+        # Find the CRA: the keyframe that opens *this* GOP.
+        #
+        # Taking collected_packets[0] on trust was how a stray packet from the
+        # head of the file came to be read as the CRA.  Its pts was 0, so every
+        # leading picture failed the `pts < cra_pts` test below, none were
+        # re-encoded, and the stray packets were remuxed into a segment they
+        # did not belong to.  Identify it by its keyframe flag and by sitting
+        # inside this GOP, so a misplaced packet cannot stand in for it.
+        cra_pts = None
+        for p in collected_packets:
+            if p.pts is None or not p.is_keyframe:
+                continue
+            if p.pts * self.in_time_base >= gop_start_time:
+                cra_pts = p.pts
+                break
+        assert cra_pts is not None, "No CRA packet found in GOP"
 
         # Leading frames: PTS >= GOP start AND PTS < CRA PTS (will be encoded)
         # Filter by GOP start to exclude priming frames from previous GOPs
@@ -692,7 +718,20 @@ class VideoCutter:
         remux_packets.extend(self.fetch_packet(leading_end_dts, s.gop_end_dts))
 
         for packet in remux_packets:
-            pts = packet.pts if packet.pts else 0
+            # A packet with no presentation time has nothing to rebase.  The
+            # old test was `packet.pts if packet.pts else 0`, which is a
+            # truthiness test on a number: it turned a missing timestamp into
+            # 0, and 0 was then rebased as though it were a real time at the
+            # very start of the file - giving a large negative pts that the
+            # muxer refuses.  Fall back to the decode time, which is the
+            # closest thing to the truth, and only then to the segment start.
+            if packet.pts is not None:
+                pts = packet.pts
+            elif packet.dts is not None:
+                pts = packet.dts
+            else:
+                pts = segment_start_pts
+
             packet.pts = int((pts - segment_start_pts) * self.in_time_base / self.out_time_base + segment_start_offset)
             if packet.dts is not None:
                 packet.dts = int((packet.dts - segment_start_pts) * self.in_time_base / self.out_time_base + segment_start_offset)
@@ -742,7 +781,7 @@ class VideoCutter:
     def fetch_packet(self, target_dts: int, end_dts: int) -> Generator[Packet, None, None]:
         # First, check if we have a saved packet from previous call
         if self.demux_saved_packet is not None:
-            saved_dts = self.demux_saved_packet.dts if self.demux_saved_packet.dts is not None else -100_000_000
+            saved_dts = self.demux_saved_packet.dts if self.demux_saved_packet.dts is not None else UNKNOWN_DTS
             if saved_dts >= target_dts:
                 if saved_dts <= end_dts:
                     packet = self.demux_saved_packet
@@ -756,7 +795,7 @@ class VideoCutter:
                 self.demux_saved_packet = None
 
         for packet in self.demux_iter:
-            in_dts = packet.dts if packet.dts is not None else -100_000_000
+            in_dts = packet.dts if packet.dts is not None else UNKNOWN_DTS
 
             # Skip packets before target_dts
             if packet.pts is None or in_dts < target_dts:
@@ -772,7 +811,15 @@ class VideoCutter:
             # Check if packet exceeds end_dts
             if in_dts > end_dts:
                 # Save this packet for next call and stop iteration
-                self.demux_saved_packet = packet
+                # Save a COPY, not the live packet.  The caller rebases the
+                # packets it is given in place, so holding on to the original
+                # meant that when this one was handed to the next segment it
+                # was rebased a second time - pts 120 became -8520, which the
+                # muxer refuses outright and the export died with "Invalid
+                # argument".  It only bit when a segment boundary happened to
+                # land on a saved packet, which is why it depended on exactly
+                # where the scenes were placed.
+                self.demux_saved_packet = copy_packet(packet)
                 return
 
             # Packet is in our target range, yield it
@@ -814,8 +861,25 @@ class VideoCutter:
             # Collect packets for remuxing if requested (hybrid recode path)
             # Skip: priming packets (dts < gop_start_dts), leading pictures (RASL/RADL)
             if collect_packets is not None:
-                packet_dts = packet.dts if packet.dts is not None else current_dts
-                should_collect = packet_dts >= gop_start_dts  # Skip priming packets
+                if packet.dts is not None:
+                    should_collect = packet.dts >= gop_start_dts  # Skip priming packets
+                else:
+                    # No decode time at all.  The old fallback here was
+                    # `current_dts`, which starts out equal to gop_start_dts -
+                    # so a packet with no DTS was presumed to be inside this
+                    # GOP.  That is exactly backwards.  Only the opening
+                    # packets of a file lack a DTS, and this loop reaches them
+                    # when we have deliberately seeked back to the head of the
+                    # file to prime the decoder for a much later GOP's RASL
+                    # pictures.  Collecting them dragged the first two packets
+                    # of the recording into a segment ten seconds in, where
+                    # rebasing their timestamps gave a large negative pts and
+                    # the MPEG-TS muxer refused them outright.
+                    #
+                    # A packet with no DTS can only belong to this GOP if this
+                    # GOP itself begins before any decode time is known - that
+                    # is, if it is the first GOP of the file.
+                    should_collect = gop_start_dts <= UNKNOWN_DTS
                 if should_collect and self.codec_name == 'hevc':
                     nal_type = get_h265_nal_unit_type(bytes(packet))
                     if is_leading_picture_nal_type(nal_type):

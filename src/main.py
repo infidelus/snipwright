@@ -84,6 +84,10 @@ from repair.stream_fix import (
 from project.selection import (
     SelectionManager,
 )
+from utils.applog import (
+    log_verbose,
+)
+
 from utils.timecode import (
     frame_to_timecode,
     marker_text,
@@ -238,6 +242,7 @@ class MainWindow(QMainWindow):
         self.fetcher = None
         self.index_builder = None
         self.source_size_mb = 0.0
+        self.source_size_bytes = 0
 
         #
         # Background decoder for responsive timeline scrubbing.
@@ -1482,9 +1487,14 @@ class MainWindow(QMainWindow):
             # frame-accurately so a .vprj can be rebuilt for edit/render.
             cuts, total_duration = cuts_seconds_from_keeps(
                 [(start_f, end_f)], self.index)
-            # Estimate this scene's size as its share of the source file.
+            # Size this scene from the index's per-frame byte totals, so a
+            # scene that runs above the file's average bitrate is not
+            # under-reported in the joiner list.
             scene_mb = (
-                self.source_size_mb * ((end_f - start_f + 1) / total_frames)
+                self.index.estimated_mb(
+                    [(start_f, end_f)],
+                    self.source_size_bytes,
+                )
                 if total_frames else 0.0
             )
             self.joiner_list.add(JoinerEntry(
@@ -2297,9 +2307,13 @@ class MainWindow(QMainWindow):
 
     def _reconfigure_logging(self):
         """Re-apply logging config (called after the log folder / retention may
-        have changed in Settings).  Best-effort."""
+        have changed in Settings).  Best-effort.
+        """
         try:
-            from utils.applog import configure_logging
+            from utils.applog import configure_logging, is_verbose
+
+            was_verbose = is_verbose()
+
             configure_logging(
                 self.config.get("paths", {}).get("log_folder", ""),
                 self.config.get("settings", {}).get("log_max_age_days", 30),
@@ -2307,6 +2321,18 @@ class MainWindow(QMainWindow):
                 max_files=self.config.get("settings", {}).get(
                     "log_max_files", 30),
             )
+
+            now_verbose = is_verbose()
+
+            # Only on a change, so opening Settings and clicking OK does not
+            # add a line every time.  Startup states it too, but people
+            # usually switch it on mid-session and carry straight on, which
+            # left the log with no record of when it changed.
+            if now_verbose != was_verbose:
+                log.info(
+                    "Verbose logging: %s",
+                    "on" if now_verbose else "off",
+                )
         except Exception:
             pass
 
@@ -3056,6 +3082,17 @@ class MainWindow(QMainWindow):
         changed = value != getattr(self, "_playing", False)
         self._playing = value
         if changed:
+            # Logged here rather than in the audio path: play_from() only runs
+            # when a device is available and the volume is above zero, so a
+            # session played on mute recorded nothing at all - which read as
+            # verbose logging being broken.
+            log_verbose(
+                log,
+                "playback: %s at frame %s",
+                "started" if value else "stopped",
+                getattr(self, "current_frame", "?"),
+            )
+
             self._update_audio()
             self._update_playback()
 
@@ -3741,6 +3778,7 @@ class MainWindow(QMainWindow):
             downmix=downmix,
             level_mode=level_mode,
             level_value=level_value,
+            markers=list(self.scenes.markers),
         )
 
         # Keep a reference so the thread isn't garbage-collected.
@@ -4178,11 +4216,13 @@ class MainWindow(QMainWindow):
         #
 
         try:
+            self.source_size_bytes = os.path.getsize(self.current_filename)
             self.source_size_mb = (
-                os.path.getsize(self.current_filename)
+                self.source_size_bytes
                 / (1024 * 1024)
             )
         except OSError:
+            self.source_size_bytes = 0
             self.source_size_mb = 0.0
 
         self.update_display()
@@ -5123,6 +5163,11 @@ class MainWindow(QMainWindow):
 
         self.transport_controls.update_buttons()
 
+        # The Info panel's Selection row reads the markers, so it has to be
+        # told about a mark - without this it sat empty until a scene was
+        # added and clicked.
+        self.info_panel.update_info()
+
     def mark_out(self):
 
         self.selection.set_out(
@@ -5136,6 +5181,8 @@ class MainWindow(QMainWindow):
         self.transport_panel.update_transport()
 
         self.transport_controls.update_buttons()
+
+        self.info_panel.update_info()
 
     def draw_thumbnails(self):
         self.thumbnail_bar.refresh()
@@ -5184,22 +5231,69 @@ class MainWindow(QMainWindow):
 
             self.update_display()
 
-    def scene_clicked(
+    def clear_scene_selection(self):
+        """Drop the scene-list highlight, leaving the IN/OUT markers alone.
+
+        Called when the playhead is moved somewhere else - clicking the
+        timeline, say.  The yellow highlight says "this is the row you are
+        working on", so it should not survive navigating away from it.  The
+        markers are a different thing: they hold the edit in progress, and
+        VideoReDo leaves those where they are too.
+        """
+        has_rows = bool(
+            self.scene_list.selectionModel().selectedRows()
+        )
+
+        if self.selected_scene is None and not has_rows:
+            return
+
+        self.selected_scene = None
+
+        self.scene_list.clearSelection()
+
+        self.info_panel.update_info()
+
+        self.scene_bar.update()
+
+    def select_scene_row(
             self,
             row,
-            column,
+            load_markers=True,
     ):
+        """Make `row` of the scene list the current selection.
+
+        The single path for selecting a row, whether by click, double-click or
+        Up/Down, so all three behave the same.
+
+        Ranges come from the scene list itself, not from `selection.ranges`:
+        Cut Mode lists the cuts, so row N there is *not* kept range N, and
+        reading the kept ranges directly sent the playhead, the Info panel and
+        the IN/OUT markers to the wrong span entirely.
+
+        Loading the row into the IN/OUT markers mirrors VideoReDo, and is what
+        makes a scene editable - the span then overlaps the existing scene, so
+        committing adjusts that scene rather than adding another (see
+        SelectionManager.commit_range).
+        """
+        ranges = self.scene_list.displayed_ranges()
+
+        if row < 0 or row >= len(ranges):
+            return
 
         self.selected_scene = row
 
-        # Move the playhead into the clicked scene so S/E act on it, and pull
-        # focus back to the main window so the navigation keys work straight
-        # away (without first having to click in the video).
-        ranges = self.selection.ranges
-        if self.frames and 0 <= row < len(ranges):
-            start = ranges[row][0]
-            self.current_frame = max(0, min(start, len(self.frames) - 1))
-            self.update_display()
+        start, end = ranges[row]
+
+        if load_markers:
+            self.selection.set_in(start)
+            self.selection.set_out(end)
+
+        # Move the playhead into the selected row so S/E act on it.
+        if self.frames:
+            self.current_frame = max(
+                0,
+                min(start, len(self.frames) - 1),
+            )
 
         self.update_timecode()
 
@@ -5207,6 +5301,32 @@ class MainWindow(QMainWindow):
 
         self.scene_bar.update()
 
+        self.transport_panel.update_transport()
+
+        self.transport_controls.update_buttons()
+
+        self.update_display()
+
+        log_verbose(
+            log,
+            "scene list: row %d selected, span %d-%d, markers now %s/%s",
+            row,
+            start,
+            end,
+            self.selection.pending_in,
+            self.selection.pending_out,
+        )
+
+    def scene_clicked(
+            self,
+            row,
+            column,
+    ):
+
+        self.select_scene_row(row)
+
+        # Pull focus back to the main window so the navigation keys work
+        # straight away (without first having to click in the video).
         self.setFocus()
 
     def scene_double_clicked(
@@ -5215,36 +5335,10 @@ class MainWindow(QMainWindow):
             column,
     ):
 
-        self.selected_scene = row
-
-        self.update_timecode()
-
-        self.info_panel.update_info()
-
-        ranges = (
-            self.selection.ranges
-        )
-
-        if (
-                row < 0
-                or
-                row >= len(ranges)
-        ):
-            return
-
-        start, end = ranges[row]
-
-        # Load this scene's range into the IN/OUT markers, mirroring VRD:
-        # double-clicking a scene populates the IN/OUT boxes.  Because the
-        # IN..OUT span then overlaps this scene, committing an edit adjusts
-        # THIS scene rather than adding a new one (see commit_range).
-        self.selection.set_in(start)
-        self.selection.set_out(end)
-
-        self.current_frame = start
-
         #
-        # Reset transport state
+        # Stop playback first: a double-click means "take me to this scene",
+        # and leaving the transport running would carry the playhead straight
+        # back out of it.
         #
 
         self.playing = False
@@ -5255,13 +5349,10 @@ class MainWindow(QMainWindow):
 
         self.transport_timer.stop()
 
-        self.transport_panel.update_transport()
-
-        self.transport_controls.update_buttons()
-
-        self.scene_bar.update()
-
-        self.update_display()
+        # Selecting the row does the rest - playhead, markers, Info panel.
+        # Single-click now loads the markers too, so this differs only in
+        # stopping the transport.
+        self.select_scene_row(row)
 
         # Pull focus back to the main window so S/E and the other navigation
         # keys work immediately after double-clicking, without needing to click
@@ -5988,6 +6079,15 @@ try:
     log.info("Starting %s", VERSION_STRING)
     if _log_file is not None:
         log.info("Logging to %s", _log_file)
+
+    # Say so plainly: without this, a log with no playback or scene-selection
+    # lines is ambiguous between "verbose was off" and "those things did not
+    # happen", which cost a round trip to work out.
+    log.info(
+        "Verbose logging: %s",
+        "on" if _boot_cfg.get("settings", {}).get("verbose_logging", False)
+        else "off (Settings -> Logs to turn it on)",
+    )
 except Exception:
     # Never let a logging problem stop the app launching.
     pass

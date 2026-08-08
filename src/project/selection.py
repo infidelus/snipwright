@@ -35,6 +35,21 @@ class SelectionManager:
         self.pending_out = None
         self.editing_index = None
 
+    def finish_edit(self):
+        """Finish a scene or cut without discarding the IN/OUT markers.
+
+        VideoReDo leaves the markers where they are after a scene is added, and
+        replaces each only when it is next placed.  That matters when you spot
+        a boundary is a frame out immediately after adding: nudge the marker,
+        add again, and commit_range's overlap handling adjusts the scene you
+        just made rather than adding a second one.  Clearing both markers meant
+        re-marking from scratch for the sake of one frame.
+
+        `editing_index` is still cleared - that tracks which scene is being
+        edited, and the edit really has finished.
+        """
+        self.editing_index = None
+
     def clear_all(self):
 
         self.clear_pending()
@@ -122,7 +137,7 @@ class SelectionManager:
             kept.append((new_start, new_end))
             kept.sort()
             self.ranges = kept
-            self.clear_pending()
+            self.finish_edit()
             return True
 
         #
@@ -180,10 +195,10 @@ class SelectionManager:
         self.ranges = merged
 
         #
-        # Reset temporary markers
+        # The markers stay where they are - see finish_edit.
         #
 
-        self.clear_pending()
+        self.finish_edit()
 
         return True
 
@@ -226,7 +241,11 @@ class SelectionManager:
         restored = self._union_into(self.ranges, old_start, old_end)
         self.ranges = self._subtract_from(restored, new_start, new_end)
 
-        self.clear_pending()
+        # Keep the markers, as subtract_range and commit_range do.  This is the
+        # path taken when a new mark starts inside an existing cut - which is
+        # precisely the correcting-a-boundary case the markers are kept for, so
+        # clearing them here defeated the whole point in Cut Mode.
+        self.finish_edit()
 
         return True
 
@@ -273,7 +292,9 @@ class SelectionManager:
         result.sort()
         self.ranges = result
 
-        self.clear_pending()
+        # Same as Scene Mode: keep the markers so a cut that is a frame out can
+        # be corrected by nudging one and cutting again.
+        self.finish_edit()
 
         return True
 
@@ -384,7 +405,10 @@ class SelectionManager:
         result.sort()
         self.ranges = result
 
-        self.clear_pending()
+        # Trim Unselected is a single marked edit like a scene or a cut, so it
+        # keeps its markers for the same reason: a boundary that is a frame out
+        # can be corrected by nudging one marker and trimming again.
+        self.finish_edit()
 
         return True
 

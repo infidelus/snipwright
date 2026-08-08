@@ -6,6 +6,210 @@ All notable changes to Snipwright are documented here. Releases before
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [2.3.0] - 2026-08-08
+
+### Added
+
+- **Cutting a 10-bit HEVC recording could fail outright.** Depending on where
+  the scenes fell, the export died with `Invalid argument ... returned 22` from
+  the muxer, and moving the same scenes a little made it succeed again.
+
+  Matroska gives the opening packets of a file no decode timestamp at all —
+  there is nothing to report until enough pictures have been read to absorb the
+  reorder delay. Cutting at a CRA GOP whose leading pictures reference frames
+  before it means seeking back to prime the decoder, and when that reached the
+  head of the file, those timestamp-less packets were mistaken for packets of
+  the GOP being cut. The picture that opens the file was then taken for the CRA,
+  so no leading picture was recognised as one and none was re-encoded, and two
+  packets from the start of the recording were remuxed into a segment ten
+  seconds in — where rebasing their timestamps put them before the start of the
+  file and the muxer refused them.
+
+  A packet with no decode timestamp is now only ever treated as belonging to the
+  first GOP of the file, and the CRA is identified by being the keyframe that
+  opens its own GOP rather than by being the first packet to hand. Cuts that
+  already worked are byte-for-byte unchanged; the ones that failed now export
+  clean, frame-accurate and free of the timestamp warnings that the previous
+  stopgap left behind.
+- **Cropping an HEVC recording no longer converts it to H.264.** A crop forces
+  a re-encode even when the profile says copy the video, and that re-encode
+  always used H.264 — so an HEVC source came out H.264: a larger file for the
+  same picture, and for a 10-bit source it meant the High 10 profile, which
+  fewer players decode than the HEVC it started as. The crop now keeps whatever
+  codec the source used, unless the profile explicitly asks for HEVC.
+- **The In and Out markers now stay put after adding a scene.** They used to
+  disappear the moment you pressed Add Selection, so noticing a boundary was a
+  frame out immediately afterwards meant marking both again from scratch. Each
+  marker is now replaced only when you next place it: nudge the one that's wrong,
+  add again, and the scene you just made is adjusted rather than a second one
+  added — the overlap handling that made re-marking work has always done this,
+  it simply wasn't reachable. The same applies to Cut Selection and Trim
+  Unselected. Operations that aren't a single marked edit — Select All, and the
+  bulk range operations — still clear the markers, since there is nothing left
+  to correct. (Requested by Sean; matches VideoReDo's behaviour.)
+- **Re-encoding keeps the source's bit depth.** Every re-encode path asked
+  ffmpeg for `yuv420p`, which is 8-bit — right for the broadcast recordings
+  Snipwright was built around, and wrong for anything better. A 10-bit source
+  cropped, aspect-corrected or converted to MP4 came out 8-bit with no warning:
+  banding in skies and gradients, and no way to recover the detail. The output
+  now matches the source, and the log says when 10-bit is being kept.
+
+  10-bit H.264 means the High 10 profile, which some hardware players refuse, so
+  the log notes that HEVC is the safer choice for 10-bit material. A lossless
+  copy was never affected either way — this only concerns the paths that
+  genuinely re-encode.
+- **COMSKIP.md** — build instructions for Comskip on Linux and Windows that
+  actually work. Comskip is a separate project and Snipwright runs fine without
+  it, but its own documentation omits enough to stop most people: on Windows the
+  MSYS2 package is called `argtable`, not `argtable2`; `base-devel` contains no C
+  compiler; and ffmpeg 7 removed `AVCodecContext.ticks_per_frame`, which Comskip
+  0.83 still uses, so it needs a patch to compile at all. The known limitation
+  with UNC network paths is noted too.
+
+### Changed
+
+- **Switching verbose logging on or off is recorded in the log**, not just
+  stated at startup. It is usually turned on mid-session, and the log then had
+  no record of when — or whether — that happened. Only a change is logged, so
+  opening Settings and clicking OK does not add a line each time.
+- **Playback and scene-selection chatter is now verbose-only.** Starting
+  playback wrote two lines to the log and each scene selection wrote another,
+  none of which mean anything unless that specific thing is being investigated
+  — and all of which pushed the lines that do matter further apart. They are
+  still available under **Settings → Logs → Verbose logging**. Export
+  diagnostics are deliberately untouched: those write a handful of lines per
+  export, and are what a problem report gets read from.
+- **The audio output device is announced once, not on every play.** The sink is
+  rebuilt before playback whenever it has gone into an error state, and each
+  rebuild logged "output device ready" afresh. A genuine change of device still
+  logs at INFO, since that is worth knowing; an identical rebuild is
+  verbose-only.
+- **The Info panel's Program row now reads as a duration**, like Selection and
+  Output beside it. It showed the last frame's timecode, one frame short of the
+  file's length, so an uncut recording put Program a frame behind Output. Cursor
+  is still a position, so at the last frame it reads one frame lower — that part
+  is correct and matches VideoReDo.
+- **Selecting a scene in the list loads it into the In and Out markers**, and
+  takes the playhead to its start. Only double-click did this before, which was
+  hard to discover. Because the span then overlaps the existing scene,
+  correcting one is: select it, nudge the marker that's wrong, add again. Click
+  and the Up/Down keys now go through the same path, so all three behave
+  identically.
+  highlight marks the row you are working on, but it stayed lit after you had
+  navigated somewhere else entirely, which was a distraction and said something
+  about the current position that was no longer true. The In and Out markers are
+  deliberately left alone — those hold the edit in progress, and VideoReDo keeps
+  them too.
+
+### Fixed
+
+- **Cancelling a batch job logged it as a crash, with a traceback.** The
+  exporter unwinds an abort by raising, and the batch runner could only catch
+  it as a generic exception — so pressing stop produced "Batch job crashed"
+  followed by a stack trace, which reads like a fault in a log that is
+  otherwise the first thing consulted when something goes wrong. A cancelled
+  job is now recorded as cancelled, with a plain one-line message. An error
+  arriving after a stop is treated as a cancellation too, since killing a
+  subprocess can surface either way — the single-file export path already did
+  this and the batch runner did not. A genuine crash still logs in full.
+- **Chapter marks never reached the exported file**, and after that was fixed,
+  still did not reach one exported from the batch. Marks added with the A key
+  were held in the project and saved with it, but the export was never told
+  about them — `export_ranges` had no way to receive them, so an .mkv came out
+  with chapters at the scene joins only, exactly as if no marks had been
+  placed. The batch was a second instance of the same gap: it reads the
+  project's marks when loading the job and then dropped them on the way to the
+  export, so the same project gave chapters from Save Video and only scene
+  joins from the queue. Both routes now carry them, positioned from the frame
+  index rather than by frame arithmetic, so they stay on the picture they were
+  placed on even on field-coded HD. A mark that falls in cut material has
+  nowhere to go and is dropped; the log says how many, because a mark
+  vanishing silently looks like a fault. A mark landing on a scene join is
+  merged with it rather than written as a second chapter a millisecond later.
+- **Raising the volume during playback stayed silent until you paused.** Audio
+  only decodes while the volume is above zero, and nothing re-checked that when
+  the slider moved — so starting playback at zero and then turning it up raised
+  the sink's volume with nothing feeding it. Pausing and playing again was the
+  only way to recover. Moving the slider now re-evaluates whether audio should
+  be running, and picks up from the current position; dropping to zero stops
+  the decoder rather than decoding sound nobody can hear. Reported by Sean.
+- **The audio device was rebuilt before every single play.** The sink was
+  treated as broken whenever Qt reported any error at all, including
+  `UnderrunError` — which is not a fault: the buffer running dry is what
+  happens at the end of every playback, and Qt keeps reporting it until the
+  sink is started again. So each play tore down a perfectly good device and
+  built another. Underrun now counts as healthy, and the error is compared both
+  by equality and by numeric value, because `error()` can return an enum member
+  or a plain int depending on the PySide6 build and those never match each
+  other. A rebuild still happens for the states that mean something is actually
+  wrong, and the log records which one.
+- **The log could report an error state that was never true.** The rebuild
+  message read the sink's error a second time to print it, so it could report
+  `NoError` while having just decided the sink was unusable — impossible, and
+  useless for diagnosis. The error is now read once and the same value is used
+  for both the decision and the message.
+- **Playing a section logged nothing if the volume was down.** The playback
+  line lived in the audio path, which only runs when an output device exists
+  and the volume is above zero — so on mute, or with no sound device, a whole
+  session of playback left no trace even with verbose logging on. It now logs
+  from the transport itself, where the play state actually changes, and records
+  the stop as well as the start.
+- **A log now says whether verbose logging was on.** Without it, a log with no
+  playback or scene-selection lines was ambiguous between "verbose was off" and
+  "those things did not happen" — which cost a round trip to work out. The
+  startup lines now state it outright, and point at the setting when it is off.
+- **The German guide was missing content the English one has.** A parity check
+  by section found two gaps: the Navigating section had lost the three skip
+  distances (short, medium, long), their keyboard shortcuts and the note that
+  all three are configurable, and the output profile list was missing the
+  Encoder speed and Quality (CRF) entry. Both are restored, and the two guides
+  now match section for section on headings, bullets and table rows.
+- **The In and Out markers were invisible against a highlighted scene.** They
+  were drawn as thin pale lines, which vanished into the yellow of a selected
+  row, so after clicking a scene it looked as though no markers had been set at
+  all. They are now a dark line inside a light one, which reads against every
+  colour the bar draws: the dark red of a cut, the green of a kept scene, the
+  yellow highlight and the white playhead.
+- **The Info panel's MB figures were guesses, and could be out by 5%.** They
+  assumed every frame occupied the same number of bytes, so a range's size was
+  simply its share of the file by frame count. Broadcast video is nowhere near
+  constant bitrate: on an hour of Top Gear the panel predicted 2172 MB for a cut
+  that wrote 2297 MB, because the programme itself runs above the average of a
+  recording padded with lower-bitrate continuity either side. VideoReDo reported
+  2302 MB for the same cut because it counts real bytes.
+
+  Indexing now records a running total of video packet bytes per frame, which
+  costs one demux field it was already reading and about 900 KB of memory on an
+  hour-long recording. Cursor, Selection and Output are measured from those
+  totals — exact for the video, with audio, subtitles and transport overhead
+  spread evenly across the running time, which is fair because those streams are
+  near constant rate. The joiner's per-scene sizes use the same measurement.
+
+  Cached indexes gain the byte totals, so `CACHE_VERSION` rises to 4 and every
+  file is re-scanned once on first open. An index that predates the change still
+  loads and falls back to the old flat estimate rather than failing.
+- **A dropped audio-description track was reported in the wrong terms, and the
+  explanation was wrong about VideoReDo.** Where a description track was both
+  HE-AAC and silent across the kept scenes — which is the usual case, since the
+  description often runs either side of a programme and not within it — the note
+  said the track "can't be re-encoded in sync from a mid-stream cut", implying
+  something had been lost. Nothing had: there was no audio in it to carry. The
+  silent-track wording now takes precedence, and the claim that "VideoReDo drops
+  them too" is gone, because a Channel 4 HD log shows it carrying such a track
+  straight through.
+- **The Info panel's Selection row stayed empty while you were selecting.**
+  Marking In and Out — the main way of selecting anything — left the row showing
+  dashes; it filled in only after a scene had been added and then clicked in the
+  list. It now shows the marked span's duration and size as soon as both markers
+  are placed, which is what VideoReDo does. A highlighted row still fills the
+  row when there are no markers.
+- **In Cut Mode, selecting a row in the list acted on the wrong range.** The
+  list shows the cuts in Cut Mode, but selecting a row looked the number up in
+  the kept ranges instead — so row 1 of the cuts selected kept scene 1. The
+  playhead jumped somewhere else entirely, the Info panel reported that other
+  range's duration and size, and double-clicking loaded the wrong span into the
+  markers. Rows are now read from the list itself, so the two can't disagree.
+
 ## [2.2.0] - 2026-08-05
 
 ### Added

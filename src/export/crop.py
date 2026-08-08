@@ -18,6 +18,8 @@ import os
 import re
 import subprocess
 
+from media.pixfmt import for_output as pixfmt_for_output
+
 from utils.proc import run_cancellable
 
 _CROP_RE = re.compile(r"crop=(\d+):(\d+):(\d+):(\d+)")
@@ -100,6 +102,17 @@ def source_fps(path):
         return fps if fps > 0 else _DEFAULT_FPS
     except (IndexError, ValueError, ZeroDivisionError):
         return _DEFAULT_FPS
+
+
+def source_codec(path):
+    """The first video stream's codec name, or "" if it can't be read.
+
+    Used so a crop keeps whatever codec the recording already used, rather than
+    quietly converting an HEVC source to H.264 just because the profile did not
+    explicitly ask for HEVC.
+    """
+    vals = _probe(path, "codec_name", stream=True)
+    return vals[0].strip().lower() if vals else ""
 
 
 def source_field_order(path):
@@ -360,7 +373,9 @@ def crop_reencode(in_path, out_path, rect=None, *, cap_kbps, fps, sar=None,
         "-maxrate", "%dk" % cap_kbps,
         "-bufsize", "%dk" % (cap_kbps * 2),
         "-g", str(keyint), "-keyint_min", str(fps_i),
-        "-pix_fmt", "yuv420p",
+        # Keep whatever bit depth the source had; hard-coding yuv420p here
+        # silently flattened 10-bit sources to 8-bit.
+        "-pix_fmt", pixfmt_for_output(in_path, codec),
     ]
     if hevc:
         # hvc1 tagging keeps HEVC-in-MP4 playable in Apple/QuickTime; harmless
