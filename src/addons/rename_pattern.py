@@ -33,7 +33,7 @@ the caller re-attaches the original one.
 
 import re
 
-# Sensible defaults: the Plex/Jellyfin/Kodi tree Sean uses, with an unpadded
+# Sensible defaults: the usual Plex/Jellyfin/Kodi tree, with an unpadded
 # season folder over padded episode files.
 DEFAULT_TV_PATTERN = "%NY/Season %S/%N - S%SZE%EZ - %T"
 DEFAULT_MOVIE_PATTERN = "%N (%Y)/%N (%Y)"

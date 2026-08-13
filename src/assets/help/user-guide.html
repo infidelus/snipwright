@@ -253,6 +253,17 @@ over.</p>
   outline so they stay visible over any of the colours above.</li>
 </ul>
 
+<h3>Chapters</h3>
+<p>If the file you open already has chapters, their start points are added as scene markers
+automatically and the status bar says how many were loaded. This is common with files that
+have been through an encoder &mdash; upscaled or re-encoded material usually keeps its
+chapters, and Snipwright's own exports write your markers out as chapters, so a file you
+saved earlier reopens with those marks in place.</p>
+<p>A chapter at the very beginning of the file is ignored, since encoders write one there to
+mean &ldquo;the start&rdquo; rather than to mark anything. Opening a project brings its own
+markers and those are never replaced. Recordings straight off a tuner have no chapters, so
+nothing changes for them.</p>
+
 <h2 id="detect">4. Automatic ad detection and projects</h2>
 <h3>Comskip</h3>
 <p>Rather than mark everything by hand, you can let <strong>Comskip</strong> find the
@@ -667,11 +678,23 @@ rather than the current setting.</p>
   high-definition sources, the sound in the preview window can sit a little ahead of or behind
   the picture. This affects the preview only &mdash; the exported file is always in sync,
   because cutting works directly from the source rather than from the preview.</li>
-  <li><strong>Cutting a Blu-ray or 4K file is slow and memory-hungry:</strong> very large,
+  <li><strong>Cutting a Blu-ray or 4K file is slower:</strong> very large,
   high-bitrate sources (Blu-ray and UHD) take far longer to analyse for cut points than a
-  broadcast recording, and can use several gigabytes of RAM while doing so &mdash; the cut
-  itself is still lossless. This is expected for that class of file; Snipwright is aimed at
-  broadcast TV recordings, which cut quickly and lightly.</li>
+  broadcast recording &mdash; the cut itself is still lossless. This is expected for that
+  class of file; Snipwright is aimed at broadcast TV recordings, which cut quickly and
+  lightly. Memory use is no longer part of this: until version 2.2.0 the whole file's audio
+  was held at once, which could run to many gigabytes on a Blu-ray with several soundtracks.
+  Audio is now read as the cut needs it.</li>
+  <li><strong>The log says the export is a few hundredths of a second longer than
+  expected:</strong> this is normal and nothing has been added or lost. The figure the log
+  reports is the <em>container's</em> length, which runs from the earliest start of any track
+  to the latest end of any track &mdash; not the length of the picture. Sound is stored in
+  small blocks (about 21&nbsp;ms for AAC) that do not line up with video frames (40&nbsp;ms at
+  25&nbsp;fps), so an audio track almost never ends at exactly the same instant as the video,
+  and the container has to cover whichever finishes last. A useful check: a genuine frame
+  difference is always a whole number of frames &mdash; 0.04&nbsp;s at 25&nbsp;fps &mdash; so a
+  drift of 0.03&nbsp;s cannot be a missing frame. Snipwright only flags a length difference
+  when it exceeds a second, which is the scale at which something has actually gone wrong.</li>
 </ul>
 
 <h2 id="videoredo">11. Coming from VideoReDo</h2>

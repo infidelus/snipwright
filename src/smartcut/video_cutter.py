@@ -18,6 +18,7 @@ from smartcut.media_container import UNKNOWN_DTS, MediaContainer
 from smartcut.media_utils import VideoExportMode, VideoExportQuality, get_crf_for_quality
 from smartcut.misc_data import CutSegment
 from smartcut.nal_tools import get_h265_nal_unit_type, is_leading_picture_nal_type
+from smartcut.poc_rewrite import HevcPocRewriter
 
 
 @dataclass
@@ -178,6 +179,37 @@ def _normalize_output_codec_tag(
         out_codec_ctx.codec_tag = 'hvc1'
 
 
+def _apply_source_colour(enc_codec, src_codec_ctx) -> None:
+    """Carry the source's colour description onto an encoder.
+
+    Without this the frames re-encoded at each cut are written with their
+    colour unspecified while the rest of the stream declares BT.2020/PQ -
+    measured on one 10-bit HDR10 cut as 199 frames tagged and 78 tagged
+    nothing - and an HDR display shows a flash at every join.
+
+    Setting it also makes x265 reproduce the source's SPS byte for byte,
+    which is what smartcut's extradata matching is reaching for anyway.  That
+    is why this cannot ship on its own: two differing SPS were making a
+    decoder re-initialise at every segment switch, and that was hiding a POC
+    collision between spliced segments.  See smartcut.poc_rewrite.
+    """
+    if src_codec_ctx is None:
+        return
+    for attr in ('color_primaries', 'color_trc', 'colorspace', 'color_range'):
+        try:
+            value = getattr(src_codec_ctx, attr)
+        except Exception:
+            continue
+        if value is None:
+            continue
+        try:
+            setattr(enc_codec, attr, value)
+        except Exception:
+            # An encoder that will not accept one of these is no worse off
+            # than before; the others are still worth setting.
+            pass
+
+
 def _is_mpegts_h264_tag(codec_tag: str) -> bool:
     """Check if codec tag is MPEG-TS style H.264 tag."""
     return codec_tag == '\x1b\x00\x00\x00'
@@ -225,11 +257,35 @@ class VideoCutter:
         self.frame_buffer: list[FrameHeapItem] = []
         self.frame_buffer_gop_dts = -1
         self.decoder = self.in_stream.codec_context
-        # Decode boundary GOPs across multiple cores where possible.
+        # Decode boundary GOPs on one thread.  This used to use every core
+        # (thread_type FRAME, thread_count = cpu_count), and that made exports
+        # unreproducible: the same project exported twice gave files whose
+        # re-encoded segments differed, while every copied segment was
+        # identical.
+        #
+        # Frame-threaded H.264 decoding of this recording's field-coded
+        # pictures does not return the same pixels every time when the machine
+        # is busy.  Measured on a Channel 4 HD recording with the application
+        # playing in the background: 10 of 686 frames handed to the boundary
+        # encoder decoded differently across five exports, every one of them
+        # a field-coded picture, and no progressive frame ever varied.  One
+        # such frame is enough to change every packet to the end of its
+        # re-encoded run - a single bad frame moved 125 of them - because the
+        # encoder's references change with it.
+        #
+        # It only shows under load, which is why it was once wrongly ruled out:
+        # an idle machine decodes the same file the same way for run after run,
+        # so a test that does not load the machine passes whatever the thread
+        # count is.
+        #
+        # The cost is small and bounded.  Only the GOPs at cut points are
+        # decoded at all - 833 frames for a five-minute recording with six
+        # re-encoded segments, around 6% of export time - so this is a few
+        # seconds, not a proportional slowdown.  Playback and indexing are
+        # unaffected; they are decoded elsewhere and do not reach the output.
         try:
-            import os
             self.decoder.thread_type = "FRAME"
-            self.decoder.thread_count = os.cpu_count() or 0
+            self.decoder.thread_count = 1
         except Exception:
             pass
 
@@ -277,6 +333,16 @@ class VideoCutter:
         self.is_first_remuxed_segment = True
         # Track decoder continuity between GOPs: last GOP end DTS consumed
         self._last_fetch_end_dts: int | None = None
+
+        # Renumber picture order counts across splices.  Copied packets carry
+        # the source's own POCs, which collide once segments from different
+        # points in the source are put next to each other - see
+        # smartcut.poc_rewrite.  Only HEVC: H.264 numbers pictures by a
+        # different scheme entirely and is not touched here.
+        self._poc = (HevcPocRewriter() if self.codec_name == 'hevc'
+                     and not stream_setup.is_full_recode else None)
+        self._poc_run = 0
+        self._poc_enc_run = 0
 
     def init_encoder(self) -> None:
         self.encoder_inited = True
@@ -377,11 +443,18 @@ class VideoCutter:
         it is opened for interlaced coding - without this, the re-encoded
         frames at each cut boundary come out progressive-flagged with the
         woven fields coded as-is, so players skip deinterlacing and show
-        combing on motion until the copied stream resumes.  Called with every
-        frame about to be encoded; the first one decides, and it must run
-        before the codec is opened by its first encode().  Content that is
-        progressive (including progressive-coded stretches of an MBAFF
-        stream, common on film-sourced material) is left exactly as before.
+        combing on motion until the copied stream resumes.
+
+        Called with every frame about to be encoded, and decided once per
+        encoder - that is, once per re-encoded run - because each run opens a
+        new encoder and the flags have to be set before its first encode().
+        It must not be decided once per export: a run's frames are not
+        necessarily like the first run's, and broadcast material mixes the two
+        freely.
+
+        Content that is progressive (including progressive-coded stretches of
+        an MBAFF stream, common on film-sourced material) is left exactly as
+        before.
         """
         if self._interlace_done:
             return
@@ -389,11 +462,22 @@ class VideoCutter:
         hint = self.video_settings.source_interlaced
         if hint is False:
             return
-        if hint is None and not getattr(frame, 'interlaced_frame', False):
-            # No stream-level hint: the first frame decides.  (A hint of True
-            # applies even when the first frame happens to be progressive -
-            # MBAFF streams mix per-frame, and interlaced mode codes the
-            # progressive stretches as frame macroblocks without penalty.)
+        if not getattr(frame, 'interlaced_frame', False):
+            # The frame that opens this run must itself be interlaced, even
+            # when the stream-level hint says the recording is.
+            #
+            # Field order comes from the opening frame: ffmpeg sets x264's
+            # b_tff from its top-field-first flag, and a progressive frame
+            # carries none, so the encoder opens bottom-field-first.  On a
+            # Channel 4 HD recording whose interlaced frames are all top-field
+            # first, enabling interlaced coding off a progressive opening
+            # frame produced a stream marked bff - inverted field order, which
+            # judders on playback and is worse than the combing this exists to
+            # prevent.
+            #
+            # So a run that opens progressive stays progressive.  Runs that
+            # open interlaced get interlaced coding with the field order their
+            # own frames declare.
             return
         if self.codec_name not in ('h264', 'mpeg2video'):
             return   # x265's interlace support is poor; HEVC broadcast is progressive
@@ -484,6 +568,12 @@ class VideoCutter:
             enc_codec.bit_rate = muxing_codec.bit_rate
         if muxing_codec.bit_rate_tolerance is not None:
             enc_codec.bit_rate_tolerance = muxing_codec.bit_rate_tolerance
+        _apply_source_colour(enc_codec, self.in_stream.codec_context)
+        # A new encoder restarts its own POC numbering from zero, so its
+        # output is a run of its own.
+        self._poc_run += 1
+        self._poc_enc_run = self._poc_run
+
         enc_codec.codec_tag = muxing_codec.codec_tag
         enc_codec.thread_type = "FRAME"
         # Use all available cores for the boundary re-encode.  Must be set
@@ -495,6 +585,59 @@ class VideoCutter:
             pass
         self.enc_last_pts = -1
         self.enc_codec = enc_codec
+        # Each re-encoded run gets a brand-new encoder, and interlace mode has
+        # to be set on it before its first encode() opens it.  This used to be
+        # decided once per export, so only the very first run was ever
+        # configured and every later one came out progressive whatever it
+        # contained - on one Channel 4 HD recording that left 326 field-coded
+        # frames coded as progressive across three runs.  Its own options dict
+        # is fresh (populated from self.encoding_options above), so a decision
+        # made for one run cannot leak into the next.
+        self._interlace_done = False
+
+    def _copy_run(self, s: CutSegment) -> int:
+        """Run id for copied packets from segment `s`.
+
+        Consecutive GOPs copied from the source keep the source's own POC
+        numbering, which stays coherent as long as they were adjacent there.
+        A gap means material was cut out, so the numbering restarts.
+        """
+        contiguous = (
+            not self.is_first_remuxed_segment
+            and self.last_remuxed_segment_gop_index is not None
+            and s.gop_index == self.last_remuxed_segment_gop_index + 1
+        )
+        if not contiguous:
+            self._poc_run += 1
+        return self._poc_run
+
+    def _renumber(self, packets: list[Packet], run_id: int) -> list[Packet]:
+        """Rewrite POCs in `packets`, which must be in output order."""
+        if self._poc is None or not self._poc.enabled:
+            return packets
+        result = []
+        for p in packets:
+            data = bytes(p)
+            new_data = self._poc.rewrite(data, run_id)
+            if new_data is data or new_data == data:
+                result.append(p)
+                continue
+            packet = Packet(new_data)
+            packet.pts = p.pts
+            packet.dts = p.dts
+            packet.duration = p.duration
+            # A packet straight out of a bitstream filter has no stream and
+            # may have no time base; assigning None to either raises.
+            # _fix_packet_timestamps sets both afterwards in any case.
+            if p.time_base is not None:
+                packet.time_base = p.time_base
+            if p.stream is not None:
+                packet.stream = p.stream
+            packet.is_keyframe = p.is_keyframe
+            for side_data in p.iter_sidedata():
+                packet.set_sidedata(side_data)
+            result.append(packet)
+        return result
 
     def segment(self, cut_segment: CutSegment) -> list[Packet]:
         if cut_segment.require_recode:
@@ -577,10 +720,13 @@ class VideoCutter:
                 p.pts = p.pts * p.time_base / self.out_time_base
                 p.dts = p.dts * p.time_base / self.out_time_base
                 p.time_base = self.out_time_base
-        return result_packets
+        return self._renumber(result_packets, self._poc_enc_run)
 
     def remux_segment(self, s: CutSegment) -> list[Packet]:
         result_packets = []
+        # Decide the run before segment() updates the tracking fields this
+        # reads, or every copied segment looks contiguous with itself.
+        copy_run = self._copy_run(s)
         segment_start_pts = int(s.start_time / self.in_time_base)
 
         for packet in self.fetch_packet(s.gop_start_dts, s.gop_end_dts):
@@ -603,7 +749,7 @@ class VideoCutter:
         result_packets.extend(self.remux_bitstream_filter.filter(None))
 
         self.remux_bitstream_filter.flush()
-        return result_packets
+        return self._renumber(result_packets, copy_run)
 
     def _should_hybrid_recode_cra(self, s: CutSegment) -> bool:
         """
@@ -634,6 +780,10 @@ class VideoCutter:
             self.init_encoder()
 
         result_packets: list[Packet] = []
+
+        # Decide the copy run before segment() updates the tracking fields
+        # _copy_run reads, as in remux_segment.
+        copy_run = self._copy_run(s)
 
         # Same reference point as remux_segment
         segment_start_pts = int(s.start_time / self.in_time_base)
@@ -691,6 +841,7 @@ class VideoCutter:
         leading_frames.sort(key=lambda f: f.pts if f.pts is not None else 0)
 
         # Encode leading frames with same timing formula as remux_segment
+        encoded_packets: list[Packet] = []
         for frame in leading_frames:
             assert frame.pts is not None
             # Same formula as remux_segment
@@ -703,8 +854,13 @@ class VideoCutter:
 
             frame.pict_type = PictureType.NONE
             self._configure_interlace(frame)
-            result_packets.extend(self.enc_codec.encode(frame))
+            encoded_packets.extend(self.enc_codec.encode(frame))
 
+        # Renumber the encoded leading pictures before flushing: the
+        # rewriter carries state forward and must see packets in the order
+        # they will be written, and flush_encoder renumbers its own.
+        result_packets.extend(self._renumber(encoded_packets,
+                                             self._poc_enc_run))
         result_packets.extend(self.flush_encoder())
 
         # Fix encoder DTS
@@ -716,6 +872,7 @@ class VideoCutter:
         # Handle in one loop with same timing as remux_segment
         remux_packets = list(collected_packets)
         remux_packets.extend(self.fetch_packet(leading_end_dts, s.gop_end_dts))
+        copied_packets: list[Packet] = []
 
         for packet in remux_packets:
             # A packet with no presentation time has nothing to rebase.  The
@@ -735,10 +892,11 @@ class VideoCutter:
             packet.pts = int((pts - segment_start_pts) * self.in_time_base / self.out_time_base + segment_start_offset)
             if packet.dts is not None:
                 packet.dts = int((packet.dts - segment_start_pts) * self.in_time_base / self.out_time_base + segment_start_offset)
-            result_packets.extend(self.remux_bitstream_filter.filter(packet))
+            copied_packets.extend(self.remux_bitstream_filter.filter(packet))
 
-        result_packets.extend(self.remux_bitstream_filter.filter(None))
+        copied_packets.extend(self.remux_bitstream_filter.filter(None))
         self.remux_bitstream_filter.flush()
+        result_packets.extend(self._renumber(copied_packets, copy_run))
 
         return result_packets
 
@@ -758,7 +916,7 @@ class VideoCutter:
                 p.time_base = self.out_time_base
 
         self.enc_codec = None
-        return result_packets
+        return self._renumber(result_packets, self._poc_enc_run)
 
     def _scale_frame_if_needed(self, frame: VideoFrame) -> VideoFrame:
         """Scale frame to encoder dimensions if needed, using bilinear interpolation.

@@ -132,6 +132,54 @@ def frame_to_time(source, frame_num, end_frame=False):
     return source.video_frame_times[frame_num] - source.start_time
 
 
+def _native_frame_mapper(source, frame_index):
+    """Map a FrameIndex frame number to smartcut's coded-picture index.
+
+    Returns (to_native, collapsed).  For a field-coded (PAFF) source the
+    FrameIndex is collapsed to one entry per displayable frame while smartcut
+    counts every coded picture, so the two disagree; for a progressive source
+    the mapping is the identity.
+
+    Shared by the segment builder and the post-export length check so the two
+    cannot drift apart: if they disagreed, every export of a field-coded
+    recording would be reported as the wrong length.
+    """
+    num, den = frame_index.time_base
+    vft = source.video_frame_times
+    n_native = len(vft)
+    collapsed = n_native != frame_index.frame_count
+
+    def to_native(f):
+        if not collapsed:
+            return f
+        target = Fraction(int(frame_index.pts[f]) * int(num), int(den))
+        i = bisect.bisect_left(vft, target)
+        if i >= n_native:
+            return n_native - 1
+        if i > 0 and (target - vft[i - 1]) <= (vft[i] - target):
+            return i - 1
+        return i
+
+    return to_native, collapsed
+
+
+def _output_duration_seconds(path):
+    """Duration of a finished output, or 0.0 if it cannot be read."""
+    try:
+        out = subprocess.run(
+            [
+                "ffprobe", "-hide_banner", "-loglevel", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        return float(out)
+    except Exception:
+        return 0.0
+
+
 def ranges_to_segments(source, keep_ranges, frame_index=None):
     """Convert kept frame ranges to (start_time, end_time) segments.
 
@@ -165,27 +213,54 @@ def ranges_to_segments(source, keep_ranges, frame_index=None):
     # hands smartcut the identical Fraction-typed times it expects, so its
     # copy-vs-reencode decisions are unchanged.  When the index wasn't collapsed
     # (len matches), the mapping is the identity and this is a true no-op.
-    num, den = frame_index.time_base
-    vft = source.video_frame_times
-    n_native = len(vft)
-    collapsed = n_native != frame_index.frame_count
-
-    def to_native(f):
-        if not collapsed:
-            return f
-        target = Fraction(int(frame_index.pts[f]) * int(num), int(den))
-        i = bisect.bisect_left(vft, target)
-        if i >= n_native:
-            return n_native - 1
-        if i > 0 and (target - vft[i - 1]) <= (vft[i] - target):
-            return i - 1
-        return i
+    to_native, _collapsed = _native_frame_mapper(source, frame_index)
 
     return [
         (frame_to_time(source, to_native(a)),
          frame_to_time(source, to_native(b), True))
         for a, b in keep_ranges
     ]
+
+
+def _audio_stream_decodes(source_path, stream_index, max_seconds=20):
+    """True if an audio stream yields at least one decoded frame.
+
+    Used only when the container header gives no channel count or sample rate,
+    which happens on some broadcast audio-description tracks.  The header being
+    blank means the parameters could not be determined, not that the stream is
+    empty - so ask the decoder, which is the only thing that settles it.
+
+    Reads a bounded window from the start of the stream rather than the whole
+    file: a track that carries anything at all produces frames straight away,
+    and a recording can be several gigabytes.  A stream that genuinely holds
+    nothing yields nothing here and is correctly dropped.
+    """
+    try:
+        out = subprocess.run(
+            [
+                "ffprobe", "-hide_banner", "-loglevel", "error",
+                "-select_streams", str(stream_index),
+                "-read_intervals", "%%+%d" % max_seconds,
+                "-show_entries", "frame=nb_samples",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                source_path,
+            ],
+            capture_output=True, text=True, timeout=120,
+        ).stdout
+    except Exception:
+        # Never let this decide against a track: if the check itself cannot be
+        # run, keeping the audio is the safe answer.
+        return True
+
+    for line in out.splitlines():
+        line = line.strip()
+        if line and line != "N/A":
+            try:
+                if int(line) > 0:
+                    return True
+            except ValueError:
+                continue
+    return False
 
 
 def _usable_audio_tracks(source_path, n_audio):
@@ -274,6 +349,32 @@ def _usable_audio_tracks(source_path, n_audio):
                 info["codec"], info["channels"], info["sample_rate"],
             )
             if info["channels"] > 0 and info["sample_rate"] > 0:
+                usable.append(audio_idx)
+            elif _audio_stream_decodes(source_path, sidx):
+                # The header said nothing, but the stream decodes, so it
+                # carries audio and must be kept.
+                #
+                # A zero from the header means "ffprobe could not work the
+                # parameters out", which is not the same as "there is no
+                # sound here" - and treating the two as equivalent silently
+                # threw away real audio-description tracks.  Deeper probing
+                # was tried first and is not enough: a BBC One recording with
+                # a genuine AD track still read as "mp3, 0 channels, 0 Hz"
+                # with a 100 MB probe, while decoding its very first packets
+                # returned mono 1152-sample frames without difficulty.
+                #
+                # UK broadcast AD is often a receiver-mix track, carrying only
+                # the narration with silence between descriptions.  Sampling
+                # such a track at a few points will find silence nearly every
+                # time, so neither a probe nor a spot check can be trusted to
+                # declare it empty - whether it decodes at all is the honest
+                # question.
+                logger.info(
+                    "Audio track %d (source stream %s%s) has no parameters in "
+                    "the container header, but decodes - keeping it.",
+                    audio_idx, sidx,
+                    (", " + ", ".join(label)) if label else "",
+                )
                 usable.append(audio_idx)
             else:
                 logger.warning(
@@ -732,11 +833,18 @@ def _build_seg_info(source, segments, keep_ranges, fps):
     except Exception:
         return {}
 
-    # Scene boundaries in seconds (relative to stream start), to attribute
-    # each cut segment to a keep-range.
+    # Scene boundaries in seconds, to attribute each cut segment to a
+    # keep-range.  keep_ranges are frame numbers, so a/fps is an offset from
+    # the start of the stream - but a cut segment's start_time is on the
+    # source's own timeline, which for a broadcast recording begins wherever
+    # the transmission clock happened to be.  One Freeview recording started
+    # at 51,305s, putting every segment past the last scene, so the whole
+    # export was labelled "scene 5 of 5" in the log and the progress dialog.
+    # Shift the spans onto the same timeline before comparing.
+    base = float(getattr(source, "start_time", 0) or 0)
     scene_spans = []
     for a, b in keep_ranges:
-        scene_spans.append((a / fps, (b + 1) / fps))
+        scene_spans.append((base + a / fps, base + (b + 1) / fps))
 
     info = {}
     for i, cs in enumerate(cut_segments, start=1):
@@ -850,7 +958,7 @@ def _video_settings(source_interlaced):
 
 def _run_smartcut(source_path, out_path, segments, n_audio, keep_ranges, fps,
                   progress_cb=None, cancel_cb=None, source_interlaced=None,
-                  media_container=None):
+                  media_container=None, drop_reason=None):
     """Export, passing through only usable audio tracks.
 
     Broken secondary tracks (0 channels / no sample rate) are detected and
@@ -933,6 +1041,14 @@ def _run_smartcut(source_path, out_path, segments, n_audio, keep_ranges, fps,
         raise ExportError(f"Export failed: {err}")
 
     logger.info("smartcut: finished OK on retry (primary audio only)")
+
+    # Say why the tracks went, so the completion summary does not describe a
+    # muxing failure as a silent track that cost nothing.  That message read
+    # "carries no audio at all ... Nothing was lost" while a working audio
+    # description was being discarded, which is exactly the wording that keeps
+    # a real fault from being noticed.
+    if drop_reason is not None:
+        drop_reason["failed"] = True
 
     return 1
 
@@ -1272,9 +1388,14 @@ def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
                                      ad_source=ad_source,
                                      extra_marks=extra_marks)
         if _mkv_audio_ok(mkv_path, cancel_cb=cancel_cb):
+            # Don't name a codec here.  This used to say "repackaged to native
+            # AAC", which is right for the broadcast LATM case this path was
+            # written for but wrong for anything else - a Dolby Digital Plus
+            # source logged as having been turned into AAC when both the input
+            # and the output were E-AC-3 and nothing had been converted at all.
             logger.info(
-                "MKV audio repackaged to native AAC by mkvmerge "
-                "(verified decodable)."
+                "MKV audio repackaged into its native Matroska form by "
+                "mkvmerge (verified decodable)."
             )
             return False
         logger.warning(
@@ -3067,6 +3188,7 @@ def export_ranges(
             if aspect_source:
                 source_path = aspect_source
 
+        audio_drop_reason = {}
         audio_written = _run_smartcut(
             source_path, cut_target, segments, n_audio, keep_ranges, fps,
             progress_cb=progress_cb, cancel_cb=cancel_cb,
@@ -3074,6 +3196,7 @@ def export_ranges(
             # Hand over the container built above rather than have it walk the
             # whole file a second time.
             media_container=source,
+            drop_reason=audio_drop_reason,
         )
 
         #
@@ -3095,9 +3218,12 @@ def export_ranges(
 
         if produced == 0:
             raise ExportError(
-                "Export produced no readable video. The source stream may "
-                "need repairing first - try enabling 'Quick Stream Fix on "
-                "open' in Settings, then re-open and export."
+                "Export produced no readable video: the output file has a "
+                "video track but nothing in it, so it has not been saved. "
+                "This normally means the recording itself is damaged - a "
+                "signal dropout or an interrupted capture. Quick Stream Fix "
+                "rebuilds the timestamps and often recovers it: run it on the "
+                "source, then re-open and export."
             )
 
         # Decide whether the cut audio has to be rebuilt from source.
@@ -3166,12 +3292,18 @@ def export_ranges(
                     "repackage, verified below)."
                 )
             elif cut_intact and _audio_decodes(cut_target):
-                # .ts keeps the lossless copy; .mp4 re-encodes it in
-                # _transcode_to_mp4.
+                # Deliberately vague about what .mp4 will do, because it is
+                # not decided here.  This used to promise "re-encoded for
+                # .mp4", which is wrong for a broadcast AAC source: the LATM
+                # graft has already produced raw AAC that MP4 can carry, so
+                # _transcode_to_mp4 copies it untouched and logs "copying the
+                # audio as-is (aac)" a moment later - a flat contradiction in
+                # the same log, and one that made a correct, fast export look
+                # as though it had skipped work it should have done.  Only
+                # formats MP4 cannot carry, such as mp2, are re-encoded.
                 logger.info(
-                    "Cut audio decodes cleanly; keeping the broadcast audio "
-                    "(copied through for .ts, re-encoded for .mp4) - no rebuild "
-                    "needed."
+                    "Cut audio decodes cleanly; keeping the broadcast audio - "
+                    "no rebuild needed."
                 )
             elif cut_intact and (not want_mp4) and _have_mkvmerge() and \
                     _relax_ts_audio_via_mkvmerge(
@@ -3554,15 +3686,33 @@ def export_ranges(
         except Exception:
             silent_here = 0
 
-    # For field-coded (collapsed) sources, `produced` counts coded pictures
-    # (roughly twice the displayable frames), while `expected` counts the
-    # displayable frames the edit actually keeps.  The difference between them
-    # is therefore a counting artifact, not a real change in length, so we
-    # report the displayable count and skip the misleading "longer than the
-    # edit" note that would otherwise alarm the user.
+    # Verify the output's LENGTH rather than its packet count.
+    #
+    # `produced` counts coded pictures.  On a field-coded (PAFF) source that is
+    # not the number of displayable frames, and it is not predictable from the
+    # source either: the boundary segments are re-encoded progressive, so a
+    # field pair in the source becomes one picture in the output.  Predicting
+    # it over-counted a Channel 4 HD export by 207 pictures - enough to report
+    # a perfectly good file as the wrong length.
+    #
+    # The old answer was to skip the check entirely whenever the source was
+    # field-coded, which left the commonest kind of UK HD recording with no
+    # length verification at all: the only thing standing between a silently
+    # truncated export and a deleted source was "is it completely empty".
+    #
+    # Duration sidesteps all of it.  It costs one ffprobe of the container
+    # header, it means the same thing for every codec and container, and it is
+    # what the user actually cares about.  Measured against the finished file,
+    # a Channel 4 HD export came out 161.783s against 161.8s expected, and an
+    # MPEG-2 SD one 403.0017s against 403.0s.
     collapsed = len(source.video_frame_times) != frame_index.frame_count
     reported_frames = expected if collapsed else produced
-    diff = 0 if collapsed else (produced - expected)
+    expected_seconds = (expected / fps) if fps else 0.0
+    actual_seconds = _output_duration_seconds(out_path)
+    drift = (
+        actual_seconds - expected_seconds
+        if actual_seconds and expected_seconds else 0.0
+    )
 
     # Probe the finished output up front: its size and audio-packet count feed
     # both the stats table and the no-audio check just below.
@@ -3578,7 +3728,10 @@ def export_ranges(
     # a glance as a brief asterisked note, VRD-style, rather than a paragraph.
     # (When the log file lands, the full detail can go there instead.)
     #
-    tolerance = 2 * max(1, len(keep_ranges))
+    # A couple of frames per cut point is normal for smart cutting; anything
+    # beyond a second means something was actually lost, and a missing scene
+    # would be minutes rather than seconds.
+    tolerance_seconds = max(1.0, (2.0 * max(1, len(keep_ranges))) / (fps or 25))
 
     # Two buckets for the completion dialog (VRD-style): genuine problems shown
     # plainly at the top, and brief "* ..." footnotes below the figures.  Each
@@ -3604,7 +3757,24 @@ def export_ranges(
             phantom = _empty_audio_tracks(source_path)
         except Exception:
             phantom = 0
-        if silent_here and dropped <= silent_here:
+        if audio_drop_reason.get("failed"):
+            # Checked before every other branch.  The remaining cases all
+            # explain a track that was left out on purpose and cost nothing;
+            # this one was lost because the export could not write it, and
+            # saying "nothing was lost" about that is worse than saying
+            # nothing at all.  It is reported as an error rather than a
+            # footnote so it appears at the top of the dialog.
+            errors.append((
+                "%d audio track%s could not be written" % (dropped, plural),
+                "The export could not write %s audio track%s and completed "
+                "without %s. This is a fault, not a track that was empty - "
+                "the audio is present in the recording. Please report it with "
+                "the log, and export to .ts as a workaround if the track "
+                "matters to you."
+                % ("an" if dropped == 1 else "%d" % dropped, plural,
+                   "it" if dropped == 1 else "them"),
+            ))
+        elif silent_here and dropped <= silent_here:
             # Checked first, and deliberately ahead of the SBR case below: a
             # description track is usually both HE-AAC *and* silent across the
             # kept scenes, and the SBR branch used to win, reporting a track
@@ -3673,14 +3843,15 @@ def export_ranges(
             errors.append(("%d audio track%s missing" % (dropped, plural), full))
             logger.warning(full)
 
-    if abs(diff) > tolerance:
-        secs = abs(diff) / fps
-        direction = "shorter" if diff < 0 else "longer"
+    if abs(drift) > tolerance_seconds:
+        direction = "shorter" if drift < 0 else "longer"
         notes.append((
-            "output ~%.1fs %s than the edit" % (secs, direction),
-            "Output is ~%.1fs %s than the edit (%d frames) - normal for smart "
-            "cutting, where the partial GOPs at the cut points are re-encoded."
-            % (secs, direction, abs(diff)),
+            "output ~%.1fs %s than the edit" % (abs(drift), direction),
+            "Output is ~%.1fs %s than the edit asked for (%.1fs against "
+            "%.1fs). A fraction of a second is normal for smart cutting, "
+            "where the partial GOPs at the cut points are re-encoded; more "
+            "than that is worth checking before deleting the source."
+            % (abs(drift), direction, actual_seconds, expected_seconds),
         ))
 
     if audio_written > 0 and audio_frames == 0:
@@ -3703,20 +3874,18 @@ def export_ranges(
             "attempt and goes straight to the portable result.",
         ))
 
-    if collapsed:
-        logger.info(
-            "Export done: %d displayable frames (%d coded pictures, "
-            "field-coded source), audio dropped=%d/%d, elapsed=%.1fs",
-            expected, produced, dropped, n_audio, elapsed,
-        )
-    else:
-        logger.info(
-            "Export done: produced=%d expected=%d diff=%+d frames "
-            "(~%.2fs %s), audio dropped=%d/%d, elapsed=%.1fs",
-            produced, expected, diff,
-            abs(diff) / fps, ("shorter" if diff < 0 else "longer"),
-            dropped, n_audio, elapsed,
-        )
+    # One line for every source: the length actually written against the
+    # length the edit asked for.  The old field-coded branch reported neither,
+    # so a truncated export of an HD recording looked exactly like a good one.
+    logger.info(
+        "Export done: %.2fs written, %.2fs expected (%+.2fs), "
+        "%d displayable frames, %d coded pictures%s, "
+        "audio dropped=%d/%d, elapsed=%.1fs",
+        actual_seconds, expected_seconds, drift,
+        expected, produced,
+        ", field-coded source" if collapsed else "",
+        dropped, n_audio, elapsed,
+    )
 
     #
     # Stats for the completion dialog.

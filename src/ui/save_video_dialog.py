@@ -379,7 +379,7 @@ class SaveVideoDialog(QDialog):
         # Normalise to the platform's native separators.  The directory can
         # arrive with forward slashes (e.g. stored in config that way, or from
         # Qt, which uses "/" everywhere), which os.path.join then mixes with
-        # backslashes on Windows - producing paths like C:/Users/Sean/Videos\
+        # backslashes on Windows - producing paths like C:/Users/You/Videos\
         # file.mkv.  normpath makes the whole thing consistent (all "\" on
         # Windows, all "/" on Linux) and is a no-op where it's already correct.
         path = os.path.normpath(path)

@@ -27,9 +27,28 @@ class ComskipError(Exception):
     pass
 
 
-# Comskip emits lines containing a percentage as it scans, e.g.
-#   "  12.34%   ..."  (the exact surrounding text varies by build).
+# Comskip rewrites a single status line in place as it scans, e.g.
+#
+#   " 0:41:35 - 62378 frames in 116.82 sec(533.97 fps), 1.00 sec(488.00 fps), 56%"
+#
+# The fields are: position in the recording, frames processed so far, elapsed
+# time, and percentage complete.  Updates are separated by carriage returns
+# rather than newlines - `text=True` on the Popen turns those into newlines,
+# which is the only reason iterating the pipe yields one update at a time.
+#
+# The percentage is taken from anywhere on the line.  An earlier attempt
+# anchored it to the start on the assumption that the figure came first; it
+# does not, and the bar sat at 0% for the whole scan.  Do not tighten this
+# without output from the real binary in front of you - Comskip's console
+# output all goes through one Debug() function and the format is undocumented.
 _PERCENT_RE = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
+
+# The position within the recording, used to tell a new pass from progress.
+# Comskip scans a file more than once when it cannot settle on a logo, and on
+# each new pass this timestamp returns to the beginning while the frame counter
+# keeps climbing.  Measured on a Sky Mix recording: three passes, 234,316
+# frames processed for a 109,470-frame programme.
+_POSITION_RE = re.compile(r"(\d+):([0-5]\d):([0-5]\d)\s*-\s*\d+\s+frames")
 
 
 def pick_comskip_ini(filename, default_ini, prefix="comskip_"):
@@ -70,7 +89,12 @@ def run_comskip(binary, ini, source_path, out_dir,
     """Run Comskip on source_path, writing output into out_dir.
 
     Returns the path to the produced .edl file.  Raises ComskipError on
-    failure.  progress_cb(percent) is called with 0-100 as scanning proceeds.
+    failure.
+
+    progress_cb(percent, pass_number) is called as scanning proceeds.  Comskip
+    scans a file more than once when it cannot settle on a logo, so the
+    percentage returns to 0 at the start of each pass; the pass number is
+    supplied so the caller can say so rather than appearing to reset itself.
     """
     if not binary or not os.path.isfile(binary):
         raise ComskipError(
@@ -98,6 +122,8 @@ def run_comskip(binary, ini, source_path, out_dir,
         raise ComskipError(f"Could not start Comskip:\n{exc}")
 
     last_pct = -1
+    last_position = None
+    pass_no = 1
     if proc.stdout is not None:
         for line in proc.stdout:
             if cancel_cb is not None and cancel_cb():
@@ -110,6 +136,20 @@ def run_comskip(binary, ini, source_path, out_dir,
                     "Comskip", "Commercial detection cancelled."))
 
             if progress_cb:
+                # A new pass shows up as the position in the recording jumping
+                # back towards the start.  Detect it from the position rather
+                # than from the percentage falling: the percentage is rounded
+                # to whole numbers, so it repeats constantly during a pass and
+                # would be far too noisy to use.
+                pos = _POSITION_RE.search(line)
+                position = None
+                if pos:
+                    h, m, s = (int(g) for g in pos.groups())
+                    position = h * 3600 + m * 60 + s
+                    if last_position is not None and position + 60 < last_position:
+                        pass_no += 1
+                    last_position = position
+
                 m = _PERCENT_RE.search(line)
                 if m:
                     try:
@@ -117,9 +157,15 @@ def run_comskip(binary, ini, source_path, out_dir,
                     except ValueError:
                         pct = last_pct
                     pct = max(0, min(99, pct))
+                    # Report what Comskip reports, including a drop back to 0
+                    # at the start of a new pass.  An earlier build clamped
+                    # this so it could only rise, which looked tidier but
+                    # froze the bar for the whole of every pass after the
+                    # first - real work, shown as no progress at all.  The
+                    # pass number is what makes a reset make sense.
                     if pct != last_pct:
                         last_pct = pct
-                        progress_cb(pct)
+                        progress_cb(pct, pass_no)
 
     proc.wait()
 
@@ -151,7 +197,7 @@ def run_comskip(binary, ini, source_path, out_dir,
             )
 
     if progress_cb:
-        progress_cb(100)
+        progress_cb(100, pass_no)
 
     return edl_path
 
@@ -160,7 +206,7 @@ class ComskipWorker(QThread):
 
     finished_ok = Signal(str)     # emits the EDL path
     failed = Signal(str)
-    progress = Signal(int)
+    progress = Signal(int, int)
 
     def __init__(self, binary, ini, source_path, parent=None):
         super().__init__(parent)

@@ -1842,12 +1842,37 @@ class MainWindow(QMainWindow):
         )
         progress.setWindowTitle(self.tr("Detect Commercials"))
         progress.setMinimumDuration(0)
+
+        # Size the dialog for the longest label it will ever show, before it
+        # is shown.  QProgressDialog otherwise sizes itself to whatever text
+        # it starts with, then elides anything longer - so the "pass 2"
+        # message arrived truncated *and* made the dialog jump wider partway
+        # through detection.  Measuring the text rather than hard-coding a
+        # width keeps this right in German too, where the string is longer.
+        widest = self.tr("Detecting commercials (Comskip) - pass %s…") % 8
+        margin = 80        # dialog margins, plus room for a wider pass number
+        progress.setMinimumWidth(
+            progress.fontMetrics().horizontalAdvance(widest) + margin
+        )
+
         progress.setValue(0)
 
         worker = ComskipWorker(binary, ini, self.current_filename, self)
         self._comskip_worker = worker
 
-        worker.progress.connect(progress.setValue)
+        def _on_comskip_progress(pct, pass_no):
+            # Comskip rescans a file from the beginning when it cannot settle
+            # on a logo, so the bar legitimately drops back to 0 partway
+            # through - one Sky Mix recording took three passes.  Naming the
+            # pass keeps that from reading as a crash and restart.
+            if pass_no > 1:
+                progress.setLabelText(
+                    self.tr("Detecting commercials (Comskip) - pass %s…")
+                    % pass_no
+                )
+            progress.setValue(pct)
+
+        worker.progress.connect(_on_comskip_progress)
 
         def _done(edl_path):
             from project.edl import load_edl
@@ -3816,12 +3841,15 @@ class MainWindow(QMainWindow):
                 choice = QMessageBox.question(
                     self,
                     self.tr("Export produced no video"),
-                    self.tr("The export contained no usable video. This can happen "
-                    "with some broadcast recordings whose streams need "
-                    "repairing first.\n\n"
-                    "Would you like to run Quick Stream Fix on the source? "
-                    "The repaired file will be reloaded with your scene "
-                    "markers so you can check them before saving."),
+                    self.tr("The export contained no usable video, so it has "
+                    "not been saved. This normally means the recording itself "
+                    "is damaged - a signal dropout, or a capture that was "
+                    "interrupted.\n\n"
+                    "Quick Stream Fix rebuilds the recording's timestamps "
+                    "without re-encoding, and usually recovers it. Would you "
+                    "like to run it on the source? The repaired file will be "
+                    "reloaded with your scene markers so you can check them "
+                    "before saving."),
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.Yes,
                 )
@@ -4193,6 +4221,19 @@ class MainWindow(QMainWindow):
 
         self.index_builder = None
 
+        # Chapters in the source become marks on the timeline.  Files that
+        # have been through an encoder often carry them - the upscaling and
+        # HEVC workflows both produce MKVs with chapters, and Snipwright's own
+        # export writes its marks out as chapters - so without this a file has
+        # to be opened in something else, its chapter times read off, and each
+        # one re-entered by hand.
+        #
+        # Only when nothing is marked yet, on the same reasoning as the Cut
+        # Mode block above: a project brings its own marks and must not be
+        # overwritten whatever order things happen in.
+        if not self.scenes.markers and len(self.frames):
+            self._load_chapter_marks()
+
         #
         # Spin up the background scrub decoder (own fetcher, shared index).
         #
@@ -4246,6 +4287,49 @@ class MainWindow(QMainWindow):
         if pending is not None:
             self._pending_after_load = None
             pending(self.index)
+
+    def _load_chapter_marks(self):
+        """Turn the source's chapters into marks on the timeline.
+
+        Best-effort throughout: chapters are a convenience, and nothing here
+        may stop a file opening or disturb a file that has none.
+        """
+        try:
+            from media.frame_index import read_chapters
+            starts = read_chapters(self.current_filename)
+        except Exception:
+            return
+
+        if not starts:
+            return
+
+        last_frame = len(self.frames) - 1
+        marks = set()
+        for seconds in starts:
+            try:
+                frame = self.index.index_of_seconds(seconds)
+            except Exception:
+                continue
+            # A chapter at the very start is how encoders say "the beginning",
+            # not a point of interest, and a mark on frame 0 is no use for
+            # navigation - so skip it.  Anything past the end is skipped too:
+            # chapter times come from the container and need not agree with
+            # the frames actually present.
+            if 0 < frame <= last_frame:
+                marks.add(frame)
+
+        if not marks:
+            return
+
+        self.scenes.markers = sorted(marks)
+        self._refresh_scenes_from_selection()
+
+        # Worth saying: the marks appeared without the user adding them, and
+        # the count confirms whether the file carried what was expected.
+        self.statusBar().showMessage(
+            self.tr("Loaded %s chapter mark(s) from the file.") % len(marks),
+            6000,
+        )
 
     def _start_scrub_worker(self):
 

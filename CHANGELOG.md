@@ -6,6 +6,288 @@ All notable changes to Snipwright are documented here. Releases before
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [2.4.0] - 2026-08-13
+
+### Added
+
+- **Chapters in a file become marks on the timeline when it is opened.** Files
+  that have been through an encoder often carry chapters — upscaling and HEVC
+  workflows produce MKVs with them, and Snipwright's own export writes its
+  marks out as chapters — but opening one showed an empty timeline. The marks
+  had to be found in another player, their timestamps noted, and each one
+  re-entered by hand.
+
+  Chapter starts are now mapped to the nearest frame and added as marks, with a
+  brief note in the status bar saying how many were loaded. A chapter at the
+  very start is skipped: encoders write one to mean "the beginning" and a mark
+  on the first frame is no use for navigation. Marks that come with a project
+  are never overwritten, and a file with no chapters — anything straight off a
+  tuner — opens exactly as before.
+
+### Fixed
+
+- **HDR colour is now kept across every cut.** The frames re-encoded at each cut
+  point were written with their colour unspecified while the rest of the file
+  declared BT.2020 and PQ — on one 10-bit HDR10 test cut, 199 frames tagged and
+  78 tagged nothing, which on an HDR display shows as a flash at every join.
+  Those frames now carry the source's colour description.
+- **Spliced HEVC streams now carry one coherent picture numbering.** Supplying
+  that colour was, on its own, enough to break the join: a lost frame and
+  `Duplicate POC in a sequence` from the decoder. That was not a colour fault
+  but a splicing fault the missing colour had been hiding.
+
+  Segments copied from the source keep the source's own picture order counts,
+  so segments taken from different points in a recording can bring the same POC
+  with them — measured on the project's 10-bit test file as two pictures both
+  claiming 44, twenty-five pictures apart. It went unnoticed because the
+  boundary encoder wrote a different SPS from the source's, so a decoder
+  re-initialised at every switch between copied and re-encoded material and
+  cleared the earlier picture out of the DPB before the colliding one arrived.
+  Setting the colour makes x265 reproduce the source's SPS exactly, the two
+  parameter sets stop differing, nothing re-initialises, and the collision
+  surfaces. ffmpeg-based players tolerated the old output; a decoder that does
+  not re-initialise the same way need not have.
+
+  Each run of output pictures is now given one constant POC offset, chosen to
+  clear whatever could still be in the decoder's DPB. Constant, because the
+  reference picture sets in the slice headers are deltas, so shifting a whole
+  run leaves every reference pointing where it did. An IDR always begins a run
+  of its own at offset zero: it flushes the DPB, so it cannot collide with
+  anything before it, and it carries no `slice_pic_order_cnt_lsb` to rewrite in
+  any case.
+
+  On the 10-bit test file this takes 38 latent collisions to none with the
+  decoded picture byte-for-byte identical to 2.3.0's. Sources whose keyframes
+  are IDR rather than CRA — many commercial encodes — were never affected and
+  come out unchanged. H.264 numbers pictures by a different scheme and is not
+  touched.
+
+  If the renumbering meets something it cannot account for — long-term
+  reference pictures, separate colour planes, a parameter set it cannot parse,
+  a packet that is not Annex B — it turns off for the rest of that export,
+  writes the stream exactly as 2.3.0 did, and logs the reason.
+
+- **The log no longer says the audio will be re-encoded for MP4 when it is
+  copied.** A broadcast AAC recording exported to MP4 logged "re-encoded for
+  .mp4" and then, moments later, "copying the audio as-is (aac)" — a flat
+  contradiction that made a correct, fast export look as though it had skipped
+  work. Nothing was wrong: the LATM graft has already produced raw AAC, which
+  MP4 can carry untouched, so there is nothing to re-encode. Only formats MP4
+  cannot carry, such as mp2, are re-encoded, and that is still logged when it
+  happens.
+
+- **A track lost to an export failure is no longer described as a silent one.**
+  When the export could not write an audio track and completed without it, the
+  summary said the track "carries no audio at all" and that "nothing was
+  lost". Both were untrue, and the reassurance is what kept a real fault from
+  being noticed. A track lost this way is now reported as an error at the top
+  of the summary, saying plainly that the audio is present in the recording
+  and asking for the log.
+
+- **Audio description tracks survived the first export but were dropped from
+  the next one.** With the track kept (below), exporting a recording to `.ts`
+  worked, and exporting the same recording to `.mkv` or `.mp4` immediately
+  afterwards lost it again — reported, wrongly, as a silent track that cost
+  nothing.
+
+  Walking a file is what teaches ffmpeg the parameters of a stream whose
+  header does not declare them. The first export walks the file and caches the
+  result; the next one loads that cache and skips the walk, so the track's
+  channel count and sample rate were never established, and the muxer rejected
+  the output stream copied from it. Those parameters are now determined when
+  the cache is used, and the output stream is built from them.
+
+- **Audio description tracks are no longer dropped from broadcast recordings.**
+  A BBC One recording with a working AD track exported without it, reported as
+  "carries no audio in this recording". It carried plenty — 141,570 packets,
+  and audible description throughout.
+
+  Whether a track was usable was decided from the channel count and sample rate
+  in the container header. Zeroes there mean the parameters could not be worked
+  out, which is not the same as the track being empty, and some broadcast AD
+  streams simply do not declare them. Probing harder does not help: this one
+  still read as "0 channels, 0 Hz" with a 100 MB probe while decoding its very
+  first packets without difficulty. When the header says nothing, Snipwright now
+  asks the decoder instead, and keeps the track if it produces audio.
+
+  Worth knowing if you have checked such a track by ear and thought it empty: UK
+  audio description is often a receiver-mix track carrying only the narration,
+  silent between descriptions. Skipping through one will land in silence most of
+  the time even when it is working perfectly.
+
+- **The user guide no longer says cutting a Blu-ray uses several gigabytes of
+  RAM.** That stopped being true in 2.2.0, when audio stopped being held in
+  memory all at once. Large, high-bitrate sources still take longer to analyse
+  for cut points, which the guide continues to say.
+
+- **The log no longer claims MKV audio was converted to AAC when it was not.**
+  Repackaging an MKV with mkvmerge was logged as "repackaged to native AAC"
+  whatever the audio actually was, so a Dolby Digital Plus soundtrack appeared
+  to have been converted when both the input and the output were E-AC-3 and
+  nothing had changed. The message no longer names a codec.
+
+- **Commercial detection now says which pass it is on.** The progress bar would
+  climb to around half way, drop back to zero and start again, which looked as
+  though detection had crashed and restarted.
+
+  It had not, and the bar was right: Comskip rescans a recording from the
+  beginning when it cannot settle on a logo, and the percentage genuinely
+  returns to zero each time. One Sky Mix recording took three passes, processing
+  234,316 frames for a 109,470-frame programme. The dialog now reads "pass 2",
+  "pass 3" and so on, so a reset is recognisable as normal work rather than a
+  fault. The dialog is also sized up front for the longest message it can show,
+  since it previously grew partway through detection and cut the text off.
+
+- **Cut points on interlaced recordings are no longer coded as progressive.**
+  The frames re-encoded at each cut are meant to be coded as fields when the
+  source is interlaced, or players skip deinterlacing and show combing on
+  motion until the copied stream resumes. Two separate faults meant that
+  usually did not happen.
+
+  First, whether a recording counted as interlaced was decided by decoding a
+  single frame — the first one. Broadcast material is routinely mixed, and
+  film-sourced programmes tend to open on progressive frames. One Channel 4 HD
+  recording was therefore treated as progressive throughout even though 326 of
+  the 686 frames later re-encoded were field-coded. The check now samples a run
+  of frames, and also consults the field-pair evidence already gathered while
+  indexing.
+
+  Second, the interlace decision was made once per export, but each re-encoded
+  run opens its own encoder and the setting has to be applied before that
+  encoder starts. Only the first run was ever configured; every later one came
+  out progressive whatever it contained. It is now decided per run.
+
+  A run is coded as fields only when the frame that opens it is itself
+  interlaced. Field order comes from that frame, and a progressive one carries
+  none — enabling interlaced coding off a progressive opening frame produced a
+  stream marked bottom-field-first on a recording whose fields are top-field
+  first, which judders on playback and is worse than the combing being fixed.
+  A run that opens progressive is therefore left as it was.
+
+- **The frame index cache is invalidated after the indexing fixes above.** Its
+  version was not bumped when the field-pair collapse changed, so an index built
+  by an earlier version stayed valid and kept being loaded — putting the halved
+  frame count and the old interlaced flag back out of reach. Nothing needs
+  clearing by hand; entries from earlier versions are now ignored.
+
+
+- **The GOP fix below now reaches files that had already been opened.** Smartcut
+  caches its index of GOP boundaries, and an entry written before that fix holds
+  the shifted values — so loading one put the cut straight back into the fault,
+  and a fixed build behaved exactly like the broken one on every recording
+  already indexed. The cache format version has been bumped, so those entries
+  are ignored.
+
+- **Clearing the cache in Settings now clears both caches.** Snipwright keeps
+  two: its own frame index, and smartcut's index of GOP boundaries. Only the
+  first was being cleared, so a file that had already been opened kept behaving
+  as it did before no matter how many times the cache was cleared.
+
+- **Recordings that begin part-way through a GOP can now be exported without
+  Quick Stream Fix.** Exporting one produced a file with a video stream and no
+  video packets in it, reported as "Export produced no readable video" — so
+  Quick Stream Fix became a routine step before cutting anything off the tuner.
+
+  Each keyframe closes the GOP before it. A recording that starts mid-GOP,
+  which is normal off a tuner and true of any byte-copied excerpt of one, has
+  video packets before its first keyframe, and those belong to no GOP. They
+  were being recorded as the end of one anyway, which shifted the whole array
+  by one: every GOP then ran from its start to a timestamp 1800 ticks earlier,
+  so no packet could fall inside one and nothing was copied. Running Quick
+  Stream Fix appeared to cure it because the repaired copy starts on a
+  keyframe.
+
+  On a recording that already starts on a keyframe nothing changes, and an
+  export of one is byte-for-byte what the previous build produced.
+
+- **Progress and logging named the wrong scene on broadcast recordings.** An
+  export of a five-scene project reported "scene 5" for all 2046 of its cut
+  segments, and the progress dialog counted every scene as the last one. The
+  cut itself was correct throughout — only the labelling was wrong.
+
+  Scene boundaries were worked out as an offset from the start of the stream,
+  then compared against cut segments timed on the source's own clock. A
+  broadcast recording begins wherever the transmission clock happened to be —
+  one started at 51,305s — which put every segment past the last scene. Both
+  are now on the same timeline. Files starting at or near zero were never
+  affected, which is why this only showed on recordings straight off the tuner.
+
+- **A recording could be indexed at half its real length.** A 2h38m film opened
+  as 01:19:20, with the timeline scale, the Info panel and every reported timing
+  halved to match. Scene markers still landed in the right places, because the
+  timestamps themselves were correct — only half the frames were in the index —
+  which made it easy to miss until an export went wrong.
+
+  Field-coded broadcast recordings carry some frames as two field-pictures, and
+  the index merges those back into one frame. It used to do that by placing
+  every packet on a grid, `round((pts - first_pts) / ticks_per_frame)`, keeping
+  one packet per slot. A field pair is two half-frame gaps and returns the
+  stream to the grid, so pairs normally cancel — but an odd number of them
+  anywhere in the file leaves everything after it sitting exactly half-way
+  between slots, and rounding then puts consecutive frames in the same slot.
+  Half the recording was discarded.
+
+  Frames are now paired locally: a packet is merged into the previous frame when
+  it sits less than a field period after it. Nothing depends on where the
+  timestamps happen to fall, so the same recording indexes the same way whatever
+  its field pairs do.
+
+  The recording this was found on had 2027 half-frame gaps — an odd number.
+  The same file after Quick Stream Fix had 2004, and indexed correctly. Whether
+  that count came out odd or even was the only difference between a good index
+  and a ruined one, which is why running Quick Stream Fix appeared to be the
+  cure.
+
+- **Exporting the same project twice now produces the same file.** It did not:
+  two exports of one project, with a restart between, came out with their
+  re-encoded segments different, while every copied segment was byte-identical.
+  The picture was never wrong and nothing was lost — the difference was small
+  enough to need a frame-by-frame comparison to see at all — but it meant an
+  export could not be checked against a previous one, so there was no way to
+  tell whether a change to the cutting code had altered the output or not.
+
+  The cause was the decoder that feeds the boundary re-encoder. It was opened
+  with frame threading across every core, and frame-threaded H.264 decoding of
+  a field-coded broadcast recording does not return the same pixels every time
+  when the machine is busy. On a Channel 4 HD recording exported five times
+  with the application playing in the background, 10 of the 686 frames handed
+  to the encoder decoded differently — every one of them a field-coded picture,
+  and no progressive frame ever varied. One such frame changes every packet to
+  the end of its re-encoded run, because the encoder's references change with
+  it, which is why a single frame moved 125 of them.
+
+  That decoder now runs on one thread. Only the GOPs at cut points are decoded
+  at all — 833 frames for a five-minute recording with six re-encoded segments —
+  so the cost is a few seconds on an export, not a proportional slowdown.
+  Playback and indexing are untouched and still use every core.
+
+  This is not a new fault: it pre-dates 2.3.0 and affected every version with
+  the boundary re-encoder in its current form.
+
+### Changed
+
+- **Every export is now checked for length, including HD broadcast
+  recordings.** The check compared the output's packet count against the number
+  of frames the edit kept. On a field-coded source those two count different
+  things, so the check was skipped altogether — which is most UK HD. For those
+  files the only verification was "is the output completely empty", and the
+  frame count in the completion dialog was the number of frames requested
+  rather than the number produced. A partial export would have looked exactly
+  like a good one.
+
+  The finished file's duration is now compared against the length the edit asked
+  for, which means the same thing for every codec and container and costs one
+  ffprobe of the container header. Anything more than a second out is flagged
+  in the completion dialog and written to the log, which now records the length
+  written against the length expected for every export.
+
+- **Clearer wording when an export produces no video.** The message said the
+  source "may need repairing" and pointed at Quick Stream Fix, which was
+  misleading — the recording was usually fine and Snipwright was mishandling
+  it, as the GOP fix above describes. Now that cause is gone, the message says
+  plainly that the file has not been saved, that the recording itself is likely
+  damaged, and what Quick Stream Fix will do about it.
+
 ## [2.3.0] - 2026-08-08
 
 ### Added
@@ -46,7 +328,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
   it simply wasn't reachable. The same applies to Cut Selection and Trim
   Unselected. Operations that aren't a single marked edit — Select All, and the
   bulk range operations — still clear the markers, since there is nothing left
-  to correct. (Requested by Sean; matches VideoReDo's behaviour.)
+  to correct. (Requested during testing; matches VideoReDo's behaviour.)
 - **Re-encoding keeps the source's bit depth.** Every re-encode path asked
   ffmpeg for `yuv420p`, which is 8-bit — right for the broadcast recordings
   Snipwright was built around, and wrong for anything better. A 10-bit source
@@ -132,7 +414,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
   the sink's volume with nothing feeding it. Pausing and playing again was the
   only way to recover. Moving the slider now re-evaluates whether audio should
   be running, and picks up from the current position; dropping to zero stops
-  the decoder rather than decoding sound nobody can hear. Reported by Sean.
+  the decoder rather than decoding sound nobody can hear. Reported in testing.
 - **The audio device was rebuilt before every single play.** The sink was
   treated as broken whenever Qt reported any error at all, including
   `UnderrunError` — which is not a fault: the buffer running dry is what
@@ -252,7 +534,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
   source's extension. The result played, but was mislabelled — MediaInfo reports
   it as MPEG-TS with an invalid extension — and had no chapters, because
   chapters are written during a Matroska mux that never ran. Matching now
-  resolves to the destination's actual container. (Spotted by Sean, from a
+  resolves to the destination's actual container. (Spotted in testing, from a
   Blu-ray export that had lost its chapter markers.)
 - **Trim and Copy offered only transport streams, and produced broken MP4s.**
   The source filter listed a handful of extensions, which was both too narrow —
@@ -274,7 +556,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
   MP4 genuinely cannot carry — but it applied to everything, so an MP4 source
   with AAC or E-AC-3 had good audio decoded and re-encoded for no reason. That
   cost time, and could make the output *larger* than the source. Audio MP4 can
-  carry is now copied untouched. (Found by Sean while testing on Windows.)
+  carry is now copied untouched. (Found while testing on Windows.)
 - **Folder settings showed forward slashes on Windows.** Qt's file dialogs
   return them on every platform; the settings page now displays paths the way
   the platform writes them.
@@ -471,7 +753,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
   log fills with "Too many packets buffered for output stream 0:0" — the filter
   graph failed on a 1/0 timebase, and nothing was written at all. Such tracks are
   now left out of the MP4 encode, as they already were for `.ts` output. (Found
-  by Sean, on the same Star Trek recording as the audio-track issues above.)
+  in testing, on the same Star Trek recording as the audio-track issues above.)
 - **A dropped audio track is no longer reported as a loss when nothing was
   lost.** Broadcast audio description is often transmitted for a few seconds of
   one programme and silent across the rest of a long capture. Cut scenes that

@@ -45,7 +45,17 @@ CACHE_DIR = (
 
 # 4 added the cumulative video byte totals used for size estimates.  A bump
 # invalidates every cached index, so each file is re-scanned once.
-CACHE_VERSION = 4
+# Bump whenever the contents of a cached index could differ from one built by
+# the current code, or an old entry is loaded in place of a corrected one.
+#
+# 5: the field-pair collapse changed for 2.4.0 (a recording could be indexed at
+#    half its length), and the interlaced flag stopped being decided by a
+#    single decoded frame.  Entries written before those fixes hold the wrong
+#    frame count and the wrong flag, and loading one puts the fix back out of
+#    reach - which is exactly what happened during development, where exports
+#    were compared against each other for several builds while every one of
+#    them quietly used an index from before the collapse was fixed.
+CACHE_VERSION = 5
 
 
 class FrameIndex:
@@ -317,18 +327,82 @@ class FrameIndex:
 # Building
 # ---------------------------------------------------------------------- #
 
-def _probe_interlaced(path):
-    """Decode a single frame to learn whether the stream is interlaced."""
+def read_chapters(path):
+    """Chapter start times in a container, in seconds, earliest first.
+
+    Recordings that have been through an encoder often carry chapters - the
+    upscaling and HEVC workflows both produce MKVs with them, and so does
+    Snipwright's own export, which writes the scene markers out as chapters.
+    Reading them back means a file exported from Snipwright, or produced by any
+    other tool, reopens with its marks already on the timeline instead of
+    having to be inspected elsewhere and re-entered by hand.
+
+    Returns [] for a container with no chapters - MPEG-TS off a tuner never
+    has any - and for anything that cannot be read, because chapters are a
+    convenience and must never stop a file opening.  Only the start of each
+    chapter is used: Snipwright's marks are points on the timeline, not spans.
+    """
+    try:
+        container = av.open(str(path))
+        try:
+            # chapters() is a recent PyAV addition; older versions simply do
+            # not have it, and a missing convenience must not break opening.
+            getter = getattr(container, "chapters", None)
+            raw = getter() if callable(getter) else (getter or [])
+
+            seconds = []
+            for chapter in raw:
+                try:
+                    if isinstance(chapter, dict):
+                        start = chapter["start"]
+                        time_base = chapter["time_base"]
+                    else:
+                        start = chapter.start
+                        time_base = chapter.time_base
+                    if start is None or not time_base:
+                        continue
+                    seconds.append(float(start * time_base))
+                except Exception:
+                    continue        # one bad chapter shouldn't lose the rest
+        finally:
+            container.close()
+
+        return sorted(s for s in seconds if s >= 0)
+
+    except Exception:
+        # Deliberately silent: this module has no logger, and a file whose
+        # chapters cannot be read still opens perfectly well without them.
+        return []
+
+
+def _probe_interlaced(path, max_frames=300):
+    """Decode a sample of frames to learn whether the stream is interlaced.
+
+    This used to decode exactly one frame - the first - and let it speak for
+    the whole recording.  Broadcast material is routinely mixed: a Channel 4 HD
+    recording opened on a progressive frame and was therefore treated as
+    progressive throughout, even though 326 of the 686 frames later handed to
+    the boundary encoder were field-coded.  Film-sourced programmes especially
+    tend to open on progressive frames and switch to interlaced for adverts,
+    trailers and continuity.
+
+    So sample a run of frames and report True if any of them is field-coded.
+    A few hundred is enough to catch a mixed stream while staying quick; it is
+    also only half the picture, which is why build_frame_index combines this
+    with the field-pair evidence from the packet walk.
+    """
     try:
         container = av.open(str(path))
         stream = container.streams.video[0]
 
+        seen = 0
         for frame in container.decode(stream):
-            result = bool(
-                getattr(frame, "interlaced_frame", False)
-            )
-            container.close()
-            return result
+            if getattr(frame, "interlaced_frame", False):
+                container.close()
+                return True
+            seen += 1
+            if seen >= max_frames:
+                break
 
         container.close()
 
@@ -436,6 +510,9 @@ def build_frame_index(
     # Guarded - only applied when the raw count clearly exceeds what the
     # duration at the declared rate implies (i.e. field-coding is present),
     # so normal progressive files are never altered.
+    # Bound before the guard below, because the interlace decision consults it
+    # whether or not that block runs.
+    has_field_pairs = False
     if pts_list and fps and time_base[1]:
         tb_num, tb_den = time_base
         ticks_per_frame = (tb_den / tb_num) / float(fps)
@@ -449,9 +526,9 @@ def build_frame_index(
         #     too high - e.g. a 73-min file reported as 82 min.
         #   - Partially field-coded files (only some sections interlaced) never
         #     reached the old 20%-excess threshold and so were left uncollapsed.
-        # The slot-collapse itself is correct for progressive streams too (one
-        # PTS per slot = no change), but we still gate on field-pair presence so
-        # a genuinely progressive file is never touched.
+        # The merge itself is correct for progressive streams too (nothing is
+        # ever close enough to pair), but we still gate on field-pair presence
+        # so a genuinely progressive file is never touched.
         if ticks_per_frame:
             near = ticks_per_frame * 0.75
             has_field_pairs = any(
@@ -462,28 +539,50 @@ def build_frame_index(
             has_field_pairs = False
 
         if has_field_pairs:
-            start = pts_list[0]
-            collapsed = []
-            collapsed_sizes = []
-            slot_at = {}
-            for p, size in zip(pts_list, size_list):
-                slot = round((p - start) / ticks_per_frame)
-                if slot not in slot_at:
-                    slot_at[slot] = len(collapsed)
+            # Merge each packet into the previous frame when it sits less than
+            # a field period after it.  Purely local: the gap to the previous
+            # *kept* frame is what decides, so nothing depends on where the
+            # stream's timestamps happen to sit.
+            #
+            # This used to place every packet on a global grid, slot =
+            # round((pts - first_pts) / ticks_per_frame), and keep one packet
+            # per slot.  That silently lost half of a recording whenever the
+            # stream ended up half a frame period off that grid.  A field pair
+            # is two 1800-tick gaps, which returns the stream to the grid, so
+            # pairs normally cancel out - but an odd number of them anywhere in
+            # the file leaves everything after it sitting on x.5 slots, and
+            # round() then maps consecutive frames onto the same slot
+            # (0.5 and 1.5 -> 0 and 2, 2.5 and 3.5 -> 2 and 4, ...) because
+            # Python rounds halves to even.  A 2h38m film indexed as 1h19m,
+            # with the timeline scale and every reported timing halved.
+            #
+            # Found on a raw Freeview recording with 2027 field-pair gaps - an
+            # odd number - where the same file after Quick Stream Fix had 2004
+            # and indexed correctly.  Whether the count came out odd or even
+            # was the only difference between a good index and a ruined one.
+            collapsed = [pts_list[0]]
+            collapsed_sizes = [size_list[0]]
+            for p, size in zip(pts_list[1:], size_list[1:]):
+                if 0 <= p - collapsed[-1] < near:
+                    # Second field of the frame already kept: its bytes belong
+                    # to that frame, or the file's total would come out short
+                    # by half on field-coded sources.
+                    collapsed_sizes[-1] += size
+                else:
                     collapsed.append(p)
                     collapsed_sizes.append(size)
-                else:
-                    # Second field of the same frame: its bytes belong to the
-                    # frame that survives, or the file's total would come out
-                    # short by half on field-coded sources.
-                    collapsed_sizes[slot_at[slot]] += size
             pts_list = collapsed
             size_list = collapsed_sizes
             # Keep only keyframes that survive in the collapsed set.
             kf = set(keyframe_pts)
             keyframe_pts = [p for p in pts_list if p in kf]
 
-    interlaced = _probe_interlaced(path)
+    # Field pairs found during the packet walk are proof of field coding
+    # (PAFF), and they cost nothing extra to consult.  Decoding cannot be
+    # dropped in their favour though: MBAFF codes interlaced content as single
+    # frames carrying the field flag, with no pairs to find.  Each catches what
+    # the other misses, so take either as evidence.
+    interlaced = bool(has_field_pairs) or _probe_interlaced(path)
 
     # Running total, so a range's size is one subtraction rather than a walk.
     cum_bytes = array("q", accumulate(size_list))

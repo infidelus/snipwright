@@ -147,8 +147,16 @@ class SettingsDialog(QDialog):
         from PySide6.QtWidgets import QMessageBox
         from media.frame_index import clear_index_cache
         from repair import qsf_registry
+        from smartcut import index_cache
 
+        # Two separate caches: Snipwright's own FrameIndex, and smartcut's
+        # index of GOP boundaries.  Clearing the cache means both - leaving
+        # one behind makes a file that has already been opened keep behaving
+        # as it did before, which reads as the fix not working.
         removed, freed = clear_index_cache()
+        sc_removed, sc_freed = index_cache.clear_all()
+        removed += sc_removed
+        freed += sc_freed
         records = qsf_registry.clear_all()
 
         if freed >= 1024 * 1024:

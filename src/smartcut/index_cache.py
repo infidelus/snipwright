@@ -32,7 +32,13 @@ logger = logging.getLogger("snipwright")
 # Bump when the set of attributes below changes, or when a smartcut update
 # alters what any of them mean.  An old entry is then ignored rather than
 # loaded into a container that expects something different.
-CACHE_VERSION = 2
+#
+# 3: gop_end_times_dts changed meaning for sources that begin part-way through
+#    a GOP.  Entries written before that fix hold ends shifted one GOP earlier,
+#    and loading one puts the container straight back into the fault the fix
+#    removes - the cache would otherwise keep the bug alive on every file
+#    already opened.
+CACHE_VERSION = 3
 
 CACHE_DIR = Path.home() / ".config" / "snipwright" / "smartcut-index"
 
@@ -205,6 +211,31 @@ def load(container, path):
         logger.warning("Couldn't load the cached smartcut index; walking the "
                        "file instead", exc_info=True)
         return False
+
+
+def clear_all():
+    """Delete every cached smartcut index now, regardless of age.
+
+    Best-effort; returns (files_removed, bytes_freed).  Snipwright keeps two
+    separate caches - its own FrameIndex and this one - and someone clearing
+    the cache from Settings means both, not whichever one happens to be wired
+    up.  Leaving this one behind made a fixed build behave exactly like the
+    broken one on every file already opened.
+    """
+    removed = 0
+    freed = 0
+    try:
+        if CACHE_DIR.exists():
+            for entry in CACHE_DIR.glob("*.sci"):
+                try:
+                    freed += entry.stat().st_size
+                    entry.unlink()
+                    removed += 1
+                except OSError:
+                    pass
+    except Exception:
+        pass
+    return removed, freed
 
 
 def prune(max_age_days):

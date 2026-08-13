@@ -162,6 +162,45 @@ class MediaContainer:
             logging.getLogger("snipwright").debug(
                 "Cached smartcut index unavailable", exc_info=True)
 
+        if self._from_cache:
+            # Walking the file is what teaches ffmpeg the parameters of a
+            # stream whose container header does not declare them - some
+            # broadcast audio-description tracks report 0 channels at 0 Hz
+            # until packets have actually been parsed.  Skipping the walk
+            # leaves those streams unknown, and an output stream copied from
+            # such a template is rejected by the muxer: avformat_write_header
+            # returns EINVAL and the export falls back to primary audio only,
+            # silently losing the track.
+            #
+            # It only bites on the *second* export of a file, because the
+            # first one populates the cache that the next one then loads -
+            # which is why exporting to .ts worked and the .mkv straight after
+            # it did not.
+            for track in self.audio_tracks:
+                stream = track.av_stream
+                cc = stream.codec_context
+                if getattr(cc, "sample_rate", 0) and getattr(cc, "channels", 0):
+                    continue
+                try:
+                    decoded = 0
+                    for packet in av_container.demux(stream):
+                        for _frame in packet.decode():
+                            decoded += 1
+                            break
+                        if decoded or packet.pts is None:
+                            break
+                except Exception:
+                    logging.getLogger("snipwright").debug(
+                        "Could not determine parameters for audio stream %s",
+                        getattr(stream, "index", "?"), exc_info=True)
+                finally:
+                    # The demux above consumed part of the file; rewind so the
+                    # cut that follows starts from the beginning as usual.
+                    try:
+                        av_container.seek(0)
+                    except Exception:
+                        pass
+
         for packet in () if self._from_cache else av_container.demux(streams):
             if packet.pts is None:
                 continue
@@ -199,10 +238,27 @@ class MediaContainer:
 
                         self.video_keyframe_indices.append(len(frame_pts))
                         dts = packet.dts if packet.dts is not None else UNKNOWN_DTS
+                        first_gop = not self.gop_start_times_dts
                         self.gop_start_times_dts.append(dts)
                         self.gop_start_nal_types.append(nal_type)
 
-                        if last_seen_video_dts is not None:
+                        # Each keyframe closes the GOP before it.  Only if
+                        # there was one: a recording that begins part-way
+                        # through a GOP - which is normal off a tuner, and
+                        # what any byte-copied excerpt of one looks like - has
+                        # video packets before its first keyframe, and those
+                        # belong to no GOP at all.
+                        #
+                        # Recording an end for them shifted the whole array by
+                        # one, so gop_end_times_dts[i] held the end of the
+                        # packets *preceding* GOP i.  Every GOP then ran from
+                        # its start to a DTS 1800 ticks earlier, no packet
+                        # could fall inside one, and the cut produced a file
+                        # with a video stream and no video packets in it -
+                        # reported as "Export produced no readable video".
+                        # Running Quick Stream Fix appeared to be the cure
+                        # because the repaired copy starts on a keyframe.
+                        if last_seen_video_dts is not None and not first_gop:
                             self.gop_end_times_dts.append(last_seen_video_dts)
 
                         # Start tracking leading pictures if this is a CRA GOP

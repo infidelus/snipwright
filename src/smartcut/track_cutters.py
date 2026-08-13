@@ -53,6 +53,26 @@ def create_audio_output_stream(
         track.av_stream,
         options={'x265-params': 'log_level=error'}
     )
+    if not (getattr(out_stream.codec_context, "sample_rate", 0)
+            and getattr(out_stream.codec_context, "channels", 0)):
+        # The template carried no usable parameters, so the muxer would reject
+        # the stream: avformat_write_header returns EINVAL and the whole export
+        # falls back to primary audio only, losing the track.  Some broadcast
+        # audio-description streams declare 0 channels at 0 Hz in the container
+        # header; MediaContainer decodes a frame to learn the real values, so
+        # build the output stream from those instead.
+        cc = in_stream.codec_context
+        rate = getattr(cc, "sample_rate", 0)
+        if rate:
+            try:
+                rebuilt = output_av_container.add_stream(cc.name, rate=rate)
+                rebuilt.time_base = in_stream.time_base
+                rebuilt.metadata.update(track.av_stream.metadata)
+                rebuilt.disposition = cast(
+                    Disposition, track.av_stream.disposition.value)
+                return rebuilt
+            except Exception:
+                pass       # fall through and return the template copy
     out_stream.metadata.update(track.av_stream.metadata)
     out_stream.disposition = cast(Disposition, track.av_stream.disposition.value)
     return out_stream
