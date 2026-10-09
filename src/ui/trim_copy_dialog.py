@@ -259,7 +259,8 @@ class TrimCopyDialog(QDialog):
         # Default the output to the source's own extension: a trimmed copy is
         # the same container as its source, so offering only .ts produced
         # mislabelled files.
-        src_ext = os.path.splitext(self.source_edit.text() or "")[1] or ".ts"
+        from utils.media_ext import output_extension
+        src_ext = output_extension(self.source_edit.text())
         path, selected = QFileDialog.getSaveFileName(
             self, self.tr("Select Output File"), start_dir,
             self.tr("Same as source (*%s);;All files (*)") % src_ext,

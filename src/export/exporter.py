@@ -41,10 +41,12 @@ import json
 from fractions import Fraction
 
 from PySide6.QtCore import (
+    QT_TRANSLATE_NOOP,
     QThread,
     Signal,
 )
 
+from utils.note_text import NoteText, counted
 from smartcut.smart_cut import (
     smart_cut,
     make_cut_segments,
@@ -1104,6 +1106,14 @@ def _run_smartcut(source_path, out_path, segments, n_audio, keep_ranges, fps,
 # break could fail the whole export.  The window is wider here than for the
 # source because a cut can begin anywhere in a programme.
 DEEP_PROBE = ["-analyzeduration", "120M", "-probesize", "200M"]
+
+# For any ffmpeg step that RE-ENCODES audio: follow the timestamps and fill a
+# gap with silence, rather than butt the next samples up against the last.
+# An encoder works sample after sample, so a sparse track - UK broadcast
+# audio description is often sent only while the narrator speaks - came out
+# with every gap removed: a 5USA recording's narration finished 119 s into a
+# 249 s MP4 (2026-10-04).  A continuous track has no gaps, so nothing changes.
+FILL_AUDIO_GAPS = ["-af", "aresample=async=1"]
 
 # mkvmerge has the same blind spot with its own limit: by default it probes
 # 0.3% of a file to find tracks, so a sparse audio description track whose
@@ -2407,7 +2417,7 @@ def _repair_audio_configs(ts_path, cancel_cb=None, progress_cb=None):
         return None
     logger.info("Audio configuration repaired: %s.", "; ".join(details))
     return (
-        "a few audio frames were re-encoded",
+        NoteText(_NOTE_AUDIO_PATCHED),
         "This recording changes its audio channel configuration part-way "
         "through, which .mp4 and .mkv cannot store. Rather than re-encode "
         "the whole track, only the frames that differed were re-encoded and "
@@ -2530,6 +2540,11 @@ def _transcode_to_mp4(
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostats", "-y",
         *DEEP_PROBE,
+        # Keep the cut's timestamps: without this ffmpeg flattens a sparse
+        # audio-description track on the way IN, and nothing later - not
+        # even filling gaps with silence - can put the narration back where
+        # it belongs (5USA, 2026-10-04; see FILL_AUDIO_GAPS).
+        "-copyts",
         "-i", ts_path,
         "-map", "0:v:0",
         "-map", "0:a?",
@@ -2591,7 +2606,7 @@ def _transcode_to_mp4(
         # rather than downmix a surround programme for the sake of a stereo
         # bumper.
         channels, bitrate = _dominant_audio_profile(ts_path)
-        cmd += ["-c:a", "aac", "-ac", str(channels)]
+        cmd += ["-c:a", "aac", "-ac", str(channels), *FILL_AUDIO_GAPS]
         if bitrate:
             cmd += ["-b:a", "%dk" % (bitrate // 1000)]
     else:
@@ -2604,7 +2619,7 @@ def _transcode_to_mp4(
         # source's own channels come across untouched.  The bitrate follows
         # the source too rather than the flat 192k this used to impose.
         _channels, bitrate = _dominant_audio_profile(ts_path)
-        cmd += ["-c:a", "aac"]
+        cmd += ["-c:a", "aac", *FILL_AUDIO_GAPS]
         if bitrate:
             cmd += ["-b:a", "%dk" % (bitrate // 1000)]
     # Reproduce the source's audio dispositions and language.  MP4 is the one
@@ -3532,25 +3547,90 @@ def _reencode_cut_audio_to_aac(cut_path, bitrate, cancel_cb=None):
 # PGS, SubRip or ASS - has nowhere to live in a .ts.
 TS_SUBTITLE_CODECS = ("dvb_subtitle", "dvb_teletext")
 
+# The summary's "<headline> - see logs".  A template rather than a pasted-on
+# suffix, so the dialog can translate both halves.
+_SEE_LOGS = QT_TRANSLATE_NOOP("ExportNotes", "%s - see logs")
+
+# Headlines for the summary's notes and errors, marked here for translation
+# (see utils/note_text.py).  The log keeps the English; the dialog shows them
+# in the user's language.  Counted ones come as (one, many) pairs.
+_NOTE_SUBS_LOST = (
+    QT_TRANSLATE_NOOP("ExportNotes", "%d subtitle track not carried over"),
+    QT_TRANSLATE_NOOP("ExportNotes", "%d subtitle tracks not carried over"),
+)
+_NOTE_AUDIO_UNWRITTEN = (
+    QT_TRANSLATE_NOOP("ExportNotes", "%d audio track could not be written"),
+    QT_TRANSLATE_NOOP("ExportNotes", "%d audio tracks could not be written"),
+)
+_NOTE_AUDIO_SILENT = (
+    QT_TRANSLATE_NOOP("ExportNotes", "%d silent audio track not carried over"),
+    QT_TRANSLATE_NOOP("ExportNotes", "%d silent audio tracks not carried over"),
+)
+_NOTE_AD_DROPPED = (
+    QT_TRANSLATE_NOOP("ExportNotes", "%d audio-description track not carried over"),
+    QT_TRANSLATE_NOOP("ExportNotes", "%d audio-description tracks not carried over"),
+)
+_NOTE_AUDIO_EMPTY = (
+    QT_TRANSLATE_NOOP("ExportNotes", "%d empty audio track skipped"),
+    QT_TRANSLATE_NOOP("ExportNotes", "%d empty audio tracks skipped"),
+)
+_NOTE_AUDIO_MISSING = (
+    QT_TRANSLATE_NOOP("ExportNotes", "%d audio track missing"),
+    QT_TRANSLATE_NOOP("ExportNotes", "%d audio tracks missing"),
+)
+_NOTE_AUDIO_PATCHED = QT_TRANSLATE_NOOP("ExportNotes", "a few audio frames were re-encoded")
+_NOTE_MP4_NO_AUDIO = QT_TRANSLATE_NOOP("ExportNotes", "audio missing from the MP4")
+_NOTE_ADJUST_FAILED = QT_TRANSLATE_NOOP("ExportNotes", "audio adjustment not applied")
+_NOTE_NO_AUDIO = QT_TRANSLATE_NOOP("ExportNotes", "output has no audio")
+_NOTE_REPACKAGED = QT_TRANSLATE_NOOP("ExportNotes", "repackaged audio")
+_NOTE_SHORTER = QT_TRANSLATE_NOOP("ExportNotes", "output ~%.1fs shorter than the edit")
+_NOTE_LONGER = QT_TRANSLATE_NOOP("ExportNotes", "output ~%.1fs longer than the edit")
+_NOTE_RECODE_FAILED = QT_TRANSLATE_NOOP(
+    "ExportNotes",
+    "video could not be re-encoded - the file is in the original codec, "
+    "not the one the profile asked for")
+
+# Names a user knows, for the summary's notes; ffprobe's codec name otherwise.
+_SUBTITLE_NAMES = {
+    # ffprobe's codec names, then PyAV's decoder names for the same things
+    # (dvb_subtitles.subtitle_kinds() reports those).
+    "dvb_subtitle": "DVB",
+    "dvb_teletext": "teletext",
+    "hdmv_pgs_subtitle": "PGS",
+    "dvbsub": "DVB",
+    "pgssub": "PGS",
+    "libzvbi_teletextdec": "teletext",
+    "dvd_subtitle": "DVD",
+    "subrip": "SubRip",
+    "ass": "ASS",
+}
+
 
 def _subtitle_codecs(path):
-    """Every subtitle codec in `path`, in stream order."""
+    """Every subtitle codec in `path`, in stream order, once per stream.
+
+    A transport stream lists each stream twice in ffprobe's output - under
+    its programme and again on its own - so this keys on the stream index.
+    Reading the lines as they came counted every broadcast subtitle track
+    twice, and a summary note said "2 subtitle tracks" for a recording with
+    one.
+    """
     try:
         out = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "s",
-             "-show_entries", "stream=codec_name", "-of", "csv=p=0", path],
+             "-show_entries", "stream=index,codec_name", "-of", "csv=p=0",
+             path],
             capture_output=True, text=True).stdout
     except Exception:
         logger.debug("Could not read %s's subtitle streams", path,
                      exc_info=True)
         return []
-    return [line.strip() for line in out.splitlines() if line.strip()]
-
-
-def _ts_hostile_subtitles(path):
-    """Subtitle codecs in `path` that a transport stream cannot hold."""
-    return [c for c in _subtitle_codecs(path)
-            if c not in TS_SUBTITLE_CODECS]
+    codecs = {}
+    for line in out.splitlines():
+        index, _, codec = line.strip().partition(",")
+        if index.isdigit() and codec:
+            codecs.setdefault(int(index), codec)
+    return [codecs[i] for i in sorted(codecs)]
 
 
 def _unwritable_audio_streams(path):
@@ -3967,7 +4047,15 @@ def _finalise_ts_audio_meta(path, ad_source=None, progress_cb=None):
     ]
     for a in dead:
         cmd += ["-map", "-0:a:%d" % a]
-    cmd += ["-c", "copy"]
+    # -copyts: keep every timestamp exactly as the cut wrote it.  Without it,
+    # ffmpeg normalises timestamps, and a SPARSE audio-description track -
+    # sent only while the narrator speaks, with gaps of a minute and more -
+    # whose format it cannot identify had its packets laid end to end: a
+    # 5USA recording's narration ran 647 s early by the end of a 15-minute
+    # scene and then fell silent (2026-10-04).  The other streams are
+    # untouched by it: exports with continuous audio came out identical,
+    # timestamps included.
+    cmd += ["-c", "copy", "-copyts"]
     cmd += _ffmpeg_audio_meta_args(ad_source, skip=dead)
     if service_name:
         cmd += ["-metadata", "service_name=%s" % service_name]
@@ -4208,6 +4296,17 @@ def export_ranges(
                 os.path.splitext(out_path)[1],
             )
             out_format = resolved
+        else:
+            # FFmpeg picks the muxer from the extension, and some have none -
+            # Tvheadend's .bin, say.  Without this the cut got as far as the
+            # mux and then failed with a misleading "may need repairing".
+            from utils.media_ext import writable_extension
+            ext = os.path.splitext(out_path)[1]
+            if ext and writable_extension(ext) != ext:
+                raise ExportError(
+                    "Snipwright can't write a %s file. Save it as .ts "
+                    "instead - the recording is a transport stream whatever "
+                    "its name says." % ext)
 
     want_mkv = out_format == "mkv"
     want_mp4 = out_format == "mp4"
@@ -4223,7 +4322,8 @@ def export_ranges(
     # Worked out for every format, not just the ones with an intermediate: a
     # .ts output cannot hold a disc's subtitles either, and that is worth
     # saying rather than dropping them quietly.
-    foreign_subs = _ts_hostile_subtitles(source_path)
+    source_subs = _subtitle_codecs(source_path)
+    foreign_subs = [c for c in source_subs if c not in TS_SUBTITLE_CODECS]
     temp_ext = ".tmp.ts"
     if foreign_subs and want_mkv:
         temp_ext = ".tmp.mkv"
@@ -4533,20 +4633,48 @@ def export_ranges(
         # (the cut is routed through a Matroska intermediate above); .mp4 and
         # .ts cannot carry a disc's PGS or a file's SubRip, and used to drop
         # them without a word.  Say so instead.
-        if foreign_subs and not want_mkv:
-            kinds = ", ".join(sorted(set(foreign_subs)))
-            plural = "s" if len(foreign_subs) > 1 else ""
+        #
+        # An .mp4 cannot hold a broadcast's own DVB subtitles or teletext
+        # either.  Those were left out of this note, so every .mp4 made from
+        # a recording lost its subtitles with the summary saying only
+        # "Subtitles: None" - the one silent loss left in the exporter.
+        lost_subs = list(foreign_subs) if not want_mkv else []
+        if want_mp4:
+            lost_subs += [c for c in source_subs if c in TS_SUBTITLE_CODECS]
+        if lost_subs:
+            kinds = ", ".join(sorted({_SUBTITLE_NAMES.get(c, c)
+                                      for c in lost_subs}))
+            plural = "s" if len(lost_subs) > 1 else ""
+            # Matroska takes DVB, PGS and SubRip; teletext is the one kind
+            # an .mkv will not keep either, so do not promise it there.
+            advice = ("" if "dvb_teletext" in lost_subs else
+                      " Export to .mkv instead and they are kept.")
             notes.append((
-                "%d subtitle track%s not carried over"
-                % (len(foreign_subs), plural),
+                counted(len(lost_subs), *_NOTE_SUBS_LOST),
                 "The recording carries %s subtitle%s, which a %s file has no "
-                "place for. Export to .mkv instead and they are kept."
-                % (kinds, plural, os.path.splitext(out_path)[1] or out_format),
+                "place for.%s"
+                % (kinds, plural, os.path.splitext(out_path)[1] or out_format,
+                   advice),
             ))
-            logger.warning(
-                "%s cannot carry this recording's %s subtitle(s); they are "
-                "not in the output.", out_format.upper(), kinds,
-            )
+            if summary_compact:
+                # A joiner scene piece: always a .ts, so a disc's PGS cannot
+                # go in it.  The old "MATCH cannot carry this recording's
+                # hdmv_pgs_subtitle" read as the join having lost them; every
+                # join - copied or re-encoded - reads PGS from the recording
+                # itself and converts it to DVB, and names anything else it
+                # cannot carry in its own summary.
+                logger.info(
+                    "Joiner scene piece: its %s subtitles cannot go in the "
+                    "intermediate .ts; the join converts a disc's PGS to DVB "
+                    "from the recording itself.", kinds,
+                )
+            else:
+                logger.warning(
+                    "%s cannot carry this recording's %s subtitle(s); they "
+                    "are not in the output.",
+                    os.path.splitext(out_path)[1].lstrip(".").upper()
+                    or out_format.upper(), kinds,
+                )
 
         audio_repackaged = False
         if want_mkv:
@@ -4597,7 +4725,7 @@ def export_ranges(
                 if not _audio_census_ok(out_path, cut_target,
                                         cancel_cb=cancel_cb):
                     errors.append((
-                        "audio missing from the MP4",
+                        NoteText(_NOTE_MP4_NO_AUDIO),
                         "The MP4 was written but its audio is nearly empty "
                         "compared with the cut it was built from - see the "
                         "log for the frame counts. The .ts or .mkv output "
@@ -4798,7 +4926,7 @@ def export_ranges(
         if level_mode != "none":
             asked.append("loudness processing")
         errors.append((
-            "audio adjustment not applied",
+            NoteText(_NOTE_ADJUST_FAILED),
             "The cut itself is fine, but %s could not be applied to it - see "
             "the log for what ffmpeg reported. The audio in this file is "
             "exactly as it was in the source."
@@ -4909,7 +5037,7 @@ def export_ranges(
             # saying nothing at all.  It is reported as an error rather than
             # a footnote so it appears at the top of the dialog.
             errors.append((
-                "%d audio track%s could not be written" % (dropped, plural),
+                counted(dropped, *_NOTE_AUDIO_UNWRITTEN),
                 "The export could not write %s audio track%s and completed "
                 "without %s. This is a fault, not a track that was empty - "
                 "the audio is present in the recording. Please report it with "
@@ -4926,7 +5054,7 @@ def export_ranges(
             # it to carry.  A Top Gear export showed this - the AD track holds
             # audio either side of the programme but none within it.
             notes.append((
-                "%d silent audio track%s not carried over" % (dropped, plural),
+                counted(dropped, *_NOTE_AUDIO_SILENT),
                 "The recording has %s audio track%s - typically audio "
                 "description - that carries no audio at all within the scenes "
                 "you kept. There was nothing to copy, so it is not in the "
@@ -4938,7 +5066,7 @@ def export_ranges(
             # Channel 4 HD recording shows it carrying an HE-AACv2 description
             # track straight through - so don't claim otherwise here.
             notes.append((
-                "%d audio-description track%s not carried over" % (dropped, plural),
+                counted(dropped, *_NOTE_AD_DROPPED),
                 "These carry SBR/PS extensions that can't be re-encoded in sync "
                 "from a mid-stream cut, so they are dropped on purpose. The "
                 "main audio is unaffected.",
@@ -4951,7 +5079,7 @@ def export_ranges(
             # nothing, and saying "a track could not be carried over" would
             # imply a loss that did not happen.
             notes.append((
-                "%d silent audio track%s not carried over" % (dropped, plural),
+                counted(dropped, *_NOTE_AUDIO_SILENT),
                 "The recording has %s audio track%s - typically audio "
                 "description - that carries no audio at all within the scenes "
                 "you kept. There was nothing to copy, so it is not in the "
@@ -4963,7 +5091,7 @@ def export_ranges(
             # sample rate, no channels).  Skipping it loses nothing, so say so
             # plainly rather than implying the main audio might be missing.
             notes.append((
-                "%d empty audio track%s skipped" % (dropped, plural),
+                counted(dropped, *_NOTE_AUDIO_EMPTY),
                 "The recording declares %s audio track%s that carries no actual "
                 "audio (no sample rate or channel count) - broadcasters "
                 "sometimes register a track and never transmit on it. Nothing "
@@ -4984,13 +5112,13 @@ def export_ranges(
             else:
                 full = ("%d audio track%s could not be carried over - the output "
                         "may be missing its main audio." % (dropped, plural))
-            errors.append(("%d audio track%s missing" % (dropped, plural), full))
+            errors.append((counted(dropped, *_NOTE_AUDIO_MISSING), full))
             logger.warning(full)
 
     if abs(drift) > tolerance_seconds:
         direction = "shorter" if drift < 0 else "longer"
         notes.append((
-            "output ~%.1fs %s than the edit" % (abs(drift), direction),
+            NoteText(_NOTE_SHORTER if drift < 0 else _NOTE_LONGER, abs(drift)),
             "Output is ~%.1fs %s than the edit asked for (%.1fs against "
             "%.1fs). A fraction of a second is normal for smart cutting, "
             "where the partial GOPs at the cut points are re-encoded; more "
@@ -5002,12 +5130,12 @@ def export_ranges(
         full = ("Output has NO audio despite passing through %d track(s); the "
                 "source audio codec likely cannot be stream-copied."
                 % audio_written)
-        errors.append(("output has no audio", full))
+        errors.append((NoteText(_NOTE_NO_AUDIO), full))
         logger.warning(full)
 
     if audio_repackaged:
         notes.append((
-            "repackaged audio",
+            NoteText(_NOTE_REPACKAGED),
             "Audio repackaged for the MKV: some broadcasts carry the AAC "
             "channel configuration in-band (LATM) and it isn't constant, which "
             "a single fixed Matroska header can't represent. Snipwright keeps "
@@ -5041,8 +5169,7 @@ def export_ranges(
         # a silent "Export complete" here means someone files an H.264 recording
         # away believing it's the HEVC they asked for.
         errors.append((
-            "video could not be re-encoded - the file is in the original "
-            "codec, not the one the profile asked for",
+            NoteText(_NOTE_RECODE_FAILED),
             "The cut completed, but the finishing re-encode failed. The "
             "output is the cut recording in its original codec.",
         ))
@@ -5056,8 +5183,8 @@ def export_ranges(
 
     stats = {
         "out_path": out_path,
-        "errors": ["%s - see logs" % label for label, _full in errors],
-        "notes": ["%s - see logs" % label for label, _full in notes],
+        "errors": [NoteText(_SEE_LOGS, label) for label, _full in errors],
+        "notes": [NoteText(_SEE_LOGS, label) for label, _full in notes],
         "scenes": len(keep_ranges),
         "video_frames": reported_frames,
         "audio_frames": audio_frames,

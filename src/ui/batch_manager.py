@@ -690,7 +690,7 @@ class BatchManagerDialog(QDialog):
             # happening - and why Start won't touch it.
             return self.tr("Exporting… %d%%") % job.percent
         if job.status == RUNNING:
-            return f"Running… {job.percent}%"
+            return self.tr("Running… %d%%") % job.percent
         if job.status == NEEDS_REVIEW:
             return self.tr("Needs review — Edit to repair & confirm")
         if job.status == FAILED and job.message:

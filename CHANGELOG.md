@@ -6,6 +6,101 @@ All notable changes to Snipwright are documented here. Releases before
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [2.11.0] - 2026-10-09
+
+### Changed
+
+- **PyAV 19 is supported.** Snipwright now works with PyAV 18.1 and 19, so a
+  new installation takes PyAV 19.0.1 (which brings FFmpeg 9.0.2 for decoding)
+  and an existing one can stay on 18.1. PyAV is held below 20 until that has
+  been tried, and 19.0.0, which never was, is left out. Exports are
+  byte-for-byte the same on both versions, re-encoded cut points included,
+  and advert detection gives identical results across the whole test corpus.
+
+- **PySide6 6.11.2, tqdm 4.70.1, bitarray 3.11.0 and numpy 2.5.3.** Routine
+  updates of supporting libraries, PySide6 being the toolkit the interface is
+  built with; they change nothing you will see. Exports are
+  byte-for-byte the same, and advert detection gives identical results.
+
+- **Holding a skip shortcut keeps skipping.** Shift, Ctrl and Ctrl+Shift with
+  the left or right arrow now repeat while held, about ten skips a second,
+  instead of moving once and then only now and again.
+
+### Fixed
+
+- **A join saved with Match Source as .mkv is a real Matroska file, with
+  chapters.** Joining scenes from .mkv recordings - Blu-ray rips, say - with
+  the Match Source profile wrote an MPEG-TS file under an .mkv name. It
+  played, but it was mislabelled and had no chapter at each join, because
+  the chapters are written by the Matroska step that never ran. Match Source
+  now follows the file's extension, as it already did for a single export.
+
+- **Joining scenes from a Blu-ray rip keeps the subtitles.** When the
+  scenes shared one format, so the join could copy them rather than
+  re-encode, a disc's subtitles were lost and the summary said only
+  "Subtitles: None". They are now converted to broadcast (DVB) subtitles
+  from the recording itself, as a re-encoded join already did - same words,
+  colours, positions and timings - and the summary says so. Any kind a joined
+  video cannot carry at all is named in the summary instead of disappearing,
+  and a join saved as .mp4, which has no room for broadcast or disc
+  subtitles, now says it left them out.
+
+- **A re-encoded join keeps its subtitles when an audio-description track
+  starts late.** Joining recordings whose audio description is sent only
+  while the narrator speaks - such as an SD and an HD scene with a quiet
+  opening - could leave the joined video without any subtitles, with a note
+  saying they could not be carried through. The audio description track
+  starts too late in the joined file for a quick look to identify it, and
+  writing the subtitles failed on it. The file is now read the way every
+  recording is, and the subtitles and the audio description both arrive.
+
+- **Export and join progress, and the notes under a finished export, are
+  in German in the German interface.** The progress window's steps - Fast
+  Frame Copy, Encoding Frames, Finalising MKV and the rest - the Joiner's
+  progress lines and time estimate, and the notes under the export summary
+  (a track not carried over, an output a little longer than the edit,
+  subtitles converted in a join) along with any error at the top were always
+  in English, as were the "Indexing…" bar when a recording opens and the
+  renamers' "e.g." example. They now follow the interface language. The log
+  keeps them in English, so a problem report reads the same whoever sends it.
+
+- **A join no longer logs a misleading subtitle warning.** Joining a scene
+  from a Blu-ray rip logged "MATCH cannot carry this recording's
+  hdmv_pgs_subtitle" for that scene, which read as the subtitles having been
+  lost even when the join went on to convert them. The message now says what
+  happens to them.
+
+- **An MP4 export now says when it leaves the subtitles out.** MP4 has no
+  place for a broadcast's DVB subtitles or teletext, so they are not in an
+  .mp4 file - but the export summary said only "Subtitles: None", with
+  nothing to show a track had been dropped. It now notes how many subtitle
+  tracks were not carried over and suggests exporting to .mkv, which keeps
+  them, and the log says the same.
+
+- **Opening a file with chapters says how many marks it added.** Since
+  2.4.0, a recording's chapters become marks on the timeline when it is
+  opened, and the status bar was meant to report how many. The message was
+  wiped as the first frame appeared, so it was never seen. It now stays for
+  its few seconds.
+
+- **Tvheadend recordings named .bin can be saved.** Tvheadend sometimes
+  names a recording .bin rather than .ts. Snipwright opened them but every
+  save failed, because the output kept the .bin name and FFmpeg cannot write
+  a file with that extension. Such recordings are now saved as .ts, and .bin
+  files can be dropped onto the window and appear in the Open dialog.
+
+- **Audio description stays in step on channels that send it only during
+  narration.** Some channels, such as 5USA, transmit their audio description
+  only while the narrator speaks, with long gaps in between. A .ts export
+  closed those gaps up, so the narration drifted ahead of the picture and
+  then fell silent for most of the programme; an MP4 export did the same.
+  The narration now stays where it belongs in .ts, MKV and MP4 alike.
+- **Audio description is no longer dropped when the same recording is
+  exported a second time.** On such a recording the second export - to any
+  format - left the audio description track out ("1 audio track could not
+  be written"), while the first had kept it.
+- **No "Failed to disconnect" warning in the terminal at start-up.**
+
 ## [2.10.0] - 2026-10-04
 
 ### Added

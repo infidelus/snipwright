@@ -11,6 +11,7 @@ from av.packet import Packet
 from smartcut.media_container import MediaContainer
 from smartcut.media_utils import VideoExportMode
 from smartcut.misc_data import AudioExportInfo, CutSegment
+from smartcut.rational import q
 from smartcut.track_cutters import (
     PassthruAudioCutter,
     SubtitleCutter,
@@ -137,7 +138,7 @@ def find_clock_jumps(media_container: MediaContainer) -> list[tuple[Fraction, Fr
     """
     video = media_container.video_stream
     pts = getattr(media_container, "video_frame_times_pts", None)
-    if video is None or video.time_base is None or pts is None or len(pts) < 3:
+    if video is None or q(video.time_base) is None or pts is None or len(pts) < 3:
         return []
     tb = Fraction(video.time_base)
     steps = np.diff(pts)

@@ -149,7 +149,7 @@ VIDEO_SAVE_FILTER = _vf("Videos", ".ts", ".m2ts", ".mkv", ".mp4", ".mpg", ".mpeg
 # fall-back so nothing is ever blocked from opening.  ".avi" is old but still
 # turns up in older recordings, so it's included too.
 VIDEO_OPEN_FILTER = _vf("Videos", ".ts", ".m2ts", ".mkv", ".mp4", ".mov",
-                        ".avi", ".mpg", ".mpeg", ".vob", ".m2v")
+                        ".avi", ".mpg", ".mpeg", ".vob", ".m2v", ".bin")
 
 
 log = logging.getLogger("snipwright")
@@ -3529,6 +3529,10 @@ class MainWindow(QMainWindow):
         or the sweep would tidy one folder while the editor filled another.
         """
         from utils.qsf_temp import temp_dir
+        from utils.media_ext import writable_extension
+        # FFmpeg chooses its muxer from the extension, so a working copy of
+        # a .bin recording has to be named .ts or the remux fails.
+        ext = writable_extension(ext)
         name = f"{self._original_base()} - QSF{ext}"
         path = os.path.join(temp_dir(), name)
         # Track what we create so it can be removed when the editor closes -
@@ -3705,8 +3709,10 @@ class MainWindow(QMainWindow):
         )
 
     # Accepted extensions for drag-and-drop (lower-case, with the dot).
+    # .bin is Tvheadend's name for a recording it could not identify as it
+    # began; the contents are a transport stream.
     _DND_EXTS = (".ts", ".m2ts", ".mkv", ".mp4", ".mov", ".avi", ".mpg",
-                 ".mpeg", ".vprj", ".swproj", ".edl")
+                 ".mpeg", ".bin", ".vprj", ".swproj", ".edl")
 
     def _dropped_paths(self, mime):
         """Local file paths from a drop's MIME data whose extensions we accept,
@@ -3976,8 +3982,9 @@ class MainWindow(QMainWindow):
             0
         )
 
+        # %p is the progress bar's own placeholder, filled in by Qt.
         self.index_progress.setFormat(
-            "Indexing… %p%"
+            self.tr("Indexing… %p%")
         )
 
         self.index_progress.show()
@@ -4664,7 +4671,8 @@ class MainWindow(QMainWindow):
         if check and not self._qsf_confirm_if_already_fixed(self.current_filename):
             return
 
-        ext = os.path.splitext(self.current_filename)[1] or ".ts"
+        from utils.media_ext import output_extension
+        ext = output_extension(self.current_filename)
 
         save_dir = os.path.dirname(
             self.original_source or self.current_filename
@@ -5218,6 +5226,12 @@ class MainWindow(QMainWindow):
         # Only when nothing is marked yet, on the same reasoning as the Cut
         # Mode block above: a project brings its own marks and must not be
         # overwritten whatever order things happen in.
+        #
+        # Clear the indexing message BEFORE the chapter marks load, not after:
+        # loading them shows "Loaded N chapter mark(s)", and the clear used to
+        # come a few lines later and wipe it before it could be read - so the
+        # count promised since 2.4.0 never appeared.
+        self.statusBar().clearMessage()
         if not self.scenes.markers and len(self.frames):
             self._load_chapter_marks()
 
@@ -5228,8 +5242,6 @@ class MainWindow(QMainWindow):
         self._start_scrub_worker()
 
         self.index_progress.hide()
-
-        self.statusBar().clearMessage()
 
         #
         # Show the loaded file in the title bar.  This is also the clean
@@ -5317,6 +5329,7 @@ class MainWindow(QMainWindow):
             self.tr("Loaded %s chapter mark(s) from the file.") % len(marks),
             6000,
         )
+        self._status_hold_until = time.monotonic() + 6.0
 
     def _start_scrub_worker(self):
 
@@ -5541,6 +5554,11 @@ class MainWindow(QMainWindow):
 
     def update_timecode(self):
 
+        # Every frame change clears the status bar, which wiped a message
+        # meant to be read - "Loaded N chapter mark(s)" vanished as the first
+        # frame was drawn.  A message that asks to be held keeps its time.
+        if time.monotonic() < getattr(self, "_status_hold_until", 0.0):
+            return
         self.statusBar().clearMessage()
 
     def transport_step(self):
@@ -6536,12 +6554,47 @@ class MainWindow(QMainWindow):
         self.update_timecode()
         self.info_panel.update_info()
 
+    # Held-down jump keys repeat no faster than this.  The keyboard repeats
+    # around 25-30 times a second, which would cover two hours of programme in
+    # a few seconds of a long jump with no chance to see where it was going.
+    JUMP_REPEAT_MS = 100
+
+    _JUMP_ACTIONS = (
+        ("jump_back_10", "small", -1),
+        ("jump_forward_10", "small", 1),
+        ("jump_back_30", "medium", -1),
+        ("jump_forward_30", "medium", 1),
+        ("jump_back_120", "large", -1),
+        ("jump_forward_120", "large", 1),
+    )
+
+    def _repeat_jump(self, event):
+        """Carry on jumping while a jump key (Shift/Ctrl + arrow) is held.
+
+        Auto-repeated key presses are otherwise ignored - a held arrow scrubs
+        through the transport timer instead - so holding a jump key used to
+        move once and then stop, or only now and again.  Returns True if the
+        event was a jump key, whether or not this repeat moved the playhead.
+        """
+        if not self.frames:
+            return False
+        for action, size, sign in self._JUMP_ACTIONS:
+            if self.keys.match(event, action):
+                now = _startup_clock.monotonic()
+                last = getattr(self, "_last_repeat_jump", 0.0)
+                if (now - last) * 1000 >= self.JUMP_REPEAT_MS:
+                    self._last_repeat_jump = now
+                    self.jump_frames(sign * self.fps * self.jump_seconds(size))
+                return True
+        return False
+
     def keyPressEvent(
             self,
             event,
     ):
 
         if event.isAutoRepeat():
+            self._repeat_jump(event)
             return
 
         #

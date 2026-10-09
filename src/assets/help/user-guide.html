@@ -197,6 +197,8 @@ To jump to a specific timecode, use <strong>Goto</strong> (<kbd>Ctrl+G</kbd>).</
   <li>The <strong>long skip</strong> (120 seconds) is the outer pair, or
   <kbd>Shift+Left</kbd> / <kbd>Shift+Right</kbd>.</li>
 </ul>
+<p>Hold a skip shortcut down and it keeps skipping, about ten times a second, until
+you let go.</p>
 <p>All three distances can be changed under <strong>Settings &rarr; General</strong>, and
 the buttons&rsquo; hover hints update to match. The shortcuts themselves are listed in
 <a href="#shortcuts">Keyboard shortcuts</a>.</p>
@@ -597,11 +599,12 @@ format are joined losslessly by stream copy &mdash; an MKV gets a chapter at eac
 &mdash; while a mix of formats is re-encoded to a common one (Snipwright recommends
 suitable settings). Title cards and fades apply during a re-encoded join, so adding them
 to otherwise matching clips trades a little speed and quality for the effect. Broadcast
-(DVB) subtitles are kept either way: in a re-encoded join, a scene whose subtitles were drawn
-for a different picture size has them redrawn to fit, so they show in every player, and a
-Blu-ray's subtitles are converted to the same kind, so recordings and disc rips share one
-subtitle track. Anything that still cannot be carried, such as teletext, is named in the
-summary at the end.</p>
+(DVB) subtitles are kept either way, and a Blu-ray's subtitles are converted to the same
+kind whether the join copies or re-encodes, so recordings and disc rips share one subtitle
+track. In a re-encoded join, a scene whose subtitles were drawn for a different picture size
+has them redrawn to fit, so they show in every player. Anything that still cannot be
+carried, such as teletext in a re-encoded join, or broadcast and Blu-ray subtitles in an .mp4, is
+named in the summary at the end.</p>
 <p><strong>Joiner &rarr; Queue Joiner List to Batch</strong>, or <strong>Queue to batch</strong>
 in the Joiner list window, does the same join later, in the Batch Manager, rather than now.
 The same checks and the same re-encode question come first, and your answer is kept with

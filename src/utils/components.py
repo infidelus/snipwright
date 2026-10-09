@@ -30,6 +30,11 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 REQUIREMENTS = os.path.join(_ROOT, "requirements.txt")
 
 _PIN = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*==\s*([0-9][^\s#]*)")
+# A range ("av>=18.1.0,!=19.0.0,<20") names its tested versions in its
+# comment, "tested: 18.1.0, 19.0.1".  A range lets pip install a release
+# nobody has tried, so it is the tested list that is compared, not the range.
+_RANGE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*>=")
+_TESTED = re.compile(r"tested:\s*([0-9][0-9.]*(?:\s*,\s*[0-9][0-9.]*)*)")
 
 # The Python libraries worth listing, as (id, distribution name).  bitstring's
 # own helpers (bitarray, tibs) are left out: they are bitstring's business,
@@ -44,10 +49,11 @@ _LIBRARIES = (
 
 
 def tested_versions(path=REQUIREMENTS):
-    """The exact versions requirements.txt pins, by lower-case package name.
+    """The versions requirements.txt was tested with, by lower-case name.
 
-    Only exact (==) pins are compared.  If the pins become ranges, this needs
-    to learn to read them - until then a range simply is not compared.
+    An exact (==) pin gives its version.  A range gives the versions its
+    comment lists as tested, joined with " / " - a range with no such list
+    is not compared at all, which is why each range line must carry one.
     """
     pins = {}
     try:
@@ -56,6 +62,12 @@ def tested_versions(path=REQUIREMENTS):
                 match = _PIN.match(line)
                 if match:
                     pins[match.group(1).lower()] = match.group(2)
+                    continue
+                match = _RANGE.match(line)
+                listed = _TESTED.search(line)
+                if match and listed:
+                    pins[match.group(1).lower()] = " / ".join(
+                        v.strip() for v in listed.group(1).split(","))
     except OSError:
         pass
     return pins
@@ -137,5 +149,5 @@ def components(config=None):
 
 
 def differs(version, tested):
-    """True when a library is not the version Snipwright was tested with."""
-    return bool(version and tested and version != tested)
+    """True when a library is not a version Snipwright was tested with."""
+    return bool(version and tested and version not in tested.split(" / "))

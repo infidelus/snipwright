@@ -19,7 +19,8 @@ from smartcut.media_utils import VideoExportMode, VideoExportQuality, get_crf_fo
 from smartcut.misc_data import CutSegment
 from smartcut.nal_tools import get_h265_nal_unit_type, is_leading_picture_nal_type
 from smartcut.poc_rewrite import HevcPocRewriter
-from smartcut.open_options import SOURCE_OPEN_OPTIONS
+from smartcut.open_options import LEGACY_OPEN_ARGS, SOURCE_OPEN_OPTIONS
+from smartcut.rational import q
 
 
 @dataclass
@@ -89,18 +90,18 @@ def create_video_output_stream(
     multiple input files write to the same output stream.
     """
     in_stream = cast(VideoStream, media_container.video_stream)
-    assert in_stream.time_base is not None, "Video stream must have a time_base"
+    assert q(in_stream.time_base) is not None, "Video stream must have a time_base"
 
     if video_settings.mode == VideoExportMode.RECODE and video_settings.codec_override != 'copy':
         # Full recode mode with explicit codec
         out_stream = cast(VideoStream, output_av_container.add_stream(
             video_settings.codec_override,
-            rate=in_stream.guessed_rate,
+            rate=q(in_stream.guessed_rate),
             options={'x265-params': 'log_level=error'}
         ))
         out_stream.width = in_stream.width
         out_stream.height = in_stream.height
-        if in_stream.sample_aspect_ratio is not None:
+        if q(in_stream.sample_aspect_ratio) is not None:
             out_stream.sample_aspect_ratio = in_stream.sample_aspect_ratio
         out_stream.metadata.update(in_stream.metadata)
         out_stream.disposition = cast(Disposition, in_stream.disposition.value)
@@ -120,11 +121,11 @@ def create_video_output_stream(
             # Need to create stream with mapped codec name
             out_stream = cast(VideoStream, output_av_container.add_stream(
                 mapped_codec_name,
-                rate=in_stream.guessed_rate
+                rate=q(in_stream.guessed_rate)
             ))
             out_stream.width = in_stream.width
             out_stream.height = in_stream.height
-            if in_stream.sample_aspect_ratio is not None:
+            if q(in_stream.sample_aspect_ratio) is not None:
                 out_stream.sample_aspect_ratio = in_stream.sample_aspect_ratio
             out_stream.metadata.update(in_stream.metadata)
             out_stream.disposition = cast(Disposition, in_stream.disposition.value)
@@ -145,7 +146,7 @@ def create_video_output_stream(
 
     # Note: Codec tag normalization is done in VideoCutter.__init__ after bitstream filter setup
 
-    assert out_stream.time_base is not None, "Output stream must have a time_base"
+    assert q(out_stream.time_base) is not None, "Output stream must have a time_base"
 
     return VideoStreamSetup(
         out_stream=out_stream,
@@ -245,13 +246,13 @@ class VideoCutter:
 
         self.in_stream = cast(VideoStream, media_container.video_stream)
         # Assert time_base is not None once at initialization
-        assert self.in_stream.time_base is not None, "Video stream must have a time_base"
-        self.in_time_base: Fraction = self.in_stream.time_base
+        assert q(self.in_stream.time_base) is not None, "Video stream must have a time_base"
+        self.in_time_base: Fraction = q(self.in_stream.time_base)
 
         # Open another container because seeking to beginning of the file is unreliable...
         self.input_av_container: InputContainer = av.open(
-            media_container.path, 'r', metadata_errors='ignore',
-            options=SOURCE_OPEN_OPTIONS)
+            media_container.path, 'r', options=SOURCE_OPEN_OPTIONS,
+            **LEGACY_OPEN_ARGS)
 
         self.demux_iter = self.input_av_container.demux(self.in_stream)
         self.demux_saved_packet = None
@@ -319,8 +320,8 @@ class VideoCutter:
         _normalize_output_codec_tag(self.out_stream, output_av_container, self.in_stream)
 
         # Assert out_stream time_base is not None once at initialization
-        assert self.out_stream.time_base is not None, "Output stream must have a time_base"
-        self.out_time_base: Fraction = self.out_stream.time_base
+        assert q(self.out_stream.time_base) is not None, "Output stream must have a time_base"
+        self.out_time_base: Fraction = q(self.out_stream.time_base)
 
         # Track typical frame duration for fixing missing/zero durations
         # MP4 muxer uses duration to calculate edit list boundaries, so
@@ -547,7 +548,7 @@ class VideoCutter:
         muxing_codec = self.out_stream.codec_context
         enc_codec = cast(VideoCodecContext, CodecContext.create(self.codec_name, 'w'))
 
-        if muxing_codec.rate is not None:
+        if q(muxing_codec.rate) is not None:
             enc_codec.rate = muxing_codec.rate
         enc_codec.options.update(self.encoding_options)
 
@@ -560,10 +561,10 @@ class VideoCutter:
         enc_codec.height = muxing_codec.height
         enc_codec.pix_fmt = muxing_codec.pix_fmt
 
-        if muxing_codec.sample_aspect_ratio is not None:
+        if q(muxing_codec.sample_aspect_ratio) is not None:
             enc_codec.sample_aspect_ratio = muxing_codec.sample_aspect_ratio
         if self.codec_name == 'mpeg2video':
-            enc_codec.time_base = Fraction(1, muxing_codec.rate)
+            enc_codec.time_base = Fraction(1, q(muxing_codec.rate))
         else:
             enc_codec.time_base = self.out_time_base
 
@@ -632,7 +633,7 @@ class VideoCutter:
             # A packet straight out of a bitstream filter has no stream and
             # may have no time base; assigning None to either raises.
             # _fix_packet_timestamps sets both afterwards in any case.
-            if p.time_base is not None:
+            if q(p.time_base) is not None:
                 packet.time_base = p.time_base
             if p.stream is not None:
                 packet.stream = p.stream
@@ -709,13 +710,13 @@ class VideoCutter:
 
         for frame in self.fetch_frame(s.gop_start_dts, s.gop_end_dts, s.end_time, decoder_priming_dts):
             assert frame.pts is not None, "Frame pts should not be None after decoding"
-            in_tb = frame.time_base if frame.time_base is not None else self.in_time_base
+            in_tb = q(frame.time_base) or self.in_time_base
             if frame.pts * in_tb < s.start_time:
                 continue
             if frame.pts * in_tb >= s.end_time:
                 break
 
-            out_tb = self.out_time_base if self.codec_name != 'mpeg2video' else self.enc_codec.time_base
+            out_tb = self.out_time_base if self.codec_name != 'mpeg2video' else q(self.enc_codec.time_base)
 
             jump = self._jump_ticks(s, frame.pts, in_tb)
             frame.pts = int(frame.pts - s.start_time / in_tb - jump)
@@ -856,7 +857,7 @@ class VideoCutter:
         leading_frames = [
             f for f in all_frames
             if f.pts is not None
-            and f.pts * (f.time_base if f.time_base is not None else self.in_time_base) >= gop_start_time
+            and f.pts * (q(f.time_base) or self.in_time_base) >= gop_start_time
             and f.pts < cra_pts
         ]
         leading_frames.sort(key=lambda f: f.pts if f.pts is not None else 0)
@@ -931,7 +932,7 @@ class VideoCutter:
 
         if self.codec_name == 'mpeg2video':
             for p in result_packets:
-                if p.time_base is not None:
+                if q(p.time_base) is not None:
                     if p.pts is not None:
                         p.pts = int(p.pts * p.time_base / self.out_time_base)
                     if p.dts is not None:
@@ -1079,7 +1080,7 @@ class VideoCutter:
                 lowest_heap_item = self.frame_buffer[0]  # Peek at heap minimum
                 frame = lowest_heap_item.frame
                 frame_pts = lowest_heap_item.pts if lowest_heap_item.pts is not None else -1
-                frame_time_base = frame.time_base if frame.time_base is not None else self.in_time_base
+                frame_time_base = q(frame.time_base) or self.in_time_base
 
                 # Only process frames that are safe to release (frame_pts <= current_dts)
                 if frame_pts <= current_dts:
@@ -1105,7 +1106,7 @@ class VideoCutter:
             # Peek at the next frame without popping it
             next_frame = self.frame_buffer[0]
             frame = next_frame.frame
-            frame_time_base = frame.time_base if frame.time_base is not None else self.in_time_base
+            frame_time_base = q(frame.time_base) or self.in_time_base
 
             if (next_frame.pts is not None and
                 next_frame.pts * frame_time_base < end_time):

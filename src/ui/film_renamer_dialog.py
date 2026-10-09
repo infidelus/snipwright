@@ -647,7 +647,7 @@ class FilmRenamerDialog(QDialog):
         rel = format_path(pattern, meta)
         if rel:
             rel += "." + ext
-        self.example_label.setText("e.g.   " + rel if rel else "")
+        self.example_label.setText(self.tr("e.g.   %s") % rel if rel else "")
 
     # -- destination root --------------------------------------------------
     def _update_dest_field(self):

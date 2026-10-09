@@ -20,3 +20,14 @@ Matches exporter.DEEP_PROBE; change both together.
 """
 
 SOURCE_OPEN_OPTIONS = {"analyzeduration": "120000000", "probesize": "200000000"}
+
+# PyAV 18 decodes metadata tags strictly as UTF-8 unless told otherwise, so a
+# recording with one badly-encoded tag would not open at all - hence
+# metadata_errors="ignore" on every open.  PyAV 19 removed the argument
+# (passing it is a TypeError) because it now always reads metadata safely,
+# byte for byte.  So pass it only to the version that has it.
+import av as _av
+
+LEGACY_OPEN_ARGS = (
+    {"metadata_errors": "ignore"}
+    if int(_av.__version__.split(".")[0]) < 19 else {})

@@ -44,7 +44,8 @@ class SaveVideoDialog(QDialog):
 
         self.config = config
         self._sample_source = sample_source
-        self._source_ext = source_ext or ".ts"
+        from utils.media_ext import writable_extension
+        self._source_ext = writable_extension(source_ext)
         self._preselect_container = default_container
         # Exact profile name to preselect (used after a QSF reload to restore
         # the profile the user had already chosen).  Falls back to container

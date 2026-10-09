@@ -25,7 +25,9 @@ from media.pixfmt import for_output as pixfmt_for_output
 from utils.proc import popen_progress, read_stderr
 import tempfile
 
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import (
+    QT_TRANSLATE_NOOP, QCoreApplication, QObject, QThread, Signal,
+)
 
 logger = logging.getLogger("snipwright")
 
@@ -40,7 +42,10 @@ from export.exporter import (
     _audio_track_info,
     _Cancelled as _ExporterCancelled,
     probe_subtitle_tracks,
+    _NOTE_SUBS_LOST,
+    _SUBTITLE_NAMES,
 )
+from utils.note_text import NoteText, counted, translate_note
 from export.dvb_subtitles import (
     CARRIED_CODECS,
     DVB_CODECS,
@@ -49,6 +54,14 @@ from export.dvb_subtitles import (
     subtitle_kinds,
 )
 
+
+# Progress labels used in more than one place.  Marked for translation; the
+# worker translates each label in _report() before it is emitted.
+_RENDERING_SCENE = QT_TRANSLATE_NOOP("ExportNotes", "Rendering scene %d of %d…")
+_REENCODING_JOIN = QT_TRANSLATE_NOOP("ExportNotes", "Re-encoding and joining scenes…")
+_APPLYING_PROFILE = QT_TRANSLATE_NOOP("ExportNotes", "Applying profile…")
+_WRITING_MKV = QT_TRANSLATE_NOOP("ExportNotes", "Writing MKV…")
+_CONVERTING_MP4 = QT_TRANSLATE_NOOP("ExportNotes", "Converting to MP4…")
 
 def _joiner_pix_fmt(segments):
     """Pixel format for a joined render, taken from the first clip.
@@ -248,6 +261,22 @@ class JoinerRenderWorker(QThread):
         # None falls back to a plain lossless copy to a .ts.
         self._profile = profile
         self._out_format = profile.container if profile is not None else "match"
+        # "Match Source" means the container the destination was given, and
+        # must be resolved to a real one here, exactly as export_ranges()
+        # resolves it for a single cut.  The joiner took "match" to mean
+        # MPEG-TS whatever the name, so joining scenes from Blu-ray .mkv rips
+        # wrote a transport stream under an .mkv name - playable, but
+        # mislabelled and with no chapters, because the chapters are written
+        # by the Matroska mux that never ran (found 2026-10-09).
+        if self._out_format == "match":
+            by_ext = {".mkv": "mkv", ".mp4": "mp4", ".m4v": "mp4",
+                      ".mov": "mp4"}
+            resolved = by_ext.get(os.path.splitext(out_path)[1].lower())
+            if resolved:
+                logger.info("Joiner: Match Source writes %s to suit the "
+                            "destination's %s extension.", resolved.upper(),
+                            os.path.splitext(out_path)[1])
+                self._out_format = resolved
         # None -> lossless stream-copy join (same-format scenes).
         # (width, height, fps) -> re-encode every scene to that and join.
         self._reencode_target = reencode_target
@@ -318,7 +347,11 @@ class JoinerRenderWorker(QThread):
         if percent < self._last_percent:
             percent = self._last_percent
         self._last_percent = percent
-        self.progress.emit(percent, self._with_eta(percent, label))
+        # Translated here because the signal carries a plain str: a
+        # NoteText would arrive as its English text.  The Joiner's progress
+        # lines stayed English in the German interface until this.
+        self.progress.emit(percent, translate_note(
+            self._with_eta(percent, label), QCoreApplication.translate))
 
     def _with_eta(self, percent, label):
         """The status label with a time estimate appended, once one is sound.
@@ -358,7 +391,8 @@ class JoinerRenderWorker(QThread):
             return label
 
         from utils.eta import format_seconds
-        return "%s  (about %s left)" % (label, format_seconds(remaining))
+        return NoteText(QT_TRANSLATE_NOOP("ExportNotes", "%s  (about %s left)"),
+                        label, format_seconds(remaining))
 
     def _completion_stats(self, started, durations):
         """The figures ExportCompleteDialog shows, measured from the output.
@@ -456,7 +490,9 @@ class JoinerRenderWorker(QThread):
                 # is present.
                 if entry.is_title:
                     self._report(i * 100 / slots,
-                                 "Building title card %d of %d…" % (i + 1, n),
+                                 NoteText(QT_TRANSLATE_NOOP(
+                                 "ExportNotes", "Building title card %d of %d…"),
+                                 i + 1, n),
                                  stage="scenes")
                     target = self._reencode_target or (1920, 1080, 25)
                     seg = self._make_title(entry, i, tmpdir, target)
@@ -469,7 +505,7 @@ class JoinerRenderWorker(QThread):
                     raise RuntimeError("File not found:\n%s" % (src,))
 
                 self._report(i * 100 / slots,
-                             "Rendering scene %d of %d…" % (i + 1, n),
+                             NoteText(_RENDERING_SCENE, i + 1, n),
                              stage="scenes")
 
                 # Build (or reuse) the source's frame index, then map the
@@ -493,7 +529,7 @@ class JoinerRenderWorker(QThread):
                     if pct < 0:
                         pct = 0
                     self._report((base + pct / 100.0) * 100 / slots,
-                                 "Rendering scene %d of %d…" % (base + 1, n),
+                                 NoteText(_RENDERING_SCENE, base + 1, n),
                                  stage="scenes")
 
                 # Always render the intermediate pieces as .ts; the chosen
@@ -518,8 +554,9 @@ class JoinerRenderWorker(QThread):
                 durations.append(entry.duration)
 
             self._report(0,
-                         "Joining scenes…" if not self._reencode_target
-                         else "Re-encoding and joining scenes…",
+                         QT_TRANSLATE_NOOP("ExportNotes", "Joining scenes…")
+                         if not self._reencode_target
+                         else _REENCODING_JOIN,
                          stage="join")
             if self._reencode_target:
                 fades = [
@@ -531,6 +568,8 @@ class JoinerRenderWorker(QThread):
                     segments, tmpdir, self._reencode_target, durations, fades)
             else:
                 joined_ts = self._join(segments, tmpdir)
+                self._carry_copy_join_subtitles(
+                    joined_ts, segments, durations, tmpdir)
             self._check_cancel()
 
             # Apply the chosen output profile to the joined stream.  A plain
@@ -543,11 +582,12 @@ class JoinerRenderWorker(QThread):
             if self._profile_is_lossless_copy():
                 self._finalize(joined_ts, durations)
             else:
-                self._report(0, "Applying profile…", stage="finish")
+                self._report(0, _APPLYING_PROFILE, stage="finish")
                 self._apply_profile(joined_ts, 0)
             self._check_cancel()
 
-            self._report(100, "Done", stage="done")
+            self._report(100, QT_TRANSLATE_NOOP("ExportNotes", "Done"),
+                         stage="done")
             # Populated before finished_ok so the caller can read it in the
             # slot, matching how chalkline_worker hands back its own extras.
             self.stats = self._completion_stats(started, durations)
@@ -700,7 +740,8 @@ class JoinerRenderWorker(QThread):
                 ", ".join(str(c) for c in counts), tracks,
             )
             self._notes.append((
-                "some audio tracks could not be carried through",
+                QT_TRANSLATE_NOOP(
+                    "ExportNotes", "some audio tracks could not be carried through"),
                 "The scenes do not all have the same number of audio tracks "
                 "(%s), and joining by re-encoding can only carry the ones "
                 "they share. %d track(s) were kept."
@@ -741,7 +782,8 @@ class JoinerRenderWorker(QThread):
                 "not have them.", other_scenes, len(segments),
                 ", ".join(sorted({x for k in lost for x in k})))
             self._notes.append((
-                "some subtitles could not be carried through",
+                QT_TRANSLATE_NOOP(
+                    "ExportNotes", "some subtitles could not be carried through"),
                 "%d of the %d scenes had subtitles of a kind that cannot be "
                 "carried through a join that has to be re-encoded (such as "
                 "teletext), so the joined video does not have them. A join "
@@ -777,7 +819,8 @@ class JoinerRenderWorker(QThread):
             for k in range(tracks)
         ) or "no audio"
         self._notes.append((
-            "the scenes were re-encoded to join them",
+            QT_TRANSLATE_NOOP(
+                "ExportNotes", "the scenes were re-encoded to join them"),
             "These scenes did not match closely enough to be joined without "
             "re-encoding, so the picture was re-encoded and the audio was "
             "brought to a common shape: %s. Scenes that "
@@ -849,23 +892,66 @@ class JoinerRenderWorker(QThread):
             if track_rates[k]:
                 cmd += ["-b:a:%d" % k, "%dk" % (track_rates[k] // 1000)]
         cmd += ["-progress", "pipe:1", joined]
-        self._run_with_progress(cmd, total, "Re-encoding and joining scenes…")
+        self._run_with_progress(cmd, total, _REENCODING_JOIN)
         if not os.path.exists(joined):
             raise RuntimeError("Re-encoding the joined video failed.")
         if dvb_scenes:
             self._carry_subtitles(joined, segments, durations, tmpdir, sources)
         return joined
 
+    def _carry_copy_join_subtitles(self, joined, segments, durations, tmpdir):
+        """Give a COPY join the subtitles its scenes' sources carry.
+
+        A copy join renders each scene to a transport stream and concatenates
+        them.  A broadcast's DVB subtitles come through that untouched, but a
+        disc's PGS subtitles cannot go in a transport stream at all, so every
+        join of Blu-ray scenes that did not need re-encoding came out with no
+        subtitles and nothing said - found joining four scenes of one Blu-ray
+        rip (2026-10-09).  The re-encoded join has converted PGS to DVB from
+        the source recording since 2.10.0; this sends a copy join down the
+        same path whenever a scene's source has PGS, and names anything that
+        still cannot be carried (a file's SubRip or ASS, say).
+        """
+        lost, sources = [], []
+        for entry in self._entries[:len(segments)]:
+            source = [] if entry.is_title else subtitle_kinds(entry.source)
+            # Teletext and DVB survive the .ts pieces and the concat as they
+            # are; PGS is converted below; anything else is lost.
+            lost.append([x for x in source if x not in CARRIED_CODECS
+                         and "teletext" not in x])
+            sources.append((entry.source, entry.start)
+                           if any(x in PGS_CODECS for x in source) else None)
+        other_scenes = sum(1 for k in lost if k)
+        if other_scenes:
+            kinds = ", ".join(sorted({_SUBTITLE_NAMES.get(x, x)
+                                      for k in lost for x in k}))
+            logger.warning(
+                "Joiner: %d of %d scene(s) have %s subtitles, which a joined "
+                "video cannot carry; it does not have them.",
+                other_scenes, len(segments), kinds)
+            self._notes.append((
+                QT_TRANSLATE_NOOP(
+                    "ExportNotes", "some subtitles could not be carried through"),
+                "%d of the %d scenes had %s subtitles, which a joined video "
+                "cannot carry, so it does not have them. Exporting those "
+                "scenes on their own to .mkv keeps them."
+                % (other_scenes, len(segments), kinds),
+            ))
+        if any(sources):
+            self._carry_subtitles(joined, segments, durations, tmpdir,
+                                  sources)
+
     def _carry_subtitles(self, joined, segments, durations, tmpdir,
                          sources=None):
-        """Add the scenes' DVB subtitles to the re-encoded join, in place.
+        """Add the scenes' DVB subtitles to the joined video, in place.
 
         A failure here must never cost the join itself: the picture and sound
         are done and good, so it is logged, reported, and the join goes on
         without subtitles - exactly what every re-encoded join did before.
         """
         self._check_cancel()
-        self._report(self._last_percent, "Adding subtitles…")
+        self._report(self._last_percent,
+                     QT_TRANSLATE_NOOP("ExportNotes", "Adding subtitles…"))
         with_subs = os.path.join(tmpdir, "joined-subtitles.ts")
         try:
             summary = carry_dvb_subtitles(joined, with_subs, segments,
@@ -874,7 +960,8 @@ class JoinerRenderWorker(QThread):
             logger.exception("Joiner: carrying the subtitles through failed; "
                              "the joined video is written without them.")
             self._notes.append((
-                "subtitles could not be carried through",
+                QT_TRANSLATE_NOOP(
+                    "ExportNotes", "subtitles could not be carried through"),
                 "The scenes had subtitles, but adding them to the re-encoded "
                 "join failed, so the joined video was written without them. "
                 "The log has the details.",
@@ -885,7 +972,8 @@ class JoinerRenderWorker(QThread):
         os.replace(with_subs, joined)
         if summary.get("converted"):
             self._notes.append((
-                "disc subtitles were converted",
+                QT_TRANSLATE_NOOP(
+                    "ExportNotes", "disc subtitles were converted"),
                 "%d scene(s) came from a disc, whose subtitles cannot be "
                 "carried into a joined broadcast video as they are, so they "
                 "were converted to broadcast (DVB) subtitles - the words, "
@@ -894,7 +982,8 @@ class JoinerRenderWorker(QThread):
             ))
         if summary["redrawn"]:
             self._notes.append((
-                "subtitles were redrawn to fit",
+                QT_TRANSLATE_NOOP(
+                    "ExportNotes", "subtitles were redrawn to fit"),
                 "%d scene(s) had subtitles drawn for a different picture "
                 "size from the joined video, so they were redrawn to match "
                 "it - the words and colours are unchanged. That keeps them "
@@ -1079,7 +1168,7 @@ class JoinerRenderWorker(QThread):
                     (state["ceil"] - state["floor"]) * pct // 100)
             value = max(state["last"], min(99, value))
             state["last"] = value
-            self._report(value, "Applying profile…")
+            self._report(value, _APPLYING_PROFILE)
 
         export_ranges(
             joined_ts,
@@ -1121,16 +1210,16 @@ class JoinerRenderWorker(QThread):
         progress update brought it back, and the encode ran to completion.
         """
         if self._out_format == "mkv":
-            self._report(0, "Writing MKV…", stage="finish")
+            self._report(0, _WRITING_MKV, stage="finish")
 
             # Keyed on the exporter's phase, not a fixed token, so the rare
             # reference-decode pass restarts the bar instead of being clamped
             # flat at the top by the never-backwards rule.  Its label says so
             # too: a second bar with the same caption reads as a stall.
             labels = {
-                "verify": "Checking MKV audio…",
-                "verify_reference": "Comparing against the source audio…",
-                "rebuild_audio": "Rebuilding MKV audio…",
+                "verify": QT_TRANSLATE_NOOP("ExportNotes", "Checking MKV audio…"),
+                "verify_reference": QT_TRANSLATE_NOOP("ExportNotes", "Comparing against the source audio…"),
+                "rebuild_audio": QT_TRANSLATE_NOOP("ExportNotes", "Rebuilding MKV audio…"),
             }
 
             def _mkv_cb(data):
@@ -1140,7 +1229,7 @@ class JoinerRenderWorker(QThread):
                 pct = data.get("percent", 0)
                 if pct is None or pct < 0:
                     return                      # busy pulse, not a position
-                self._report(pct, labels.get(phase, "Writing MKV…"),
+                self._report(pct, labels.get(phase, _WRITING_MKV),
                              stage="finish:%s" % phase)
 
             _write_mkv_chapters(
@@ -1148,20 +1237,36 @@ class JoinerRenderWorker(QThread):
                 cancel_cb=lambda: self._cancel, progress_cb=_mkv_cb)
             self._check_cancel()
         elif self._out_format == "mp4":
-            self._report(0, "Converting to MP4…", stage="finish")
+            self._report(0, _CONVERTING_MP4, stage="finish")
             codec, interlaced = _probe_video(joined_ts)
 
             def _cb(data):
                 pct = data.get("percent", 0) if isinstance(data, dict) else 0
                 if pct is None or pct < 0:
                     return                      # busy pulse, not a position
-                self._report(pct, "Converting to MP4…", stage="finish")
+                self._report(pct, _CONVERTING_MP4, stage="finish")
 
             _transcode_to_mp4(
                 joined_ts, self._out, codec, interlaced,
                 total_seconds=sum(durations), progress_cb=_cb,
                 cancel_cb=lambda: self._cancel)
             self._check_cancel()
+            # An .mp4 has no place for DVB subtitles or teletext.  The
+            # exporter says so for an ordinary export; this conversion is the
+            # joiner's own, and said nothing.
+            subs = subtitle_kinds(joined_ts)
+            if subs:
+                kinds = ", ".join(sorted({_SUBTITLE_NAMES.get(x, x)
+                                          for x in subs}))
+                logger.warning(
+                    "MP4 cannot carry the joined video's %s subtitle(s); "
+                    "they are not in the output.", kinds)
+                self._notes.append((
+                    counted(len(subs), *_NOTE_SUBS_LOST),
+                    "The joined video carries %s subtitles, which an .mp4 "
+                    "file has no place for. Save it as .mkv or .ts instead "
+                    "and they are kept." % kinds,
+                ))
         else:
             # Match source (.ts) - the joined file is the output.
             shutil.move(joined_ts, self._out)

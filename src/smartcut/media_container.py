@@ -7,7 +7,8 @@ import numpy as np
 
 from smartcut.latm import LatmError, LatmRepacketiser
 from smartcut.lazy_packets import LazyAudioPackets
-from smartcut.open_options import SOURCE_OPEN_OPTIONS
+from smartcut.open_options import LEGACY_OPEN_ARGS, SOURCE_OPEN_OPTIONS
+from smartcut.rational import q
 from av import AudioStream, Packet, VideoStream
 from av import open as av_open
 from av import time_base as AV_TIME_BASE
@@ -216,7 +217,7 @@ class MediaContainer:
         self.video_keyframe_indices = []
 
         self.av_container = av_container = av_open(
-            path, 'r', metadata_errors='ignore', options=SOURCE_OPEN_OPTIONS)
+            path, 'r', options=SOURCE_OPEN_OPTIONS, **LEGACY_OPEN_ARGS)
 
         self.chat_url = None
         self.chat_history = None
@@ -246,7 +247,7 @@ class MediaContainer:
         self.audio_tracks = []
         stream_index_to_audio_track = {}
         for i, audio_stream in enumerate(av_container.streams.audio):
-            if audio_stream.time_base is None:
+            if q(audio_stream.time_base) is None:
                 continue
             audio_stream.codec_context.thread_type = "FRAME"
             track = AudioTrack(self, audio_stream, path, i)
@@ -304,18 +305,35 @@ class MediaContainer:
             # first one populates the cache that the next one then loads -
             # which is why exporting to .ts worked and the .mkv straight after
             # it did not.
+            #
+            # It must read a FEW packets, not one.  FFmpeg fills in the
+            # stream's own parameters - what an output stream is copied from -
+            # on the SECOND packet of the track; decoding the first fills in
+            # only the decoder's.  This used to stop after the first decoded
+            # frame, so it never fixed the template: a 5USA recording's sparse
+            # MP2 audio-description track (2026-10-04) still copied as 0 Hz /
+            # 0 channels, and every export after the first lost the track,
+            # .ts included.  Measured: the copy carries 48 kHz mono after two
+            # packets, by demuxing alone or with decoding.  WARM_PACKETS is
+            # a wide margin; the packets are a few hundred bytes each, and
+            # this runs only on a cached load, only for a track the header
+            # does not describe.
+            WARM_PACKETS = 25
             for track in self.audio_tracks:
                 stream = track.av_stream
                 cc = stream.codec_context
                 if getattr(cc, "sample_rate", 0) and getattr(cc, "channels", 0):
                     continue
                 try:
-                    decoded = 0
+                    seen = 0
                     for packet in av_container.demux(stream):
-                        for _frame in packet.decode():
-                            decoded += 1
-                            break
-                        if decoded or packet.pts is None:
+                        seen += 1
+                        try:
+                            for _frame in packet.decode():
+                                break
+                        except Exception:
+                            pass          # one bad packet does not end it
+                        if seen >= WARM_PACKETS:
                             break
                 except Exception:
                     logging.getLogger("snipwright").debug(
@@ -442,7 +460,7 @@ class MediaContainer:
         if manual_duration_calc and max_end_pts_by_stream:
             for stream_idx, max_pts in max_end_pts_by_stream.items():
                 stream = av_container.streams[stream_idx]
-                if stream.time_base is None:
+                if q(stream.time_base) is None:
                     continue
                 stream_duration = Fraction(max_pts) * stream.time_base
                 if stream_duration > self.duration:
@@ -499,23 +517,23 @@ class MediaContainer:
         # Run for a cached index too: frame_times is derived from the pts array
         # and the time base, and recomputing it costs a fraction of a second -
         # far less than the space storing an array of Fractions would take.
-        if self.video_stream is not None and self.video_stream.time_base is not None:
-            tasks.append((self.video_frame_times_pts, self.video_stream.time_base))
+        if self.video_stream is not None and q(self.video_stream.time_base) is not None:
+            tasks.append((self.video_frame_times_pts, q(self.video_stream.time_base)))
         for t in self.audio_tracks:
-            if t.av_stream.time_base is not None:
-                tasks.append((t.frame_times_pts, t.av_stream.time_base))
+            if q(t.av_stream.time_base) is not None:
+                tasks.append((t.frame_times_pts, q(t.av_stream.time_base)))
 
         if tasks:
             with ThreadPoolExecutor() as executor:
                 results = list(executor.map(_multiply_array_by_fraction, tasks))
 
             result_idx = 0
-            if self.video_stream is not None and self.video_stream.time_base is not None:
+            if self.video_stream is not None and q(self.video_stream.time_base) is not None:
                 self.video_frame_times = results[result_idx]
                 self.gop_start_times_pts_s = list(self.video_frame_times[self.video_keyframe_indices])
                 result_idx += 1
             for t in self.audio_tracks:
-                if t.av_stream.time_base is not None:
+                if q(t.av_stream.time_base) is not None:
                     t.frame_times = results[result_idx]
                     result_idx += 1
 
@@ -537,7 +555,7 @@ class MediaContainer:
         assert self.video_stream is not None
         t += self.start_time
         # Convert to PTS for searching
-        t_pts = round(t / cast(Fraction, self.video_stream.time_base))
+        t_pts = round(t / cast(Fraction, q(self.video_stream.time_base)))
         idx = np.searchsorted(self.video_frame_times_pts, t_pts)
         if idx == len(self.video_frame_times_pts):
             return self.duration
@@ -569,12 +587,12 @@ class MediaContainer:
         if self.video_stream is not None:
             frame_times = self.video_frame_times
             frame_times_pts = self.video_frame_times_pts
-            time_base = cast(Fraction, self.video_stream.time_base)
+            time_base = cast(Fraction, q(self.video_stream.time_base))
         elif self.audio_tracks:
             track = self.audio_tracks[0]
             frame_times = track.frame_times
             frame_times_pts = track.frame_times_pts
-            time_base = cast(Fraction, track.av_stream.time_base)
+            time_base = cast(Fraction, q(track.av_stream.time_base))
         else:
             return t  # No frames to snap to
 
@@ -601,12 +619,12 @@ class MediaContainer:
         if self.video_stream is not None:
             frame_times = self.video_frame_times
             frame_times_pts = self.video_frame_times_pts
-            time_base = cast(Fraction, self.video_stream.time_base)
+            time_base = cast(Fraction, q(self.video_stream.time_base))
         elif self.audio_tracks:
             track = self.audio_tracks[0]
             frame_times = track.frame_times
             frame_times_pts = track.frame_times_pts
-            time_base = cast(Fraction, track.av_stream.time_base)
+            time_base = cast(Fraction, q(track.av_stream.time_base))
         else:
             return t  # No frames to snap to
 

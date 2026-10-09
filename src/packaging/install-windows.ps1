@@ -167,11 +167,12 @@ Info "Installing Python dependencies (this can take a minute)..."
 
 # The known package set, used if requirements.txt is missing or empty.
 # Locked to the exact versions Snipwright is tested with, as in
-# requirements.txt - keep the two in step.  PyAV 19 broke every export on a
-# fresh install the day after it was published, because nothing stopped pip
-# taking it.
-$knownDeps = @("PySide6==6.11.1", "av==18.1.0", "numpy==2.5.1", "bitstring==4.4.0",
-               "bitarray==3.9.2", "tibs==0.5.7", "tqdm==4.70.0")
+# requirements.txt - keep the two in step.  PyAV 19.0.0 broke every export on
+# a fresh install the day after it was published, because nothing stopped pip
+# taking it; PyAV is now held to the range tested (18.1 and 19.0.1), short of
+# the untried 20.
+$knownDeps = @("PySide6==6.11.2", "av>=18.1.0,!=19.0.0,<20", "numpy==2.5.3", "bitstring==4.4.0",
+               "bitarray==3.11.0", "tibs==0.5.7", "tqdm==4.70.1")
 
 # Install dependencies.  A requirements.txt that's empty or missing (it has
 # been seen to extract as 0 bytes) would make "pip install -r" a silent no-op,

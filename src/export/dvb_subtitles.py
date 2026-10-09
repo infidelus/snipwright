@@ -65,6 +65,8 @@ from fractions import Fraction
 import av
 import numpy as np
 
+from smartcut.open_options import LEGACY_OPEN_ARGS, SOURCE_OPEN_OPTIONS
+
 # The application's own logger, as every other module uses - a module-named
 # logger never reaches Snipwright's log file.
 log = logging.getLogger("snipwright")
@@ -486,7 +488,14 @@ def carry_dvb_subtitles(joined, out_path, segments, durations, sources=None):
     if not carried:
         return None
 
-    src = av.open(joined)
+    # Opened with the deep probe every source open uses.  A sparse
+    # audio-description track - sent only while the narrator speaks - can
+    # have its first packet well into the join, and a default probe gives up
+    # before then: the track reads 0 Hz, 0 channels, the stream copied from it
+    # is refused when the header is written (EINVAL), and the join was saved
+    # without its subtitles.  Seen joining a U&Drama SD scene to a BBC Three HD
+    # one, on PyAV 18 and 19 alike.
+    src = av.open(joined, options=SOURCE_OPEN_OPTIONS, **LEGACY_OPEN_ARGS)
     dst = av.open(out_path, "w", format="mpegts")
     try:
         mapping = {}
@@ -514,7 +523,7 @@ def carry_dvb_subtitles(joined, out_path, segments, durations, sources=None):
     finally:
         dst.close()
         src.close()
-    log.info("Subtitles: carried %d scene(s) through the re-encoded join "
+    log.info("Subtitles: carried %d scene(s) through the join "
              "(%d redrawn for %dx%d, %d converted from PGS), %d display set(s).",
              carried, redrawn, canvas[0], canvas[1], converted, len(sets))
     return {"carried": carried, "redrawn": redrawn, "converted": converted,

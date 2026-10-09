@@ -228,7 +228,10 @@ class OutputProfile:
             return ".mkv"
         if self.container == "mp4":
             return ".mp4"
-        return source_ext or ".ts"
+        # A source extension FFmpeg cannot write to (Tvheadend's .bin) is
+        # written as .ts instead - see utils.media_ext.
+        from utils.media_ext import writable_extension
+        return writable_extension(source_ext)
 
     # -- persistence -------------------------------------------------------
     @staticmethod

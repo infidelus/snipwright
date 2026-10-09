@@ -90,8 +90,8 @@ def format_ext(fmt, source_path=""):
     """The output extension for a batch format.  For 'ts' we follow the
     source's own extension (a .ts recording stays .ts), defaulting to .ts."""
     if fmt == "ts":
-        ext = os.path.splitext(source_path)[1]
-        return ext or ".ts"
+        from utils.media_ext import output_extension
+        return output_extension(source_path)
     return _FORMAT_TO_EXT.get(fmt, ".ts")
 
 

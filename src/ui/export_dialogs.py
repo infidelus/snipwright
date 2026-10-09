@@ -21,27 +21,32 @@ from PySide6.QtWidgets import (
 )
 
 from utils.eta import EtaTracker, RECODE_PHASES, format_seconds as _fmt_secs
+from utils.note_text import translate_note
 
 
+# Marked for translation here and translated where shown (self.tr in
+# ExportProgressDialog) - left as plain strings, the progress window stayed
+# in English in the German interface while everything around it was German.
+_WORKING = QT_TRANSLATE_NOOP("ExportProgressDialog", "Working…")
 _PHASE_LABELS = {
-    "copy": "Fast Frame Copy",
-    "encode": "Encoding Frames",
-    "crop": "Cropping (re-encoding)…",
-    "verify": "Verifying output",
-    "finalise_mkv": "Finalising MKV…",
-    "recode_audio": "Recoding…",
+    "copy": QT_TRANSLATE_NOOP("ExportProgressDialog", "Fast Frame Copy"),
+    "encode": QT_TRANSLATE_NOOP("ExportProgressDialog", "Encoding Frames"),
+    "crop": QT_TRANSLATE_NOOP("ExportProgressDialog", "Cropping (re-encoding)…"),
+    "verify": QT_TRANSLATE_NOOP("ExportProgressDialog", "Verifying output"),
+    "finalise_mkv": QT_TRANSLATE_NOOP("ExportProgressDialog", "Finalising MKV…"),
+    "recode_audio": QT_TRANSLATE_NOOP("ExportProgressDialog", "Recoding…"),
     # Not "Recoding": the repair re-encodes a handful of frames and
     # copies every other one byte for byte, so calling it a recode
     # misdescribes both what it does and how long it will take.
-    "repair_audio": "Repairing audio…",
+    "repair_audio": QT_TRANSLATE_NOOP("ExportProgressDialog", "Repairing audio…"),
     # Both streams copied: nothing is being re-encoded, so saying
     # "Recoding" would be a plain untruth about what is happening to
     # the file.
-    "repackage_mp4": "Repackaging to MP4…",
-    "recode_full": "Major recode required…",
-    "rebuild_audio": "Rebuilding audio…",
-    "graft_audio": "Copying audio…",
-    "done": "Finishing",
+    "repackage_mp4": QT_TRANSLATE_NOOP("ExportProgressDialog", "Repackaging to MP4…"),
+    "recode_full": QT_TRANSLATE_NOOP("ExportProgressDialog", "Major recode required…"),
+    "rebuild_audio": QT_TRANSLATE_NOOP("ExportProgressDialog", "Rebuilding audio…"),
+    "graft_audio": QT_TRANSLATE_NOOP("ExportProgressDialog", "Copying audio…"),
+    "done": QT_TRANSLATE_NOOP("ExportProgressDialog", "Finishing"),
 }
 
 
@@ -192,6 +197,7 @@ class ExportProgressDialog(QDialog):
             if self._bar.maximum() == 0:
                 self._bar.setRange(0, 100)
             self._bar.setValue(max(0, int(percent)))
+            # The Joiner translates its own label before sending it.
             self._phase_label.setText(info.get("label") or self.tr("Joining…"))
             self._scene_label.setText("")
             self._eta_label.setText("")
@@ -208,7 +214,7 @@ class ExportProgressDialog(QDialog):
         # label so it never looks frozen at 99%.
         if percent < 0:
             self._bar.setRange(0, 0)
-            self._phase_label.setText(_PHASE_LABELS.get(phase, "Working…"))
+            self._phase_label.setText(self.tr(_PHASE_LABELS.get(phase, _WORKING)))
             self._scene_label.setText("")
             self._eta_label.setText(self.tr("Estimated time remaining: …"))
             return
@@ -217,7 +223,7 @@ class ExportProgressDialog(QDialog):
             self._bar.setRange(0, 100)
         self._bar.setValue(percent)
 
-        self._phase_label.setText(_PHASE_LABELS.get(phase, "Working…"))
+        self._phase_label.setText(self.tr(_PHASE_LABELS.get(phase, _WORKING)))
 
         recoding = phase in RECODE_PHASES
         if recoding or phase in ("verify", "done"):
@@ -351,6 +357,8 @@ class ExportCompleteDialog(QDialog):
                 text = note
             if not text:
                 continue
+            # Written in English for the log; shown in the user's language.
+            text = translate_note(text, QCoreApplication.translate)
             bg = "#2f3136" if (len(rows) + j) % 2 == 0 else "#26282c"
             row_html.append(
                 f'<tr style="background:{bg};">'
@@ -382,7 +390,9 @@ class ExportCompleteDialog(QDialog):
                 '<tr style="background:#3a3d42;">'
                 '<td style="padding:0 18px 18px 18px; color:#e0915f; '
                 'font-size:12px;">'
-                + "<br>".join(_esc(e) for e in errors)
+                + "<br>".join(
+                    _esc(translate_note(e, QCoreApplication.translate))
+                    for e in errors)
                 + '</td></tr>'
             )
         header_pad_bottom = "8px" if errors else "18px"

@@ -910,13 +910,19 @@ class ActionBar(QWidget):
         if mode == self._mode:
             return
 
+        first = self._mode is None
         self._mode = mode
 
-        for button in (self.add_selection_btn, self.add_unselected_btn):
-            try:
-                button.clicked.disconnect()
-            except (TypeError, RuntimeError):
-                pass    # nothing connected yet
+        # Nothing is connected on the first call, so there is nothing to
+        # disconnect.  Asking anyway used to raise, which the except caught;
+        # PySide6 6.11 instead prints "RuntimeWarning: Failed to disconnect
+        # (None) from signal clicked()" to the terminal at every start.
+        if not first:
+            for button in (self.add_selection_btn, self.add_unselected_btn):
+                try:
+                    button.clicked.disconnect()
+                except (TypeError, RuntimeError):
+                    pass
 
         if mode == "cut":
             self.add_selection_btn.setText(self.tr("Cut Selection"))

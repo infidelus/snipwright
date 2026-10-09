@@ -15,6 +15,7 @@ from smartcut.media_container import (
 )
 from smartcut.misc_data import CutSegment
 from smartcut.video_cutter import copy_packet
+from smartcut.rational import q
 
 
 def create_audio_output_stream(
@@ -132,7 +133,7 @@ class PassthruAudioCutter:
         self.prev_pts = initial_prev_pts
 
     def segment(self, cut_segment: CutSegment) -> list[Packet]:
-        in_tb = cast(Fraction, self.track.av_stream.time_base)
+        in_tb = cast(Fraction, q(self.track.av_stream.time_base))
         if cut_segment.start_time <= 0:
             start = 0
         else:
@@ -220,7 +221,7 @@ class SubtitleCutter:
         self.current_packet_i = 0
 
     def segment(self, cut_segment: CutSegment) -> list[Packet]:
-        in_tb = cast(Fraction, self.in_stream.time_base)
+        in_tb = cast(Fraction, q(self.in_stream.time_base))
         segment_start_pts = int(cut_segment.start_time / in_tb)
         segment_end_pts = int(cut_segment.end_time / in_tb)
 

@@ -23,6 +23,13 @@ distilling the part many people relied on most into a free, open-source tool.
 - **Lossless export**, including a broadcast-audio graft that copies the
   source audio losslessly rather than re-encoding it — every track, with
   audio-description tracks kept in sync and correctly labelled.
+- **Subtitles kept** — broadcast (DVB) subtitles are carried through every
+  cut and every join, re-encoded or not. A Blu-ray's subtitles stay exactly as
+  they are in an MKV export, and are converted to broadcast subtitles when
+  disc scenes are joined, so a joined video has one subtitle track. Where a
+  format genuinely can't hold a subtitle track (MP4 has no room for DVB
+  subtitles, for example), the export summary says so instead of dropping it
+  silently.
 - **A VideoReDo-style Joiner** that combines scenes or whole recordings —
   with optional title cards and fades — into one video, joined losslessly
   when the formats match. Select several files in Open Video to fill the
@@ -67,8 +74,9 @@ distilling the part many people relied on most into a free, open-source tool.
   Windows installer fetches 3.14 if needed.
 - **Python packages:** PySide6, PyAV (`av`), numpy, bitstring, tqdm — see
   [`requirements.txt`](requirements.txt). Each is locked to the exact version
-  Snipwright is tested with, so a new release of one of them can't break an
-  install; newer versions are adopted once they've been tried.
+  Snipwright is tested with — PyAV to the range of versions tested — so a new
+  release of one of them can't break an install; newer versions are adopted
+  once they've been tried.
 - **External tools:**
   - **ffmpeg** — required. Snipwright runs it directly to inspect recordings
     and for some export steps. (PyAV brings its own copy of FFmpeg for

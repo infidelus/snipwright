@@ -26,6 +26,7 @@ from pathlib import Path
 
 import av
 import numpy as np
+from smartcut.rational import q
 
 logger = logging.getLogger("snipwright")
 
@@ -106,6 +107,12 @@ def _encode(value):
     Fractions and numpy arrays both pickle, but going through explicit forms
     keeps the file readable by a future version that changes representation.
     """
+    # A PyAV 19 AVRational is a Fraction to PyAV 18's way of thinking - see
+    # rational.py - so store it as one, or None when unset.
+    if (type(value).__name__ == "AVRational"):
+        value = q(value)
+        if value is None:
+            return None
     if isinstance(value, Fraction):
         return ("frac", (value.numerator, value.denominator))
     if isinstance(value, np.ndarray):

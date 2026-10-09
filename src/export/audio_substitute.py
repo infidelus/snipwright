@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import logging
 import os
+from smartcut.open_options import LEGACY_OPEN_ARGS
+from smartcut.rational import q
 
 logger = logging.getLogger("snipwright")
 
@@ -97,7 +99,7 @@ class _Walk:
         # dts by preference: it is monotonic even where B-frames reorder pts,
         # and apply_repairs walks video packets too.
         stamp = packet.dts if packet.dts is not None else packet.pts
-        if stamp is None or packet.time_base is None:
+        if stamp is None or q(packet.time_base) is None:
             return
         try:
             seconds = float(stamp * packet.time_base)
@@ -131,7 +133,7 @@ def plan_repairs(path, stream_index, info, cancel_cb=None,
     dominant = info["dominant"]
     replacements = {}
     try:
-        container = av.open(path, metadata_errors="ignore")
+        container = av.open(path, **LEGACY_OPEN_ARGS)
     except Exception:
         return None
     try:
@@ -199,7 +201,7 @@ def apply_repairs(src, dst, stream_index, replacements, cancel_cb=None,
     import av
 
     try:
-        inp = av.open(src, metadata_errors="ignore")
+        inp = av.open(src, **LEGACY_OPEN_ARGS)
     except Exception as exc:
         logger.warning("Could not open the cut for repair: %s", exc)
         return False
