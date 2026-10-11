@@ -39,7 +39,7 @@ distilling the part many people relied on most into a free, open-source tool.
   picture shape and the aspect ratio, learns each channel's logo from the edits
   you save, and reports nothing at all when it cannot tell rather than guessing
   and removing part of the programme. Breaks become ready-to-review cuts.
-  Comskip is still supported as an alternative if you prefer it.
+  Comskip is supported as an alternative if you prefer it.
 - **A background Watcher** that scans your recording folders and prepares
   projects automatically, so they're waiting for you in the Batch Manager. An
   ignore list keeps other people's programmes out of it, and can tidy itself up
@@ -73,10 +73,10 @@ distilling the part many people relied on most into a free, open-source tool.
 - **Python 3.12, 3.13 or 3.14.** Linux Mint 22 and later include 3.12; the
   Windows installer fetches 3.14 if needed.
 - **Python packages:** PySide6, PyAV (`av`), numpy, bitstring, tqdm — see
-  [`requirements.txt`](requirements.txt). Each is locked to the exact version
-  Snipwright is tested with — PyAV to the range of versions tested — so a new
-  release of one of them can't break an install; newer versions are adopted
-  once they've been tried.
+  [`requirements.txt`](requirements.txt). Each is held to the versions
+  Snipwright has been tested with: bug-fix releases of a tested version are
+  accepted, but nothing newer, so a new release of one of them can't break an
+  install; newer versions are adopted once they've been tried.
 - **External tools:**
   - **ffmpeg** — required. Snipwright runs it directly to inspect recordings
     and for some export steps. (PyAV brings its own copy of FFmpeg for
@@ -170,8 +170,11 @@ python3 src/main.py
 1. **Open a recording** with *Open Video* (or drag one in).
 2. **Find your cuts.** Scrub the timeline, step frame-by-frame, and use the
    thumbnail strip to land exactly where you want.
-3. **Mark scenes** with mark-in / mark-out to define what to keep — or let
-   *Tools → Detect Commercials* pre-mark the breaks for you.
+3. **Cut out what you don't want.** In Cut Mode, the default, the whole
+   recording starts selected: mark in and mark out around each advert break
+   and cut it — or let *Tools → Detect Commercials* mark the breaks for you.
+   If you'd rather mark the parts to keep, switch to Scene Mode in
+   *Settings → General*.
 4. **Export.** The default export is a lossless, frame-accurate stream copy;
    choose MKV if you'd prefer that container.
 

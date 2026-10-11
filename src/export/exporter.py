@@ -169,8 +169,50 @@ def _native_frame_mapper(source, frame_index):
     return to_native, collapsed
 
 
+def _tag_seconds(text):
+    """'00:02:10.040000000' (Matroska's DURATION tag) as seconds, or None."""
+    try:
+        h, m, sec = str(text).split(":")
+        return int(h) * 3600 + int(m) * 60 + float(sec)
+    except (ValueError, AttributeError):
+        return None
+
+
 def _output_duration_seconds(path):
-    """Duration of a finished output, or 0.0 if it cannot be read."""
+    """Length of a finished output's picture and sound, or 0.0.
+
+    From the video and audio streams only.  The container's own duration
+    runs to the end of the LAST thing in it, and a subtitle is shown for a
+    while after it starts: a DVD rip cut to .mkv measured 132.55 s against
+    130.04 s of picture and sound, because the final subtitle began at 129.64 s
+    and stays up for 2.9 s - and the summary reported "output ~2.5s longer
+    than the edit", a fault that was not there.  Falls back to the container's
+    duration when the streams do not say (some do not).
+    """
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-hide_banner", "-loglevel", "error",
+             "-show_entries",
+             "stream=codec_type,start_time,duration:stream_tags=DURATION",
+             "-show_entries", "format=start_time", "-of", "json", path],
+            capture_output=True, text=True).stdout
+        info = json.loads(out)
+        origin = float(info.get("format", {}).get("start_time") or 0.0)
+        ends = []
+        for st in info.get("streams", []):
+            if st.get("codec_type") not in ("video", "audio"):
+                continue
+            dur = st.get("duration")
+            dur = float(dur) if dur not in (None, "N/A") else _tag_seconds(
+                (st.get("tags") or {}).get("DURATION"))
+            if dur is None:
+                continue
+            start = float(st.get("start_time") or origin)
+            ends.append(start + dur - origin)
+        if ends:
+            return max(ends)
+    except Exception:
+        pass
     try:
         out = subprocess.run(
             [
@@ -3090,11 +3132,18 @@ def _graft_one_track_audio(source_path, track_idx, scene_times, offsets,
     """
     import av  # PyAV - already a smartcut dependency
 
+    from smartcut.open_options import warm_audio_parameters
+
     written = 0
     with av.open(source_path) as inp:
         if track_idx >= len(inp.streams.audio):
             return 0
         astream = inp.streams.audio[track_idx]
+        # A late-starting AD track reads 0 Hz / 0 channels until FFmpeg has
+        # seen a couple of its packets, and add_stream_from_template below is
+        # refused for it - which failed the whole graft and re-encoded every
+        # track instead.
+        warm_audio_parameters(inp, [astream])
         tb = astream.time_base
 
         with av.open(out_path, "w", format="mpegts") as out:
@@ -3599,6 +3648,7 @@ _SUBTITLE_NAMES = {
     "hdmv_pgs_subtitle": "PGS",
     "dvbsub": "DVB",
     "pgssub": "PGS",
+    "dvdsub": "DVD",
     "libzvbi_teletextdec": "teletext",
     "dvd_subtitle": "DVD",
     "subrip": "SubRip",
@@ -4651,8 +4701,13 @@ def export_ranges(
                       " Export to .mkv instead and they are kept.")
             notes.append((
                 counted(len(lost_subs), *_NOTE_SUBS_LOST),
-                "The recording carries %s subtitle%s, which a %s file has no "
-                "place for.%s"
+                # "Snipwright does not write", not "has no place for": an
+                # .mp4 does hold TEXT subtitles (mov_text) - Snipwright just
+                # does not convert a file's SubRip into them, by choice.  The
+                # broadcast and disc kinds it does meet are pictures, which
+                # an .mp4 cannot hold at all; the sentence is true of both.
+                "The recording carries %s subtitle%s, which Snipwright does "
+                "not write to a %s file.%s"
                 % (kinds, plural, os.path.splitext(out_path)[1] or out_format,
                    advice),
             ))
@@ -4665,13 +4720,13 @@ def export_ranges(
                 # cannot carry in its own summary.
                 logger.info(
                     "Joiner scene piece: its %s subtitles cannot go in the "
-                    "intermediate .ts; the join converts a disc's PGS to DVB "
-                    "from the recording itself.", kinds,
+                    "intermediate .ts; the join converts a disc's subtitles "
+                    "(Blu-ray or DVD) to DVB from the recording itself.", kinds,
                 )
             else:
                 logger.warning(
-                    "%s cannot carry this recording's %s subtitle(s); they "
-                    "are not in the output.",
+                    "%s output: Snipwright does not write this recording's "
+                    "%s subtitle(s) to it; they are not in the output.",
                     os.path.splitext(out_path)[1].lstrip(".").upper()
                     or out_format.upper(), kinds,
                 )

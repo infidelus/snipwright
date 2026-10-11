@@ -16,13 +16,13 @@ The bar reads frames from window.frames (the FrameSequence) exactly as before,
 so it works for both the in-RAM and decode-on-demand back ends.
 """
 
+import math
+
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
     QWidget,
-    QHBoxLayout,
     QLabel,
-    QLayout,
     QSizePolicy,
 )
 
@@ -68,14 +68,13 @@ class _Thumb(QLabel):
             THUMB_HEIGHT
         )
 
-        self.setMinimumWidth(
-            THUMB_MIN_WIDTH
-        )
-
-        # Expand to share the bar width equally; height stays fixed.
-        self.setSizePolicy(
-            QSizePolicy.Expanding,
-            QSizePolicy.Fixed,
+        # Always the same width: the strip changes how many thumbnails it
+        # shows, and the gaps between them, never their size.  Stretching
+        # them to fill the bar made them shrink and grow with the window -
+        # most visibly when the Charms bar took its width away - and the
+        # user's ruling was that thumbnails always stay the same size.
+        self.setFixedWidth(
+            THUMB_TARGET_WIDTH
         )
 
         self.setAlignment(
@@ -398,35 +397,22 @@ class ThumbnailBar(QWidget):
         self._letters = {}
         self._show_frame_type = False
 
-        self._layout = QHBoxLayout(self)
-
-        # The bar re-flows its thumbnail count to whatever width it's given
-        # (see resizeEvent).  Crucially it must NOT report a large minimum
-        # width back up to the window: when maximised it packs in many thumbs,
-        # and if each one's 80px minimum counted, the window's minimum width
-        # would balloon and refuse to shrink on un-maximise (the same stuck-
-        # size trap the preview avoids).  SetNoConstraint stops the inner
-        # layout forcing a minimum, the Ignored policy stops the bar dictating
-        # the window width, and minimumSizeHint() pins the reported minimum to
-        # zero width.  The bar simply takes the width it's handed and rebuilds.
-        self._layout.setSizeConstraint(
-            QLayout.SetNoConstraint
-        )
-
+        # No layout: the thumbs are placed by hand in _place(), at a fixed
+        # width and spacing, centred on the cursor's frame, with the ones at
+        # either end cut off by the bar's edge.  A layout can only share the
+        # width out - stretching the thumbs, or (tried in a test build)
+        # widening the gaps - and the user's ruling is thumbs of one size
+        # with the old narrow gap, the strip always full, at any width.
+        #
+        # The bar must still NOT report a large minimum width back up to the
+        # window: when maximised it holds many thumbs, and if they counted
+        # the window's minimum width would balloon and refuse to shrink on
+        # un-maximise (the stuck-size trap the preview avoids).  With no
+        # layout nothing is reported; the Ignored policy and the zero-width
+        # minimumSizeHint() below make sure of it.
         self.setSizePolicy(
             QSizePolicy.Ignored,
             QSizePolicy.Fixed,
-        )
-
-        self._layout.setSpacing(
-            THUMB_SPACING
-        )
-
-        self._layout.setContentsMargins(
-            0,
-            8,
-            0,
-            8,
         )
 
         self.setFixedHeight(
@@ -444,23 +430,37 @@ class ThumbnailBar(QWidget):
     # ------------------------------------------------------------------ #
 
     def _fit_count(self):
-        """Odd number of thumbs that best fills the bar at ~target width."""
+        """Enough thumbs to fill the bar from the middle out, as an odd number.
+
+        The cursor's thumb sits in the centre; each side then needs enough
+        whole-or-partial thumbs to reach its edge, and the outermost are cut
+        off where the bar ends.
+        """
         width = self.width()
 
         if width <= 0:
             return MIN_THUMBS
 
-        # Round to the nearest fit so the strip fills rather than under-fills.
-        per = THUMB_TARGET_WIDTH + THUMB_SPACING
+        side = max(0.0, (width - THUMB_TARGET_WIDTH) / 2)
+        per_side = math.ceil(side / (THUMB_TARGET_WIDTH + THUMB_SPACING))
 
-        n = round((width + THUMB_SPACING) / per)
+        return max(MIN_THUMBS, 2 * per_side + 1)
 
-        n = max(MIN_THUMBS, int(n))
+    def _place(self):
+        """Put each thumb at its fixed place, centred on the middle one.
 
-        if n % 2 == 0:
-            n -= 1
-
-        return n
+        Thumbs past either edge are simply clipped by the bar, as child
+        widgets are.
+        """
+        n = len(self._labels)
+        if not n:
+            return
+        pitch = THUMB_TARGET_WIDTH + THUMB_SPACING
+        first_x = (self.width() - THUMB_TARGET_WIDTH) // 2 - (n // 2) * pitch
+        y = (self.height() - THUMB_HEIGHT) // 2
+        for i, label in enumerate(self._labels):
+            label.setGeometry(first_x + i * pitch, y,
+                              THUMB_TARGET_WIDTH, THUMB_HEIGHT)
 
     def _rebuild_labels(self):
         """(Re)create the thumb labels when the fitting count changes."""
@@ -469,11 +469,9 @@ class ThumbnailBar(QWidget):
         if n == self._count and self._labels:
             return
 
-        while self._layout.count():
-            item = self._layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
+        for label in self._labels:
+            label.hide()
+            label.deleteLater()
 
         self._labels = []
 
@@ -485,18 +483,19 @@ class ThumbnailBar(QWidget):
             # single source of truth for where the cursor is.
             label.bar = self
             label.clicked.connect(self._on_thumb_clicked)
-            self._layout.addWidget(label)
+            label.setParent(self)
+            label.show()
             self._labels.append(label)
 
         self._count = n
 
-        # Thumb widths change with the count, so cached pixmaps are stale.
-        self.clear_cache()
+        self._place()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
 
         self._rebuild_labels()
+        self._place()
 
         # Re-render to the new thumb width so the strip stays filled.
         self.refresh()
@@ -614,6 +613,11 @@ class ThumbnailBar(QWidget):
         strip by one frame, so at most one thumbnail is uncached and the
         decode is a cheap sequential frame - fast enough to do on the spot.
         """
+        # Hidden from the View menu: decode nothing for a strip nobody can
+        # see.  Showing it again calls refresh(), which catches up.
+        if self.isHidden():
+            return
+
         window = self.main
 
         if not self._labels:
@@ -678,6 +682,11 @@ class ThumbnailBar(QWidget):
             self._apply_style(label, frame_index)
 
     def refresh(self):
+        # Hidden from the View menu: decode nothing for a strip nobody can
+        # see.  Showing it again calls refresh(), which catches up.
+        if self.isHidden():
+            return
+
         window = self.main
 
         if not self._labels:

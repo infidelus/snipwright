@@ -48,6 +48,7 @@ from export.exporter import (
 from utils.note_text import NoteText, counted, translate_note
 from export.dvb_subtitles import (
     CARRIED_CODECS,
+    DISC_CODECS,
     DVB_CODECS,
     PGS_CODECS,
     carry_dvb_subtitles,
@@ -771,7 +772,7 @@ class JoinerRenderWorker(QThread):
             source = [] if entry.is_title else subtitle_kinds(entry.source)
             lost.append([x for x in source if x not in CARRIED_CODECS])
             sources.append((entry.source, entry.start)
-                           if any(x in PGS_CODECS for x in source) else None)
+                           if any(x in DISC_CODECS for x in source) else None)
         dvb_scenes = sum(1 for k, src in zip(kinds, sources)
                          if src or any(x in DVB_CODECS for x in k))
         other_scenes = sum(1 for k in lost if k)
@@ -920,7 +921,7 @@ class JoinerRenderWorker(QThread):
             lost.append([x for x in source if x not in CARRIED_CODECS
                          and "teletext" not in x])
             sources.append((entry.source, entry.start)
-                           if any(x in PGS_CODECS for x in source) else None)
+                           if any(x in DISC_CODECS for x in source) else None)
         other_scenes = sum(1 for k in lost if k)
         if other_scenes:
             kinds = ", ".join(sorted({_SUBTITLE_NAMES.get(x, x)
@@ -939,10 +940,10 @@ class JoinerRenderWorker(QThread):
             ))
         if any(sources):
             self._carry_subtitles(joined, segments, durations, tmpdir,
-                                  sources)
+                                  sources, copied=True)
 
     def _carry_subtitles(self, joined, segments, durations, tmpdir,
-                         sources=None):
+                         sources=None, copied=False):
         """Add the scenes' DVB subtitles to the joined video, in place.
 
         A failure here must never cost the join itself: the picture and sound
@@ -955,7 +956,7 @@ class JoinerRenderWorker(QThread):
         with_subs = os.path.join(tmpdir, "joined-subtitles.ts")
         try:
             summary = carry_dvb_subtitles(joined, with_subs, segments,
-                                          durations, sources)
+                                          durations, sources, copied=copied)
         except Exception:
             logger.exception("Joiner: carrying the subtitles through failed; "
                              "the joined video is written without them.")

@@ -105,10 +105,12 @@ def page_classes():
     from ui.settings_pages.logs import LoggingPage
     from ui.settings_pages.ad_detection import AdDetectionPage
     from ui.settings_pages.tools import ToolsPage
+    from ui.settings_pages.charms import CharmsPage
     from ui.settings_pages.maintenance import MaintenancePage
 
     return [
         GeneralPage,
+        CharmsPage,
         FilesPage,
         LoggingPage,
         AdDetectionPage,

@@ -31,3 +31,45 @@ import av as _av
 LEGACY_OPEN_ARGS = (
     {"metadata_errors": "ignore"}
     if int(_av.__version__.split(".")[0]) < 19 else {})
+
+
+def warm_audio_parameters(container, streams=None, packets=25):
+    """Make FFmpeg fill in the parameters of audio streams it does not know.
+
+    A sparse audio-description track can read 0 Hz / 0 channels even after
+    the deep probe above - its first packet is further in than any probe
+    looks - and an output stream copied from it with add_stream_from_template
+    is then refused when the header is written (EINVAL).  FFmpeg fills in the
+    stream's own parameters on the SECOND packet it reads of that track, so
+    demuxing a few is enough (the same reasoning as the cached-load warm-up in
+    media_container.py, where this was first measured).  Only streams that
+    need it are touched, and the container is rewound afterwards.
+
+    Found on the two copy steps that open a file with no warm-up of their own:
+    the lossless audio graft (U&Drama's AD track, 2026-10-09) and the audio
+    repair remux (a Blue Bloods cut whose AD starts 26 s in).
+    """
+    todo = [s for s in (streams if streams is not None
+                        else list(container.streams.audio))
+            if not (getattr(s.codec_context, "sample_rate", 0)
+                    and getattr(s.codec_context, "channels", 0))]
+    for stream in todo:
+        try:
+            seen = 0
+            for packet in container.demux(stream):
+                seen += 1
+                try:
+                    for _frame in packet.decode():
+                        break
+                except Exception:
+                    pass
+                if seen >= packets:
+                    break
+        except Exception:
+            pass
+        finally:
+            try:
+                container.seek(0)
+            except Exception:
+                pass
+    return len(todo)

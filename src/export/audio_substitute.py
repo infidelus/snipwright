@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 import os
-from smartcut.open_options import LEGACY_OPEN_ARGS
+from smartcut.open_options import LEGACY_OPEN_ARGS, warm_audio_parameters
 from smartcut.rational import q
 
 logger = logging.getLogger("snipwright")
@@ -202,6 +202,10 @@ def apply_repairs(src, dst, stream_index, replacements, cancel_cb=None,
 
     try:
         inp = av.open(src, **LEGACY_OPEN_ARGS)
+        # Every audio stream is copied from its template below; one whose
+        # parameters FFmpeg has not yet worked out (a late-starting AD track)
+        # made the header write fail, and the repair was abandoned.
+        warm_audio_parameters(inp)
     except Exception as exc:
         logger.warning("Could not open the cut for repair: %s", exc)
         return False

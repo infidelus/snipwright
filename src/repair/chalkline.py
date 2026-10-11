@@ -395,6 +395,50 @@ MASK_POLARITY_GATE = False
 # invented constant that has cost this file three rounds.
 MASK_POLARITY_MIN = 0.0
 
+# A short "logo present" reading whose SURROUND is busy is an advert's own
+# artwork, not the channel's logo.
+#
+# Found on ITV2 (2026-10-10): a MrQ advert puts a white "MrQ" wordmark
+# top-left, over ITV2's mask.  mask_track() - mask minus ring - read present
+# for 30 s and split a real break in two, keeping 30 s of adverts as
+# programme.  The wordmark lights the mask almost as well as the logo does
+# (0.87 against 1.00), so the contrast cannot tell them apart, and per-pixel
+# template correlation was already measured and killed for the same reason
+# (the U&Dave Rotorazer case below).  What differs is the ring: a DOG sits
+# on its own, so the ring around the mask is close to unlit in programme
+# (median 0.023 on that recording), while lettering spills into it (0.30).
+#
+# Per RUN, never per frame - busy programme pushes the ring to 0.18-0.30 at
+# p90 on that same recording - and RELATIVE to the recording's own ring,
+# never absolute.  dev/scripts/mask-ring-census.py listed every presence run
+# on 36 corpus recordings plus that one (dev/logs/mask-ring-census.txt), and
+# an absolute threshold is dead on that data: many channels' programme rings
+# are busy all the time (Channel 4 HD 0.37, ITV1 0.22), and at every
+# absolute value from 0.25 to 0.50 dropping busy runs put more programme
+# into the absent spans than adverts.  Relative to the recording's median,
+# simulated on the run boundaries:
+#
+#   ratio 3   programme +363s  adverts +1443s   (u&drama +129s programme)
+#   ratio 5   programme  +48s  adverts  +725s
+#   ratio 8   programme  +31s  adverts  +580s   every new span a true break
+#   ratio 10  programme  +16s  adverts  +537s
+#
+# At 8 the "programme" seconds are the existing few-second edge offsets of
+# breaks that were already absent there (5action, audioissuec4), not new
+# spans; every span it creates or joins lies on a corrected break - on
+# 5action, audioissuec4, 5usa and the ITV2 recording.  The run-length limit
+# and the floor change nothing anywhere from 35 to 60 s and 0.05 to 0.10;
+# both sit inside those flat bands.  The floor exists because a recording
+# whose ring is almost never lit (5action, 0.009) would otherwise drop runs
+# on noise.
+#
+# Purely subtractive on presence, which for a persistent mask means MORE
+# absence - the direction that can eat programme, so this is the kind of
+# change the corpus scoring has to confirm, not this simulation alone.
+MASK_RING_RATIO = 8.0
+MASK_RING_FLOOR = 0.10
+MASK_RING_RUN_MAX = 60.0
+
 # How much more often a pixel must be an edge just after a segment starts
 # than during the rest of the programme before it is taken to be logo.
 MASK_LEARN = 0.35
@@ -2294,9 +2338,25 @@ def detect(video, verbose=False, keep=None, learn=None,
             entry = store_get(load_store(store_path), channel)
             if entry:
                 mask = mask_to_pixels(entry, box)
-                track = mask_track(frames, mask)
-                if track is not None:
+                tracks = mask_tracks(frames, mask)
+                if tracks is not None:
+                    track, ring = tracks
                     ungated = track > MASK_ON
+
+                    # An advert's own wordmark over the logo - see
+                    # MASK_RING_RATIO.  Persistent masks only: an
+                    # intermittent logo's presence runs are short by nature.
+                    if entry.get("kind") == "persistent":
+                        ungated, ring_dropped = ring_gate(ungated, ring, times)
+                        if ring_dropped:
+                            info["mask_ring_dropped"] = len(ring_dropped)
+                            if verbose:
+                                print(f"    mask: ignored {len(ring_dropped)} "
+                                      f"short present run(s) with a busy "
+                                      f"surround: " + ", ".join(
+                                          f"{a:.1f}-{b:.1f} ({r:.2f})"
+                                          for a, b, r in ring_dropped),
+                                      file=sys.stderr)
 
                     # A "logo present" reading taken while the picture is a
                     # different SHAPE from the rest of the recording is not
@@ -2816,6 +2876,53 @@ def detect(video, verbose=False, keep=None, learn=None,
                 for line in marker_report:
                     print(f"    {line}", file=sys.stderr)
 
+    # The broadcaster's "now and next" (item 1ac, repair/epg.py): trim from
+    # where the EPG switches to the next programme to the end of the
+    # recording, joined to any break that reaches it.  Last of all, so it can
+    # only lengthen the tail the other techniques settled on - and not while
+    # learning, which measures the recording rather than reporting breaks.
+    epg_switch = None
+    if learn is None:
+        try:
+            # Run as a script (the corpus harness, the command line) src/ is
+            # not on the path - the same arrangement _write_vprj() makes.
+            src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if src_dir not in sys.path:
+                sys.path.insert(0, src_dir)
+            from repair.epg import present_events, programme_switch_out
+            changes = present_events(video, cancel_cb=cancel_cb)
+            epg_switch = programme_switch_out(changes, duration)
+            if epg_switch is not None:
+                # The EPG reader counts from the first video frame; these
+                # times count from the container's start, which is the
+                # earlier of the video's and the audio's.
+                v0, a0 = stream_starts(video)
+                if v0 is not None:
+                    epg_switch += v0 - min(v0, a0 if a0 is not None else v0)
+        except Exception as exc:          # never let it cost a detection
+            epg_switch = None
+            if verbose:
+                print(f"  EPG: could not be read ({exc})", file=sys.stderr)
+        if verbose:
+            if epg_switch is None:
+                print("  EPG: no programme switch in the recording - tail "
+                      "left as detected", file=sys.stderr)
+        if epg_switch is not None:
+            from repair.epg import epg_tail
+            breaks, swept = epg_tail(breaks, epg_switch, duration)
+            info["epg_switch"] = round(epg_switch, 2)
+            if swept:
+                info["epg_tail"] = round(swept[2], 2)
+            if verbose:
+                if swept:
+                    print(f"  EPG: the next programme starts at "
+                          f"{epg_switch:.2f}; tail trimmed from {swept[0]:.2f} "
+                          f"to the end ({swept[2]:.1f}s more)", file=sys.stderr)
+                else:
+                    print(f"  EPG: the next programme starts at "
+                          f"{epg_switch:.2f}; the tail already reaches it",
+                          file=sys.stderr)
+
     info.update({
         "channel": channel,
         "duration": duration,
@@ -2845,6 +2952,9 @@ def detect(video, verbose=False, keep=None, learn=None,
     if polarity_ab and mask_br_alt is not None:
         alt_breaks, alt_arm = _assemble(mask_br_alt, False,
                                         alt_marks if mask_br_alt else None)
+        if epg_switch is not None:
+            from repair.epg import epg_tail
+            alt_breaks, _alt_swept = epg_tail(alt_breaks, epg_switch, duration)
         info["polarity_alt"] = alt_breaks
         info["polarity_alt_reason"] = alt_arm["reason"]
         info["polarity_gate_live"] = bool(MASK_POLARITY_GATE)
@@ -3135,6 +3245,18 @@ def mask_track(frames, mask, pad=6):
     and lights the mask's neighbourhood as much as the mask itself, so the
     difference collapses; the logo lights the mask alone.
     """
+    tracks = mask_tracks(frames, mask, pad)
+    return None if tracks is None else tracks[0]
+
+
+def mask_tracks(frames, mask, pad=6):
+    """mask_track()'s contrast and the ring's own edge share, per frame.
+
+    The ring is returned separately for ring_gate(): a small advert wordmark
+    lights the mask nearly as well as the logo, so the contrast stays above
+    MASK_ON, but its lettering spills into the ring.  One pass, so the ring
+    costs nothing beyond the contrast it is part of.
+    """
     ys, xs = np.nonzero(mask)
     if len(ys) == 0:
         return None
@@ -3149,12 +3271,39 @@ def mask_track(frames, mask, pad=6):
 
     n = frames.shape[0]
     out = np.zeros(n)
+    ring = np.zeros(n)
     for i in range(0, n, 512):
         e = edge_chunk(np.asarray(frames[i:i + 512]))
         sl = slice(i, min(i + 512, n))
-        out[sl] = e[:, mask].mean(axis=1) - e[:, around].mean(axis=1)
+        ring[sl] = e[:, around].mean(axis=1)
+        out[sl] = e[:, mask].mean(axis=1) - ring[sl]
         del e
-    return out
+    return out, ring
+
+
+def ring_gate(present, ring, times):
+    """Drop short presence runs whose ring is busy for this recording.
+
+    Returns (present, dropped runs).  See MASK_RING_RATIO: per run, judged
+    against the median ring over every present frame of the same recording.
+    Runs are found exactly as _mask_arm() finds its marks, so a dropped run
+    is one the marks would otherwise have listed.
+    """
+    if not present.any():
+        return present, []
+    limit = max(MASK_RING_FLOOR,
+                MASK_RING_RATIO * float(np.median(ring[present])))
+    out = present.copy()
+    dropped = []
+    for a, b in runs_of(present, times, min_len=2.0, merge_gap=4.0):
+        if b - a >= MASK_RING_RUN_MAX:
+            continue
+        span = (times >= a) & (times <= b)
+        sel = span & present
+        if sel.any() and float(np.median(ring[sel])) > limit:
+            out[span] = False
+            dropped.append((a, b, float(np.median(ring[sel]))))
+    return out, dropped
 
 
 def mask_lum_track(frames, mask, pad=6):
@@ -4284,7 +4433,16 @@ def learn_edge_card(cards, times, cuts, report):
 # runs 37 and 38 was a correction (the largest 7.4 s, on Film4).  So a card
 # may grow a break by up to CARD_REACH and shrink it by up to
 # CARD_SHRINK_MAX, the ordinary refinement error it was built to correct.
-CARD_REACH = 30.0
+#
+# 60 s, not the 30 it was: on ITV2 (2026-10-11) the channel's ident sat at
+# exactly the true start, 2103.5, but a ClearScore advert's white wordmark
+# over the logo straight after it kept the logo "present", so the break was
+# found at 2137.47 - 34 s late, just out of reach.  Run 48 (with cards and
+# markers - runs 43-47 had neither) made exactly one move beyond 30 s in 37
+# recordings, that one, to 2104.05 against a corrected 2103.48.  Growing is
+# the safe direction (above), and the shortest programme stretch between
+# breaks in the corpus is 388 s, so a 60 s reach cannot claim a neighbour.
+CARD_REACH = 60.0
 CARD_SHRINK_MAX = 10.0
 CARD_SCENE_SNAP = 0.75    # a scene change this close marks the exact frame
 

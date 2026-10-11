@@ -9,6 +9,7 @@ batch going in the background, and reopening it shows the live state.
 import os
 
 from PySide6.QtCore import Qt, QT_TRANSLATE_NOOP, QCoreApplication
+from PySide6.QtGui import QBrush, QColor, QPalette
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -36,6 +37,7 @@ from addons.output_profiles import load_profiles, resolve_profile
 from batch.controller import norm_path
 from project.formats import read_source_filename
 from utils.eta import format_seconds
+from ui.rename_table import open_sized
 
 # Display labels for the job phases the runner reports.
 _PHASE_TEXT = {
@@ -63,12 +65,81 @@ _STATUS_TEXT = {
     NEEDS_REVIEW: QT_TRANSLATE_NOOP("BatchManager", "Needs review"),
 }
 
-COL_PROJECT = 0
-COL_PROFILE = 1
-COL_OUTPUT = 2
-COL_FOLDER = 3
-COL_STATUS = 4
-COL_EDIT = 5
+COL_GRIP = 0
+COL_PROJECT = 1
+COL_PROFILE = 2
+COL_OUTPUT = 3
+COL_FOLDER = 4
+COL_STATUS = 5
+COL_EDIT = 6
+
+
+class _RowGrip(QLabel):
+    """The grip at the start of a job's row: drag it to move the job.
+
+    The same as the Charms bar settings page's grip, asked for here too:
+    the job travels with the pointer, its row highlighted from press to
+    release, and every step goes through controller.move() - so a drag
+    obeys exactly the rules Move Up and Move Down do (nothing passes the
+    running job or a finished one) and simply stops where they would.
+    """
+
+    def __init__(self, dialog):
+        super().__init__("\u2261")
+        self._dialog = dialog
+        self.row = -1
+        self._dragging = False
+        self.setAlignment(Qt.AlignCenter)
+        self.setCursor(Qt.OpenHandCursor)
+        font = self.font()
+        font.setPointSizeF(font.pointSizeF() * 1.4)
+        self.setFont(font)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.row >= 0:
+            self._dragging = True
+            self.setCursor(Qt.ClosedHandCursor)
+            self._dialog._drag_start(self.row)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if not self._dragging:
+            return super().mouseMoveEvent(event)
+        self._dialog._drag_to(event.globalPosition().toPoint())
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if self._dragging:
+            self._dragging = False
+            self.setCursor(Qt.OpenHandCursor)
+            self._dialog._drag_end()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
+def batch_summary(completed, failed, held, cancelled, waiting=0):
+    """One line saying how a batch ended, in the user's language.
+
+    Shared by the Batch Manager's status line and the desktop notification,
+    so the two always agree.  Counts are written "Done: 3" rather than as a
+    sentence, which reads the same for one job or many in both languages
+    without a pasted-on plural.  The status line was English in every
+    language until this existed - it was built with f-strings, which
+    lupdate cannot see.
+    """
+    tr = lambda text: QCoreApplication.translate("BatchManager", text)
+    head = tr("Batch stopped") if cancelled else tr("Batch finished")
+    parts = [tr("done: %d") % completed]
+    if held:
+        parts.append(tr("need review: %d") % held)
+    if failed:
+        parts.append(tr("failed: %d") % failed)
+    if cancelled and waiting:
+        parts.append(tr("still queued: %d") % waiting)
+    return head, ", ".join(parts)
 
 
 class BatchManagerDialog(QDialog):
@@ -79,7 +150,6 @@ class BatchManagerDialog(QDialog):
         self.controller = controller
 
         self.setWindowTitle(self.tr("Batch Manager"))
-        self.resize(820, 460)
 
         # Non-modal: the main window stays usable while a batch runs.
         self.setModal(False)
@@ -88,6 +158,10 @@ class BatchManagerDialog(QDialog):
         self.setAttribute(Qt.WA_DeleteOnClose)
 
         self._build_ui()
+        # Ten rows the first time; after that, the size the user left it -
+        # the same as the Renamers and the main window.
+        open_sized(self, self.controller.config, "batch_manager",
+                   default=self._size_for_rows(10))
         self._connect_controller()
         # Pick up anything another copy of Snipwright has queued or removed
         # since this window's controller last read the file.  The window is
@@ -101,6 +175,28 @@ class BatchManagerDialog(QDialog):
             pass
         self._refresh_table()
         self._sync_running_state()
+
+    # Rows of the queue the window shows when it opens.  Nine or ten
+    # recordings queued is an ordinary evening, and with the old fixed 460
+    # pixels only about seven fitted - so changing a profile further down
+    # meant scrolling or dragging the window taller first.
+    def _size_for_rows(self, rows):
+        """(width, height) tall enough for `rows` jobs, from the layout.
+
+        Measured rather than a larger constant: a row holds a combo box and
+        two buttons, whose height depends on the font and the style, so a
+        number that fits ten rows on one desktop clips them on another.
+        open_sized() caps it to the screen.
+        """
+        t = self.table
+        row_h = max(t.verticalHeader().defaultSectionSize(),
+                    QComboBox().sizeHint().height(),
+                    QPushButton().sizeHint().height())
+        table_h = (t.horizontalHeader().sizeHint().height()
+                   + rows * row_h + 2 * t.frameWidth())
+        others = self.layout().sizeHint().height() - t.sizeHint().height()
+        height = max(460, others + table_h)
+        return 820, height
 
     # ------------------------------------------------------------------ #
     # UI construction
@@ -152,15 +248,16 @@ class BatchManagerDialog(QDialog):
         outer.addLayout(settings)
 
         # --- job table --------------------------------------------------- #
-        self.table = QTableWidget(0, 6, self)
+        self.table = QTableWidget(0, 7, self)
         self.table.setHorizontalHeaderLabels(
-            [self.tr("Project"), self.tr("Profile"), self.tr("Output"),
+            ["", self.tr("Project"), self.tr("Profile"), self.tr("Output"),
              self.tr("Folder"), self.tr("Status"), ""]
         )
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(COL_GRIP, QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(COL_PROJECT, QHeaderView.Stretch)
         hh.setSectionResizeMode(COL_PROFILE, QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(COL_OUTPUT, QHeaderView.Stretch)
@@ -615,6 +712,13 @@ class BatchManagerDialog(QDialog):
             item.setToolTip(job.vprj_path)
             self.table.setItem(r, COL_PROJECT, item)
 
+            grip = self.table.cellWidget(r, COL_GRIP)
+            if not isinstance(grip, _RowGrip):
+                grip = _RowGrip(self)
+                grip.setToolTip(self.tr("Drag to move this job up or down"))
+                self.table.setCellWidget(r, COL_GRIP, grip)
+            grip.row = r
+
             combo = self.table.cellWidget(r, COL_PROFILE)
             if not isinstance(combo, QComboBox):
                 combo = QComboBox()
@@ -957,13 +1061,10 @@ class BatchManagerDialog(QDialog):
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
         self._progress.setFormat("")
-        verb = self.tr("Stopped") if cancelled else self.tr("Finished")
-        parts = [f"{completed} done"]
-        if held:
-            parts.append(f"{held} need review")
-        if failed:
-            parts.append(f"{failed} failed")
-        summary = f"{verb}. " + ", ".join(parts) + "."
+        waiting = sum(1 for j in self._jobs() if j.status == QUEUED)
+        head, counts = batch_summary(completed, failed, held, cancelled, waiting)
+        summary = self.tr("%(head)s - %(counts)s.") % {"head": head,
+                                                       "counts": counts}
         self._status_label.setText(summary)
         self._refresh_table()
         if held and not cancelled:
@@ -1018,6 +1119,79 @@ class BatchManagerDialog(QDialog):
         self._refresh_table()
         if 0 <= new_row < self.table.rowCount():
             self.table.selectRow(new_row)
+
+    # -- reordering by drag ------------------------------------------------
+
+    def _drag_start(self, row):
+        # No selection while dragging: a selected row is painted in the
+        # selection colour over the tint _mark_grip() gives it, and in an
+        # unfocused table that colour is a faint grey.  Re-selected on
+        # release.
+        self._drag_row = row
+        self.table.clearSelection()
+        self._mark_grip(row)
+
+    def _drag_to(self, global_pos):
+        """Step the dragged job towards the row under the pointer.
+
+        One place at a time through controller.move(), stopping at the
+        first step _can_move() refuses - the same wall the buttons hit.
+        """
+        row = getattr(self, "_drag_row", None)
+        if row is None:
+            return
+        vp = self.table.viewport()
+        target = self.table.rowAt(vp.mapFromGlobal(global_pos).y())
+        if target < 0:
+            return
+        while target != row:
+            delta = 1 if target > row else -1
+            if not self._can_move(row, delta):
+                break
+            row = self.controller.move(row, delta)
+        if row != self._drag_row:
+            self._drag_row = row
+        self.table.clearSelection()
+        self._mark_grip(row)
+
+    def _drag_end(self):
+        row = self._drag_row
+        self._drag_row = None
+        self._mark_grip(None)
+        if row is not None:
+            self.table.selectRow(row)
+
+    def _mark_grip(self, row):
+        """Show which job is being carried, or clear it (None).
+
+        The whole row, as on the Charms bar settings page: the grip filled
+        with the highlight colour, the text cells tinted with it, and the
+        row's controls outlined.  Selecting the row was not enough - the
+        grip takes the press, the table loses focus, and an unfocused
+        table draws its selection so faintly that nothing seemed to have
+        been picked up (reported in testing).
+        """
+        pal = self.table.palette()
+        tint = QColor(pal.color(QPalette.Highlight))
+        tint.setAlpha(90)
+        for r in range(self.table.rowCount()):
+            on = r == row
+            grip = self.table.cellWidget(r, COL_GRIP)
+            if isinstance(grip, _RowGrip):
+                grip.setStyleSheet(
+                    "QLabel { background: palette(highlight); "
+                    "color: palette(highlighted-text); border-radius: 3px; }"
+                    if on else "")
+            for col in (COL_PROJECT, COL_OUTPUT, COL_STATUS):
+                item = self.table.item(r, col)
+                if item is not None:
+                    item.setBackground(QBrush(tint) if on else QBrush())
+            for col in (COL_PROFILE, COL_FOLDER, COL_EDIT):
+                w = self.table.cellWidget(r, col)
+                if w is not None:
+                    w.setStyleSheet(
+                        "border: 2px solid palette(highlight); "
+                        "border-radius: 3px;" if on else "")
 
     def _can_move(self, row, delta):
         """Whether the job at `row` may move by `delta` (-1 up, +1 down).

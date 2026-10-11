@@ -14,8 +14,8 @@ back into the editor.
 
 import os
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QBrush, QColor, QPalette
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -224,16 +224,24 @@ class JoinerDialog(QDialog):
         mid = QHBoxLayout()
 
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(3)
+        self.tree.setColumnCount(4)
         self.tree.setHeaderLabels(
-            [self.tr("Filename"), self.tr("Description"), self.tr("Duration")])
+            ["", self.tr("Filename"), self.tr("Description"), self.tr("Duration")])
         self.tree.setRootIsDecorated(False)
         self.tree.setUniformRowHeights(True)
         self.tree.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection
         )
-        self.tree.setColumnWidth(0, 280)
-        self.tree.setColumnWidth(1, 200)
+        self.tree.setColumnWidth(0, 28)
+        self.tree.setColumnWidth(1, 252)    # 280 before the grip took 28
+        self.tree.setColumnWidth(2, 200)
+        # Column 0 is the drag grip, as on the Batch Manager and the Charms
+        # bar settings page.  Handled on the viewport rather than by a widget
+        # in the cell: _refresh() rebuilds every item, which would destroy a
+        # grip widget part-way through its own drag.
+        self._drag_row = None
+        self.tree.viewport().setMouseTracking(True)
+        self.tree.viewport().installEventFilter(self)
         self.tree.currentItemChanged.connect(lambda *_: self._sync_buttons())
         self.tree.itemDoubleClicked.connect(lambda *_: self._edit_selection())
         mid.addWidget(self.tree, 1)
@@ -346,22 +354,96 @@ class JoinerDialog(QDialog):
         for entry in self._list.entries:
             name = entry.source if full else entry.display_name
             item = QTreeWidgetItem(
-                [name, entry.description, _fmt_tc(entry.duration, entry.fps)]
+                ["\u2261", name, entry.description,
+                 _fmt_tc(entry.duration, entry.fps)]
             )
+            item.setTextAlignment(0, Qt.AlignCenter)
+            item.setToolTip(0, self.tr("Drag to move this entry up or down"))
             if entry.is_title:
                 # Title cards stand out in a muted blue rather than greyed.
-                for col in range(3):
+                for col in range(1, 4):
                     item.setForeground(col, QColor("#3a6ea5"))
             elif not entry.exists:
                 # Grey out and flag entries whose file is missing.
-                for col in range(3):
+                for col in range(1, 4):
                     item.setForeground(col, QColor("gray"))
-                item.setToolTip(0, self.tr("File not found: %s") % (entry.source,))
+                item.setToolTip(1, self.tr("File not found: %s") % (entry.source,))
             self.tree.addTopLevelItem(item)
 
         if select is not None and 0 <= select < self.tree.topLevelItemCount():
             self.tree.setCurrentItem(self.tree.topLevelItem(select))
+        self._mark_grip(self._drag_row)
         self._sync_buttons()
+
+    # -- reordering by drag ------------------------------------------------
+
+    def _mark_grip(self, row):
+        """Show which entry is being carried, or clear it (None).
+
+        The grip cell filled with the highlight colour and the rest of the
+        row tinted with it, as on the Charms bar settings page - an
+        unfocused list draws its selection too faintly to show it alone.
+        """
+        if row is not None:
+            # No selection while dragging: it would paint over the tint.
+            # The entry stays CURRENT (the fade boxes follow it); it is
+            # selected again on release.
+            self.tree.clearSelection()
+        pal = self.tree.palette()
+        tint = QColor(pal.color(QPalette.Highlight))
+        tint.setAlpha(90)
+        for r in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(r)
+            on = r == row
+            item.setBackground(0, pal.highlight() if on else QBrush())
+            item.setForeground(0, pal.highlightedText() if on else QBrush())
+            for col in range(1, 4):
+                item.setBackground(col, QBrush(tint) if on else QBrush())
+
+    def eventFilter(self, obj, event):
+        if obj is not self.tree.viewport():
+            return super().eventFilter(obj, event)
+        et = event.type()
+        if et == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            pos = event.position().toPoint()
+            item = self.tree.itemAt(pos)
+            if item is not None and self.tree.columnAt(pos.x()) == 0:
+                self._drag_row = self.tree.indexOfTopLevelItem(item)
+                obj.setCursor(Qt.ClosedHandCursor)
+                self.tree.setCurrentItem(item)
+                self._mark_grip(self._drag_row)
+                return True
+        elif et == QEvent.MouseMove:
+            pos = event.position().toPoint()
+            if self._drag_row is None:
+                # Show the open hand over the grips, as the other lists do.
+                over = (self.tree.columnAt(pos.x()) == 0
+                        and self.tree.itemAt(pos) is not None)
+                obj.setCursor(Qt.OpenHandCursor if over else Qt.ArrowCursor)
+                return False
+            item = self.tree.itemAt(pos)
+            if item is not None:
+                target = self.tree.indexOfTopLevelItem(item)
+                row = self._drag_row
+                while target != row:
+                    new = self._list.move(row, 1 if target > row else -1)
+                    if new == row:
+                        break
+                    row = new
+                if row != self._drag_row:
+                    self._drag_row = row
+                    self._refresh(select=row)
+            return True
+        elif et == QEvent.MouseButtonRelease and self._drag_row is not None:
+            row = self._drag_row
+            self._drag_row = None
+            obj.setCursor(Qt.OpenHandCursor)
+            self._mark_grip(None)
+            item = self.tree.topLevelItem(row)
+            if item is not None:
+                item.setSelected(True)
+            return True
+        return super().eventFilter(obj, event)
 
     def _sync_buttons(self):
         i = self._current_index()

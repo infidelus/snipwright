@@ -42,6 +42,7 @@ from media.thumbnail_worker import (
     ThumbnailWorker,
 )
 from PySide6.QtGui import (
+    QActionGroup,
     QPixmap,
 )
 from PySide6.QtWidgets import (
@@ -319,6 +320,12 @@ class MainWindow(QMainWindow):
         # running when the Batch Manager window is closed.
         from batch.controller import BatchController
         self.batch_controller = BatchController(self.config, self)
+        # A desktop notification when all batch work has ended - the queue
+        # and any export handed over with Send to Batch (see all_finished).
+        # On the controller rather than in the Batch Manager, so it still
+        # arrives when that window was closed while the batch ran.
+        self.batch_controller.all_finished.connect(
+            self._notify_batch_finished)
 
         # Quick Stream Fix working copies are whole video files in the system
         # temp folder, and nothing else removes them on Windows.  Age is the
@@ -649,6 +656,15 @@ class MainWindow(QMainWindow):
         content.addLayout(
             right
         )
+
+        # The Charms bar (ui/charms.py): a toolbar on the window's right
+        # edge, off by default.  A hidden toolbar takes no space, so with it
+        # off the window is exactly as it was before the bar existed.
+        from ui.charms import CharmsBar
+        self.charms_bar = CharmsBar(self)
+        self.addToolBar(Qt.RightToolBarArea, self.charms_bar)
+        self._apply_charms()
+        self._apply_thumbnails()
 
         # Keep the scene list's height tied to the video preview's, so its
         # bottom edge lines up with the bottom of the preview rather than
@@ -1174,6 +1190,52 @@ class MainWindow(QMainWindow):
         settings_action.triggered.connect(
             self.open_settings
         )
+
+        #
+        # View menu - what the window shows.  VideoReDo has one; its entries
+        # here are the ones Snipwright has a counterpart for (rotation, zoom,
+        # display properties and the plot mask have none).  Each toggle is
+        # saved as it changes, as a Settings change would be.
+        #
+        view_menu = self.menuBar().addMenu(self.tr("View"))
+
+        s = self.config.get("settings", {})
+        charms_action = view_menu.addAction(self.tr("Show Charms Bar"))
+        charms_action.setCheckable(True)
+        charms_action.setChecked(bool(s.get("show_charms", False)))
+        charms_action.toggled.connect(self.set_charms_visible)
+
+        thumbs_action = view_menu.addAction(self.tr("Show Thumbnails"))
+        thumbs_action.setCheckable(True)
+        thumbs_action.setChecked(bool(s.get("show_thumbnails", True)))
+        thumbs_action.toggled.connect(self.set_thumbnails_visible)
+
+        # The same setting as Settings > General > "Show picture type", one
+        # click away.
+        type_menu = view_menu.addMenu(self.tr("Show Picture Type"))
+        type_group = QActionGroup(type_menu)
+        current_type = s.get("frame_type_display", "none")
+        for label, mode in (
+                (self.tr("None"), "none"),
+                (self.tr("On Thumbnails"), "thumbnails"),
+                (self.tr("On Preview"), "preview"),
+                (self.tr("On Both"), "both")):
+            act = type_menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(mode == current_type)
+            act.setActionGroup(type_group)
+            act.triggered.connect(
+                lambda _checked=False, m=mode: self.set_picture_type(m))
+
+        view_menu.addSeparator()
+
+        fullscreen_action = view_menu.addAction(
+            self._menu_label(self.tr("Full Screen"), "full_screen"))
+        fullscreen_action.setCheckable(True)
+        fullscreen_action.setChecked(self.isFullScreen())
+        fullscreen_action.triggered.connect(
+            lambda _checked=False: self.toggle_full_screen())
+        self._fullscreen_action = fullscreen_action
 
         #
         # Extras menu - companion-app launchers and optional add-on features
@@ -3198,6 +3260,8 @@ class MainWindow(QMainWindow):
             self._warn_if_tools_missing()
             self._reconfigure_logging()
             self._apply_frame_type_display()
+            self._apply_charms()
+            self._apply_thumbnails()
             self._apply_shortcut_changes()
             self._apply_theme()
             self._apply_tooltip_setting()
@@ -3214,6 +3278,8 @@ class MainWindow(QMainWindow):
             apply_tool_paths(self.config)
             self._reconfigure_logging()
             self._apply_frame_type_display()
+            self._apply_charms()
+            self._apply_thumbnails()
             self._apply_shortcut_changes()
             self._apply_theme()
             self._apply_tooltip_setting()
@@ -3339,6 +3405,145 @@ class MainWindow(QMainWindow):
         if not self._show_preview_frame_type:
             self.preview._ft_letter = ""
         self.preview.update()
+
+    # -- View menu --------------------------------------------------------
+
+    def _notify_batch_finished(self, completed, failed, held, cancelled):
+        """Tell the desktop the batch has ended - run out, or stopped.
+
+        The same kind of notification the Watcher sends.  The editor has no
+        tray icon of its own, and Qt delivers notifications through one, so
+        an icon is shown just long enough to send it and then removed.
+        Off with Settings > General > "Notify me when a batch finishes".
+        """
+        if not self.config.get("settings", {}).get("notify_batch_done", True):
+            return
+        from PySide6.QtWidgets import QSystemTrayIcon
+        from ui.batch_manager import batch_summary
+        from utils.icons import app_icon
+        from batch.job import QUEUED
+
+        waiting = sum(1 for j in self.batch_controller.jobs
+                      if j.status == QUEUED)
+        head, counts = batch_summary(completed, failed, held, cancelled,
+                                     waiting)
+        log.info("Batch %s: %d done, %d need review, %d failed, %d queued",
+                 "stopped" if cancelled else "finished",
+                 completed, held, failed, waiting)
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        old = getattr(self, "_notify_tray", None)
+        if old is not None:
+            old.hide()
+            old.deleteLater()
+        tray = QSystemTrayIcon(app_icon(), self)
+        self._notify_tray = tray
+        tray.show()
+        if tray.supportsMessages():
+            tray.showMessage(head, counts[:1].upper() + counts[1:],
+                             app_icon(), 10000)
+        # Long enough for the message to be read and clicked; then the icon
+        # goes, so the editor does not leave a stray one in the tray.
+        QTimer.singleShot(15000, tray.hide)
+
+    def _apply_charms(self):
+        """Rebuild the Charms bar from the config and show or hide it.
+
+        The bar pops out of the window's right-hand side: in an ordinary
+        window, showing it widens the window by the bar's width and hiding
+        it gives that back, so nothing already in the window moves or
+        changes size.  The user's request: the thumbnails must always stay
+        the same size, and taking the bar's width from the editor was
+        shrinking them.  A maximised or full-screen window cannot grow, so
+        there the bar takes its width from the editor - the thumbnails
+        still keep their size (see ThumbnailBar), the strip shows fewer.
+        """
+        bar = getattr(self, "charms_bar", None)
+        if bar is None:
+            return
+        bar.rebuild(self.config)
+        want = bool(self.config.get("settings", {}).get("show_charms", False))
+        bar.setVisible(want)
+        now = bar.sizeHint().width() if want else 0
+        before = getattr(self, "_charms_width", 0)
+        self._charms_width = now
+        # Only once the window is on screen: at start-up the saved size
+        # already includes the bar if it was showing at the last close.
+        if now != before and self.isVisible() and not (
+                self.isMaximized() or self.isFullScreen()):
+            self._grow_right(now - before)
+
+    def _grow_right(self, delta):
+        """Widen (or narrow) the window by delta, keeping it on screen.
+
+        Grows to the right; if that would run off the screen, the window
+        moves left by the overflow instead, as far as the screen's left
+        edge allows.
+        """
+        geo = self.geometry()
+        width = max(self.minimumWidth(), geo.width() + delta)
+        screen = self.screen() or QApplication.primaryScreen()
+        x = geo.x()
+        if screen is not None and delta > 0:
+            avail = screen.availableGeometry()
+            overflow = (x + width) - (avail.x() + avail.width())
+            if overflow > 0:
+                x = max(avail.x(), x - overflow)
+        self.setGeometry(x, geo.y(), width, geo.height())
+
+    def _apply_thumbnails(self):
+        bar = getattr(self, "thumbnail_bar", None)
+        if bar is None:
+            return
+        want = bool(self.config.get("settings", {}).get("show_thumbnails", True))
+        if want == (not bar.isHidden()):
+            return
+        bar.setVisible(want)
+        if want:
+            # Nothing was decoded while it was hidden - see refresh().
+            bar.refresh()
+
+    def _save_view_setting(self, key, value):
+        self.config.setdefault("settings", {})[key] = value
+        try:
+            save_config(self.config)
+        except Exception:
+            log.exception("Could not save the %s setting", key)
+
+    def set_charms_visible(self, visible):
+        self._save_view_setting("show_charms", bool(visible))
+        self._apply_charms()
+
+    def set_thumbnails_visible(self, visible):
+        self._save_view_setting("show_thumbnails", bool(visible))
+        self._apply_thumbnails()
+
+    def set_picture_type(self, mode):
+        self._save_view_setting("frame_type_display", mode)
+        self._apply_frame_type_display()
+
+    def toggle_full_screen(self):
+        """The whole window full screen, and back to how it was.
+
+        The full-screen flag is added to and taken off the window's state
+        rather than switching states outright, so a maximised window stays
+        maximised underneath.  showFullScreen() then showMaximized() did end
+        up maximised, but by way of the window's restored size: on Cinnamon
+        it visibly shrank and then re-maximised, which reads as the window
+        refusing to come out of full screen (found on the first day of
+        use).  Measured on his desktop with a sampling test window: the
+        old route passed through 700x400 on its way back to 2560x1368; this
+        one goes straight there.
+        """
+        state = self.windowState()
+        if state & Qt.WindowFullScreen:
+            self.setWindowState(state & ~Qt.WindowFullScreen)
+        else:
+            self._maximised_before_full_screen = self.isMaximized()
+            self.setWindowState(state | Qt.WindowFullScreen)
+        action = getattr(self, "_fullscreen_action", None)
+        if action is not None:
+            action.setChecked(self.isFullScreen())
 
     def _set_preview_frame_type(self, letter):
         """Record the current preview frame's picture type and repaint the
@@ -6603,6 +6808,10 @@ class MainWindow(QMainWindow):
         # empty window; the ones that act on a loaded video are guarded.
         #
 
+        if self.keys.match(event, "full_screen"):
+            self.toggle_full_screen()
+            return
+
         if self.keys.match(event, "open_video"):
             self.open_video()
             return
@@ -7160,6 +7369,11 @@ class MainWindow(QMainWindow):
         # plus whether it was maximised so we can restore that state.
         try:
             maximized = self.isMaximized()
+            # Closed while full screen: remember what it was before, not
+            # full screen itself, which the next launch does not restore.
+            if self.isFullScreen():
+                maximized = getattr(self, "_maximised_before_full_screen",
+                                    False)
             geo = self.normalGeometry()
             self.config.setdefault("window", {})
             if geo.width() > 0 and geo.height() > 0:

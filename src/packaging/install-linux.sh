@@ -133,13 +133,13 @@ esac
 info "Installing the Python dependencies into the environment…"
 "$PY" -m pip install --upgrade pip
 
-# The known package set, used if requirements.txt is missing.  Locked to the
-# exact versions Snipwright is tested with, as in requirements.txt - keep the
-# two in step.  PyAV 19.0.0 broke every export on a fresh install the day
-# after it was published, because nothing stopped pip taking it; PyAV is now
-# held to the range tested (18.1 and 19.0.1), short of the untried 20.
-KNOWN_DEPS=("PySide6==6.11.2" "av>=18.1.0,!=19.0.0,<20" "numpy==2.5.3" "bitstring==4.4.0"
-            "bitarray==3.11.0" "tibs==0.5.7" "tqdm==4.70.1")
+# The known package set, used if requirements.txt is missing.  Held to the
+# versions Snipwright is tested with, exactly as in requirements.txt (which
+# explains each range) - keep the two in step.  PyAV 19.0.0 broke every
+# export on a fresh install the day after it was published, because nothing
+# stopped pip taking it.
+KNOWN_DEPS=("PySide6>=6.11.2,<6.12" "av>=18.1.0,!=19.0.0,<20" "numpy>=2.5.3,<2.6"
+            "bitstring==4.4.0" "bitarray>=3.11.0,<4" "tibs==0.5.7" "tqdm>=4.70.1,<5")
 
 # Install the dependencies.  Prefer requirements.txt, fall back to the known
 # set.  We do NOT hide pip's output or let a failure pass silently - a partial

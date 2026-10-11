@@ -6,6 +6,143 @@ All notable changes to Snipwright are documented here. Releases before
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [2.12.0] - 2026-10-11
+
+### Added
+
+- **A notification when a batch finishes.** When the Batch Manager runs
+  out of work - its queue and any export handed to it with Send to Batch -
+  or finishes stopping after you asked it to, the desktop shows a
+  notification saying how many jobs were done, need review or failed (and,
+  after a stop, how many are still queued) - even if the Batch Manager
+  window was closed. On by default; Settings > General turns it off.
+
+- **A View menu.** Show or hide the thumbnail bar, choose where each frame's
+  picture type (I, P or B) is shown, and switch the window to full screen
+  with F11 and back. Each choice is remembered.
+
+- **The Charms bar, for anyone who misses it from VideoReDo.** A column of
+  large buttons down the right-hand edge of the window, switched on from
+  View > Show Charms Bar. Ten slots, each set to any of eighteen functions
+  from the menus with an optional label of your own, under Settings >
+  Charms bar, where the rows can be dragged into order; slots set to None
+  are left out. The buttons have Snipwright's
+  own icons, so the bar looks the same on every system and follows the
+  light or dark theme. In an ordinary window it pops out of the right-hand
+  side, widening the window, so nothing already on screen moves. It is off
+  unless you switch it on, and takes no space at all when off. Requested by
+  a user.
+
+### Changed
+
+- **Advert detection trims the end of a recording much more fully.** After
+  the programme, a padded recording runs on into continuity and the next
+  programme, which carries the channel's logo, so detection found where the
+  programme ended and then stopped, often leaving seven to ten minutes on
+  the end. Chalkline now also reads the broadcaster's own "now and next"
+  listing from the recording, and trims everything from the moment the
+  channel says the next programme has started. It never trims earlier than
+  that unless detection has already found the end there, so it cannot cut
+  into the programme. Recordings whose recorder does not keep the listing
+  are detected exactly as before.
+
+- **Supporting libraries can take their own bug-fix releases.** Until now
+  every library was locked to one exact version, so even a bug-fix update
+  waited for a new Snipwright release. numpy, PySide6, tqdm and bitarray
+  now accept bug-fix releases of the versions Snipwright was tested with
+  (numpy 2.5.x, PySide6 6.11.x, tqdm 4.x, bitarray 3.x), but nothing newer.
+  bitstring and its helper tibs stay locked to one version each, because
+  bitstring decides which tibs it will work with. The About box still shows
+  any library that is not a tested version in amber.
+
+- **Advert breaks that start right after the channel's ident are found
+  from the ident.** When the first advert put its own logo where the
+  channel's sits, detection could start the break up to half a minute late,
+  leaving the start of the break in. Chalkline already recognises a
+  channel's idents from your corrected edits; it now uses one up to a
+  minute from where the logo said the break began, rather than half a
+  minute. Measured across the whole test set first: it changed that break
+  and nothing else.
+
+- **An advert's own logo in the channel logo's corner no longer splits a
+  break.** When an advert put a small logo of its own exactly where the
+  channel's logo sits - a white wordmark top-left on ITV2, for instance -
+  advert detection could take it for the channel's logo, read those
+  seconds as programme, and split the break in two, keeping part of an
+  advert. The channel's logo stands on its own, while an advert's
+  lettering spreads into the area around it, and detection now tells
+  them apart by that. Measured across the whole test set first: every
+  break found there is exactly as before.
+
+- **The TV and Film Renamers remember their size, and give the new name
+  the room.** The two name columns used to split the width evenly, so the
+  new name - usually the longer, since it includes the folders the file is
+  moving into - was cut short while the current name had room to spare,
+  and the window had to be stretched every time to see what a rename
+  would do. The current name now takes only the width its longest entry
+  needs and the new name takes the rest. Each window also remembers the
+  size you leave it at, from one session to the next, as the main window
+  already does.
+
+- **Thumbnails always keep the same size.** The strip stretched its
+  thumbnails to fill the width, so they grew and shrank with the window -
+  at some widths to half as wide again. They now stay one size with the
+  usual narrow gap, the current frame in the middle, and the strip filled
+  edge to edge, the thumbnails at either end cut off where it ends.
+
+- **Jobs in the Batch Manager and entries in the Joiner list can be
+  dragged into order.** Each row has a grip at its start; drag it and the
+  row moves with the pointer, highlighted while you hold it. The Up and
+  Down buttons are still there. In the Batch Manager a drag keeps to the
+  same rules as the buttons, so a job still cannot pass the one being
+  processed or move above finished ones.
+
+- **The Batch Manager opens tall enough to show ten recordings.** It opened
+  with room for about seven, so with a typical evening's queue the profile
+  of the last few could only be changed after scrolling or dragging the
+  window taller. Its first size is now worked out from its own rows, so
+  ten fit whatever the desktop's font and style, and after that it opens
+  at whatever size you last left it, like the Renamers and the main window.
+
+### Fixed
+
+- **German: the TV Renamer's window title was misspelt** ("TV-Umbenerner"),
+  the user guide's list of themes said "Dunkl" for "Dunkel", and the hint
+  under the project format setting addressed the reader as "du" where the
+  rest of the interface says "Sie".
+
+- **The Batch Manager's end-of-batch line is translated.** "Finished. 3
+  done, 1 failed." was shown in English whatever the interface language.
+
+- **Joining scenes from a DVD rip keeps the subtitles.** A DVD rip's
+  subtitles (VobSub, as MakeMKV writes them) were lost from every join;
+  2.11.0 brought Blu-ray subtitles through joins, but not DVD ones. They
+  are now converted to broadcast (DVB) subtitles from the rip itself, with
+  the disc's own colours and positions, whether the join copies or
+  re-encodes.
+
+- **No false "output longer than the edit" note when a subtitle runs past
+  the end.** A cut whose last subtitle starts just before the end - common
+  on DVD and Blu-ray rips - was measured to the end of that subtitle rather
+  than of the picture and sound, and the summary reported the output as a
+  couple of seconds longer than the edit when it was not. The length is now
+  measured from the picture and sound.
+
+- **The note about subtitles an export leaves out is worded accurately.** It
+  said an .mp4 "has no place for" them, which is true of broadcast, DVD and
+  Blu-ray subtitles, which are pictures, but not of a file's text subtitles,
+  which Snipwright simply does not convert. It now says Snipwright does not
+  write them to that format.
+
+- **Audio description that starts late no longer forces the whole soundtrack
+  to be re-encoded.** On some recordings the audio-description track carries
+  nothing for the first stretch of the file - it is sent only while the
+  narrator speaks. Two of the export's lossless audio steps could not read
+  such a track's format, failed, and fell back to a slower route that
+  re-encodes the audio (or left a change in the channel layout unrepaired).
+  Both now read far enough into the track to recognise it, and copy every
+  track exactly as broadcast.
+
 ## [2.11.0] - 2026-10-09
 
 ### Changed

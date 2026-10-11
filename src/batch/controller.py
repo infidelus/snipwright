@@ -70,6 +70,14 @@ class BatchController(QObject):
     job_held = Signal(int, str)
     # batch_finished(completed, failed, held, cancelled)
     batch_finished = Signal(int, int, int, bool)
+    # all_finished(completed, failed, held, cancelled): every piece of batch
+    # work has ended - the runner's queue AND any export handed over from
+    # the editor (Send to Batch), which runs outside the runner and never
+    # reaches batch_finished.  Counts cover both.  This is what the desktop
+    # notification listens to: an adopted export finishing on its own sent
+    # nothing (found on Windows in testing), and a queue that ended while an
+    # adopted export was still encoding announced itself too early.
+    all_finished = Signal(int, int, int, bool)
     # Whether a batch is currently running.
     running_changed = Signal(bool)
 
@@ -96,6 +104,8 @@ class BatchController(QObject):
         # How many foreign jobs the last save kept, so the message is logged
         # when that number changes rather than on every single save.
         self._last_foreign_count = 0
+        # Tallies for all_finished, since the last time everything was idle.
+        self._tally = [0, 0, 0, False]
         self._load_queue()
 
     # ------------------------------------------------------------------ #
@@ -687,6 +697,8 @@ class BatchController(QObject):
         if row >= 0:
             self.job_done.emit(row, stats if isinstance(stats, dict) else {})
         self.jobs_changed.emit()
+        self._tally[0] += 1
+        self._maybe_all_finished()
 
     def _on_external_failed(self, job, message):
         self._finish_external(job, FAILED, message)
@@ -694,6 +706,17 @@ class BatchController(QObject):
         if row >= 0:
             self.job_failed.emit(row, message)
         self.jobs_changed.emit()
+        self._tally[1] += 1
+        self._maybe_all_finished()
+
+    def _maybe_all_finished(self):
+        """Emit all_finished once nothing is left running, then start over."""
+        if self.runner is not None or self.has_external_running():
+            return
+        completed, failed, held, cancelled = self._tally
+        self._tally = [0, 0, 0, False]
+        if completed or failed or held or cancelled:
+            self.all_finished.emit(completed, failed, held, cancelled)
 
     def _on_external_cancelled(self, job):
         # Cancelled on the user's behalf via Remove: now the encoder has
@@ -705,6 +728,7 @@ class BatchController(QObject):
 
         self._finish_external(job, CANCELLED)
         row = self._row_of(job)
+        self._tally[3] = True
 
         if drop and row >= 0:
             staged = self.jobs[row].vprj_path
@@ -712,11 +736,13 @@ class BatchController(QObject):
             self.save_queue()
             self._discard_staged([staged])
             self.jobs_changed.emit()
+            self._maybe_all_finished()
             return
 
         if row >= 0:
             self.job_failed.emit(row, "")
         self.jobs_changed.emit()
+        self._maybe_all_finished()
 
     def running_row(self):
         """The row currently being processed, or -1 if none.  Used to protect
@@ -1011,3 +1037,8 @@ class BatchController(QObject):
         self.save_queue()
         self.running_changed.emit(False)
         self.batch_finished.emit(completed, failed, held, cancelled)
+        self._tally[0] += completed
+        self._tally[1] += failed
+        self._tally[2] += held
+        self._tally[3] = self._tally[3] or bool(cancelled)
+        self._maybe_all_finished()

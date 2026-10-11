@@ -139,7 +139,8 @@ editor window has four main areas:</p>
   <li><strong>Preview</strong> &mdash; the current frame.</li>
   <li><strong>Thumbnail bar</strong> &mdash; a strip of frames around the cursor, for
   finding cut points precisely. Click a thumbnail to jump to it.</li>
-  <li><strong>Scene list</strong> &mdash; the segments you have chosen to keep.</li>
+  <li><strong>Scene list</strong> &mdash; the cuts you have made in Cut Mode (the default),
+  or the scenes you have chosen to keep in Scene Mode.</li>
   <li><strong>Transport controls</strong> &mdash; play, step and seek, with the current
   scene's start, end and duration shown alongside.</li>
 </ul>
@@ -160,6 +161,34 @@ yes. To remove Snipwright again, run <code>uninstall-linux.sh</code> or
 <code>uninstall-windows.bat</code> from the same folder: it asks before deleting your
 settings, and never touches your recordings, projects, exported videos or logs. See the
 <code>README</code> there for details.</div>
+
+<h3 id="view">The View menu and the Charms bar</h3>
+<p>The <strong>View</strong> menu controls what the window shows. Each choice is
+remembered for next time.</p>
+<ul>
+  <li><strong>Show Charms Bar</strong> &mdash; a column of large buttons down the
+  right-hand edge of the window, as in VideoReDo (see below).</li>
+  <li><strong>Show Thumbnails</strong> &mdash; hides or shows the thumbnail bar under the
+  preview. While it is hidden, no thumbnails are made, so stepping through a recording
+  does no extra work.</li>
+  <li><strong>Show Picture Type</strong> &mdash; marks each frame I, P or B on the
+  thumbnails, on the preview, on both or on neither. This is the same setting as on the
+  General page of Settings, one click away.</li>
+  <li><strong>Full Screen</strong> (<kbd>F11</kbd>) &mdash; the whole window fills the
+  screen; press <kbd>F11</kbd> again to put it back as it was.</li>
+</ul>
+<p>The <strong>Charms bar</strong> is off unless you switch it on, and while it is off it
+takes no space at all. In an ordinary window it pops out of the right-hand side, making the
+window wider, so nothing already on screen moves; a maximised window has no room to grow, so
+there the bar takes its width from the editor instead. Each button does exactly what its menu item does. Choose what the
+buttons do under <strong>Settings &rarr; Charms bar</strong>: there are ten slots, each with
+a function and an optional label (left blank, the button shows the function's own name).
+Drag a row by the grip (&equiv;) at its start to move it up or down.
+A slot set to <strong>None</strong> is left out, so the buttons you use sit together from
+the top. <strong>Restore Defaults</strong> puts back the original six: Open Video, Save
+Video, Add to Joiner, Create Joined Video, Batch Manager and Detect Commercials. The
+last of these is labelled with the detector it runs &mdash; <strong>Chalkline</strong>, or
+<strong>Comskip</strong> if you use that instead.</p>
 
 <h2 id="cutting">3. Marking and cutting</h2>
 <h3>Two ways of working: Cut Mode and Scene Mode</h3>
@@ -590,7 +619,8 @@ interlaced, progressive stays progressive.</div>
   by name), and adds each as a full-length entry.</li>
 </ul>
 <p><strong>Joiner &rarr; Edit Joiner List</strong> is where the list is arranged: reorder
-or remove entries, add <strong>title cards</strong> (text over a colour or background
+entries (drag one by the grip, &equiv;, at the start of its row, or use <strong>Up</strong>
+and <strong>Down</strong>) or remove them, add <strong>title cards</strong> (text over a colour or background
 image), set per-clip <strong>fades</strong> to and from black, save and load joiner lists,
 or send an entry back to the editor to trim it.</p>
 <p><strong>Joiner &rarr; Create Video From Joiner List</strong> renders the result through
@@ -599,9 +629,9 @@ format are joined losslessly by stream copy &mdash; an MKV gets a chapter at eac
 &mdash; while a mix of formats is re-encoded to a common one (Snipwright recommends
 suitable settings). Title cards and fades apply during a re-encoded join, so adding them
 to otherwise matching clips trades a little speed and quality for the effect. Broadcast
-(DVB) subtitles are kept either way, and a Blu-ray's subtitles are converted to the same
-kind whether the join copies or re-encodes, so recordings and disc rips share one subtitle
-track. In a re-encoded join, a scene whose subtitles were drawn for a different picture size
+(DVB) subtitles are kept either way, and a Blu-ray's or DVD's subtitles are converted to the
+same kind whether the join copies or re-encodes, so recordings and disc rips share one
+subtitle track. In a re-encoded join, a scene whose subtitles were drawn for a different picture size
 has them redrawn to fit, so they show in every player. Anything that still cannot be
 carried, such as teletext in a re-encoded join, or broadcast and Blu-ray subtitles in an .mp4, is
 named in the summary at the end.</p>
@@ -754,10 +784,15 @@ feed it the project files the watcher has prepared, then run the queue from
 options such as cropping apply here too. (Renaming is a separate step, handled by the
 renamers &mdash; the Batch Manager itself does not rename.) You can close the Batch Manager
 window while a batch is running &mdash; the batch keeps going in the background, and reopening
-it from <strong>Tools &rarr; Batch Manager</strong> shows the live progress. <strong>Add from
+it from <strong>Tools &rarr; Batch Manager</strong> shows the live progress. When the queue
+runs out, or a stop you asked for completes, a desktop notification says so, with how many
+jobs were done, need review or failed (turn it off under <strong>Settings &rarr;
+General</strong>). <strong>Add from
 Watch Folder</strong> only brings in recordings that are not already queued &mdash; including
 ones you sent over yourself with Queue to Batch &mdash; so you can press it as often as you
-like.</p>
+like. To change the order, drag a job by the grip (&equiv;) at the start of its row, or use
+<strong>Move Up</strong> and <strong>Move Down</strong>; a job cannot be moved past the one
+being processed, or above jobs that have already finished.</p>
 <p align="center" class="figrow"><img class="gimg m800" src="img/batch-manager.png" width="800" height="507" alt="The Batch Manager running a queue"></p>
 <p align="center" class="cap">The Batch Manager part-way through a queue: one job done, one encoding, two waiting, and at the bottom an export handed over from the editor while it was already running.</p>
 <div class="note">If the Batch Manager runs into a problem with a file &mdash; most often one
@@ -772,6 +807,8 @@ the Batch Manager.</div>
 <ul>
   <li><strong>General</strong> &mdash; overall behaviour and appearance, including the
   <strong>Theme</strong> (Follow&nbsp;system, Light or Dark).</li>
+  <li><strong>Charms bar</strong> &mdash; whether the Charms bar is shown and what its
+  buttons do; see <a href="#view">The View menu and the Charms bar</a>.</li>
   <li><strong>Files &amp; folders</strong> &mdash; your recording, output and working
   folders.</li>
   <li><strong>Advert detection</strong> &mdash; which detector to use, Chalkline's logo
@@ -861,6 +898,7 @@ rather than the current setting.</p>
   <tr><td>Go to timecode</td><td><kbd>Ctrl+G</kbd></td></tr>
   <tr><td>Show video program info</td><td><kbd>Ctrl+L</kbd></td></tr>
   <tr><td>Undo / Redo</td><td><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd></td></tr>
+  <tr><td>Full Screen</td><td><kbd>F11</kbd></td></tr>
 </table>
 
 <h2 id="tips">10. Tips and troubleshooting</h2>
@@ -999,6 +1037,13 @@ it is probably here under another name.</p>
     <td>Batch Manager</td>
     <td>Same idea, and an export already running in the editor can be handed to it
     mid-flight with <strong>Send to Batch</strong>.</td>
+  </tr>
+  <tr>
+    <td>Charms</td>
+    <td>Charms bar (<strong>View &rarr; Show Charms Bar</strong>)</td>
+    <td>Off unless you switch it on. Ten slots rather than six, set up under
+    <strong>Settings &rarr; Charms bar</strong>; there are no DVD functions, so those
+    two slots start with Batch Manager and Detect Commercials instead.</td>
   </tr>
 </table>
 <div class="note">Not everything has an equivalent. Snipwright cannot <em>convert</em> a

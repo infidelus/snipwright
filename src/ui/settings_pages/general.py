@@ -61,6 +61,17 @@ class GeneralPage(SettingsPage):
             "you know the controls.")
         ))
 
+        self._notify_batch = QCheckBox(
+            self.tr("Notify me when a batch finishes"))
+        self._notify_batch.setChecked(s.get("notify_batch_done", True))
+        self.add(self._notify_batch)
+        self.add(hint(
+            self.tr("A desktop notification when the Batch Manager runs out of "
+            "jobs, or finishes stopping after you asked it to - with how many "
+            "were done, need review or failed. It arrives even if the Batch "
+            "Manager window is closed.")
+        ))
+
         self._jump_small = QSpinBox()
         self._jump_medium = QSpinBox()
         self._jump_large = QSpinBox()
@@ -170,6 +181,7 @@ class GeneralPage(SettingsPage):
             self._edit_mode.currentIndex()
         ][1]
         settings["show_tooltips"] = self._show_tooltips.isChecked()
+        settings["notify_batch_done"] = self._notify_batch.isChecked()
         settings["jump_small_seconds"] = self._jump_small.value()
         settings["jump_medium_seconds"] = self._jump_medium.value()
         settings["jump_large_seconds"] = self._jump_large.value()

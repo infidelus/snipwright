@@ -24,7 +24,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -47,6 +46,7 @@ from addons.rename_pattern import (
 )
 from addons.tmdb_client import TmdbClient, TmdbError, year_of
 from ui.match_worker import MatchRunner
+from ui.rename_table import setup_columns, fit_current_column, open_sized
 from utils.file_mover import move_jobs
 
 VIDEO_EXTS = {
@@ -292,10 +292,9 @@ class FilmRenamerDialog(QDialog):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.cellDoubleClicked.connect(self._row_double_clicked)
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        # Current name fitted to its content, new name takes the rest - see
+        # ui/rename_table.py.
+        setup_columns(self.table)
         self.table.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self.table, 1)
 
@@ -315,6 +314,9 @@ class FilmRenamerDialog(QDialog):
         actions.addWidget(self.clear_btn)
         actions.addWidget(close_btn)
         layout.addLayout(actions)
+
+        # The size the user last left it, remembered across launches.
+        open_sized(self, self.config, "film_renamer")
 
         # Open straight into the last folder, if that option is on.
         self._maybe_autoload()
@@ -842,6 +844,7 @@ class FilmRenamerDialog(QDialog):
                 self.table.setItem(i, 2, status_item)
         finally:
             self._filling = False
+        fit_current_column(self.table)
 
         self.rename_btn.setEnabled(ready > 0)
         self.clear_btn.setEnabled(done > 0)

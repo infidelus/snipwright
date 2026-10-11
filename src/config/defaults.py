@@ -106,6 +106,35 @@ DEFAULT_CONFIG = {
         # nature and you don't want hints popping up.  Read once at startup.
         "show_tooltips": True,
 
+        # The Charms bar: VideoReDo's column of large buttons down the right
+        # edge.  Off by default, and when off it takes no space at all.  Ten
+        # slots, each {"function": <key in ui/charms.py FUNCTIONS, or "" for
+        # none>, "label": <text, or "" for the function's own name>}.
+        # The first four are VideoReDo's own defaults where Snipwright has the
+        # same thing (its Save Joiner is Create Joined Video here); its two
+        # DVD slots have no counterpart, so they take the two things most
+        # often reached for after an edit.  The last four are left empty.
+        "show_charms": False,
+        "charms": [
+            {"function": "open_video", "label": ""},
+            {"function": "save_video", "label": ""},
+            {"function": "add_to_joiner", "label": ""},
+            {"function": "create_joiner", "label": ""},
+            {"function": "batch_manager", "label": ""},
+            {"function": "detect_commercials", "label": ""},
+            {"function": "", "label": ""},
+            {"function": "", "label": ""},
+            {"function": "", "label": ""},
+            {"function": "", "label": ""},
+        ],
+
+        # A desktop notification when the Batch Manager's queue runs out or
+        # a requested stop completes.
+        "notify_batch_done": True,
+
+        # The thumbnail strip under the preview (View > Show Thumbnails).
+        "show_thumbnails": True,
+
         # How far the skip buttons and their keyboard shortcuts move, in
         # seconds.  "small" is keyboard-only; "medium" and "large" are the two
         # pairs of skip buttons either side of the frame-step controls.
@@ -249,6 +278,9 @@ DEFAULT_CONFIG = {
         "save_project_as": "Ctrl+Shift+P",
 
         "queue_to_batch": "Ctrl+B",
+
+        # The whole window full screen, and back (View > Full Screen).
+        "full_screen": "F11",
 
     }
 

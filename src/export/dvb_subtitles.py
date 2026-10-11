@@ -82,8 +82,14 @@ SD_CANVAS = (720, 576)         # what a set with no display definition means
 # PyAV names the DECODER ("dvbsub"); FFmpeg's codec id is "dvb_subtitle".
 DVB_CODECS = ("dvbsub", "dvb_subtitle")
 PGS_CODECS = ("pgssub", "hdmv_pgs_subtitle")
+# DVD (VobSub) subtitles - what MakeMKV writes for a DVD rip.  Pictures like
+# PGS, so a join converts them to DVB the same way.
+DVD_CODECS = ("dvdsub", "dvd_subtitle")
+# Disc subtitles the join converts from the SOURCE recording, because a
+# scene rendered to a transport stream has already lost them.
+DISC_CODECS = PGS_CODECS + DVD_CODECS
 # Every kind a re-encoded join can carry.
-CARRIED_CODECS = DVB_CODECS + PGS_CODECS
+CARRIED_CODECS = DVB_CODECS + DISC_CODECS
 
 
 # -- reading DVB ------------------------------------------------------------
@@ -206,6 +212,92 @@ class _PgsState:
         return out, clear
 
 
+class _DvdPalette:
+    """A DVD subtitle's colours, which PyAV does not hand back.
+
+    PyAV gives the picture as colour numbers 0-3 but not the palette.  That
+    comes in two halves, read here the way FFmpeg's own decoder reads them:
+    the disc's sixteen colours, from the track's header (MakeMKV's VobSub
+    index: "palette: rrggbb, ..."), and each subtitle's choice of four of
+    them and how opaque each is, from its own control commands (SET_COLOR
+    0x03, SET_CONTR 0x04).
+    """
+
+    def __init__(self, extradata):
+        self.rgb = [(0, 0, 0), (255, 255, 255), (128, 128, 128), (0, 0, 0)] * 4
+        text = (extradata or b"").decode("latin-1", "replace")
+        for line in text.splitlines():
+            if line.lower().startswith("palette:"):
+                vals = [v.strip() for v in line.split(":", 1)[1].split(",")]
+                try:
+                    cols = [int(v, 16) for v in vals if v]
+                except ValueError:
+                    cols = []
+                if len(cols) >= 16:
+                    self.rgb = [((c >> 16) & 255, (c >> 8) & 255, c & 255)
+                                for c in cols[:16]]
+
+    @staticmethod
+    def _commands(data):
+        """(colour indices for pixel values 0-3, alpha nibbles 0-3)."""
+        colour, alpha = [0, 1, 2, 3], [0, 15, 15, 15]
+        if len(data) < 4:
+            return colour, alpha
+        at = int.from_bytes(data[2:4], "big")
+        seen = set()
+        while 0 <= at < len(data) - 4 and at not in seen:
+            seen.add(at)
+            nxt = int.from_bytes(data[at + 2:at + 4], "big")
+            i = at + 4
+            while i < len(data):
+                cmd = data[i]
+                if cmd == 0xFF:
+                    break
+                if cmd == 0x03 and i + 2 < len(data):
+                    v = int.from_bytes(data[i + 1:i + 3], "big")
+                    colour = [v & 0xF, (v >> 4) & 0xF, (v >> 8) & 0xF, v >> 12]
+                    i += 3
+                elif cmd == 0x04 and i + 2 < len(data):
+                    v = int.from_bytes(data[i + 1:i + 3], "big")
+                    alpha = [v & 0xF, (v >> 4) & 0xF, (v >> 8) & 0xF, v >> 12]
+                    i += 3
+                elif cmd == 0x05:
+                    i += 7
+                elif cmd == 0x06:
+                    i += 5
+                elif cmd == 0x07 and i + 2 < len(data):
+                    i += 1 + int.from_bytes(data[i + 1:i + 3], "big")
+                else:
+                    i += 1                     # 0x00-0x02: no argument
+            if nxt == at:
+                break
+            at = nxt
+        return colour, alpha
+
+    def dvb_palette(self, data):
+        """{pixel value: (Y, Cr, Cb, T)} in DVB's terms, and the value to swap
+        with 0 so 0 is transparent (None when it already is)."""
+        colour, alpha = self._commands(data)
+        out = {}
+        for value in range(4):
+            r, g, b = self.rgb[colour[value] & 0xF]
+            y = round(16 + (65.481 * r + 128.553 * g + 24.966 * b) / 255)
+            cb = round(128 + (-37.797 * r - 74.203 * g + 112.0 * b) / 255)
+            cr = round(128 + (112.0 * r - 93.786 * g - 18.214 * b) / 255)
+            a = alpha[value] * 17
+            if a:
+                y = max(y, 16)                 # DVB: luma 0 means transparent
+            out[value] = (y, cr, cb, 255 - a)
+        if out[0][3] == 255:
+            return out, None
+        clear = next((v for v in (1, 2, 3) if out[v][3] == 255), None)
+        if clear is None:
+            clear = 4
+            out[clear] = (16, 128, 128, 255)
+        out[0], out[clear] = out[clear], out[0]
+        return out, clear
+
+
 # -- writing DVB ------------------------------------------------------------
 
 class _Writer:
@@ -297,14 +389,23 @@ class _Writer:
 
 # -- the join ---------------------------------------------------------------
 
-def _picture_area(video_stream, target):
+def _picture_area(video_stream, target, copied=False):
     """Where a scene's picture sits on the joined frame.
 
     The same arithmetic as the Joiner's filter: un-anamorphic to the display
     width (scale=trunc(iw*sar/2)*2:ih), fit inside the target keeping the
     aspect, centred on padding.
+
+    `copied`: a join that COPIES its scenes does none of that - the picture
+    is the source's own pixels, filling the frame - so it fills the target.
+    Applying the re-encode arithmetic there put a widescreen DVD's subtitles
+    86 pixels too high: 720x576 at 64:45 "un-anamorphics" to 1024x576 and
+    letterboxes into 720x404 (found joining a DVD rip, 2026-10-10).  A
+    Blu-ray's square pixels never showed it.
     """
     tw, th = target
+    if copied:
+        return 0, 0, tw, th
     sar = video_stream.sample_aspect_ratio or Fraction(1)
     dw = int(video_stream.width * sar / 2) * 2 or video_stream.width
     dh = video_stream.height
@@ -337,7 +438,7 @@ def subtitle_kinds(path):
         return []
 
 
-def _scene_sets(path, offset, length, writer):
+def _scene_sets(path, offset, length, writer, copied=False):
     """One scene's subtitle display sets, moved to `offset` in the join.
 
     Returns (sets, redrawn, language): sets is [(seconds, payload)].
@@ -350,7 +451,7 @@ def _scene_sets(path, offset, length, writer):
         sub, video = dvb[0], c.streams.video[0]
         language = sub.metadata.get("language", "") or ""
         vstart = float((video.start_time or 0) * video.time_base)
-        px, py, pw, ph = _picture_area(video, writer.canvas)
+        px, py, pw, ph = _picture_area(video, writer.canvas, copied)
         state = _State()
         sets = []
         redraw = None
@@ -395,7 +496,7 @@ def _scene_sets(path, offset, length, writer):
         return sets, bool(redraw), language
 
 
-def _scene_sets_pgs(path, start, offset, length, writer):
+def _scene_sets_pgs(path, start, offset, length, writer, copied=False):
     """A disc scene's PGS subtitles, converted to DVB and moved to `offset`.
 
     Read from the SOURCE recording between `start` and `start + length` -
@@ -415,7 +516,7 @@ def _scene_sets_pgs(path, start, offset, length, writer):
             c.seek(int(max(0.0, vstart + start - 30.0) * 1_000_000))
         except Exception:
             pass                       # read from the top instead
-        px, py, pw, ph = _picture_area(video, writer.canvas)
+        px, py, pw, ph = _picture_area(video, writer.canvas, copied)
         state = _PgsState()
         sets = []
         for packet in c.demux(sub):
@@ -450,7 +551,65 @@ def _scene_sets_pgs(path, start, offset, length, writer):
         return sets, language
 
 
-def carry_dvb_subtitles(joined, out_path, segments, durations, sources=None):
+def _scene_sets_dvd(path, start, offset, length, writer, copied=False):
+    """A DVD rip scene's subtitles, converted to DVB and moved to `offset`.
+
+    As _scene_sets_pgs(), with two differences: the colours come from
+    _DvdPalette, and a DVD subtitle says how long it stays up (the packet's
+    duration) rather than ending with a clearing set of its own, so a clear
+    is added at its end.
+    """
+    with av.open(path) as c:
+        dvd = [s for s in c.streams.subtitles
+               if s.codec_context.name in DVD_CODECS]
+        if not dvd or not c.streams.video:
+            return [], ""
+        sub, video = dvd[0], c.streams.video[0]
+        language = sub.metadata.get("language", "") or ""
+        colours = _DvdPalette(sub.codec_context.extradata)
+        vstart = float((video.start_time or 0) * video.time_base)
+        try:
+            c.seek(int(max(0.0, vstart + start - 30.0) * 1_000_000))
+        except Exception:
+            pass
+        px, py, pw, ph = _picture_area(video, writer.canvas, copied)
+        canvas = (video.width or SD_CANVAS[0], video.height or SD_CANVAS[1])
+        sx, sy = pw / canvas[0], ph / canvas[1]
+        sets = []
+        for packet in c.demux(sub):
+            if packet.pts is None:
+                continue
+            data = bytes(packet)
+            pictures = [r for r in packet.decode() if getattr(r, "width", 0)]
+            rel = float(packet.pts * sub.time_base) - vstart - start
+            if rel >= length:
+                break
+            if rel < 0 or not pictures:
+                continue
+            palette, swap = colours.dvb_palette(data)
+            drawn = []
+            for r in pictures:
+                stride = r.planes[0].buffer_size // max(1, r.height)
+                src = np.frombuffer(bytes(r.planes[0]), np.uint8)
+                src = src.reshape(r.height, stride)[:, :r.width].copy()
+                if swap is not None:
+                    zero, other = src == 0, src == swap
+                    src[zero], src[other] = swap, 0
+                nw, nh = max(1, round(r.width * sx)), max(1, round(r.height * sy))
+                rows = np.minimum((np.arange(nh) / sy).astype(int), r.height - 1)
+                cols = np.minimum((np.arange(nw) / sx).astype(int), r.width - 1)
+                drawn.append((px + round(r.x * sx), py + round(r.y * sy),
+                              src[rows][:, cols], palette))
+            shown = (float(packet.duration * sub.time_base)
+                     if packet.duration else 5.0)
+            sets.append((offset + rel, writer.display(drawn, PGS_TIMEOUT)))
+            sets.append((offset + min(rel + shown, length), writer.clear()))
+        sets.append((offset + length, writer.clear()))
+        return sets, language
+
+
+def carry_dvb_subtitles(joined, out_path, segments, durations, sources=None,
+                        copied=False):
     """Write `joined` to `out_path` with its scenes' DVB subtitles added.
 
     `segments` are the rendered scenes in join order and `durations` the
@@ -474,10 +633,16 @@ def carry_dvb_subtitles(joined, out_path, segments, durations, sources=None):
     sources = sources or [None] * len(segments)
     for seg, planned, source in zip(segments, durations, sources):
         length = _rendered_length(seg) or planned
-        got, was_redrawn, lang = _scene_sets(seg, base + offset, length, writer)
+        got, was_redrawn, lang = _scene_sets(seg, base + offset, length, writer, copied)
         if not got and source:
-            got, lang = _scene_sets_pgs(source[0], source[1], base + offset,
-                                        length, writer)
+            # A disc scene: Blu-ray (PGS) or DVD (VobSub), read from the
+            # source recording.
+            if any(k in DVD_CODECS for k in subtitle_kinds(source[0])):
+                got, lang = _scene_sets_dvd(source[0], source[1], base + offset,
+                                            length, writer, copied)
+            else:
+                got, lang = _scene_sets_pgs(source[0], source[1], base + offset,
+                                            length, writer, copied)
             converted += bool(got)
         if got:
             sets += got
@@ -524,7 +689,7 @@ def carry_dvb_subtitles(joined, out_path, segments, durations, sources=None):
         dst.close()
         src.close()
     log.info("Subtitles: carried %d scene(s) through the join "
-             "(%d redrawn for %dx%d, %d converted from PGS), %d display set(s).",
+             "(%d redrawn for %dx%d, %d converted from Blu-ray or DVD), %d display set(s).",
              carried, redrawn, canvas[0], canvas[1], converted, len(sets))
     return {"carried": carried, "redrawn": redrawn, "converted": converted,
             "sets": len(sets), "canvas": canvas}
