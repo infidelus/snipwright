@@ -239,6 +239,26 @@ ground quickly and then fine-tune. Scrolling up moves forward through the record
 scrolling down moves back.</p>
 <div class="note">The wheel keeps its usual job everywhere it already had one: over the
 scene list it scrolls the list, and over the volume control it changes the volume.</div>
+<p><strong>Tools &rarr; Select Stream &rarr; Audio Streams</strong> chooses which audio track
+you hear while editing &mdash; useful for checking a second language or an audio-description
+track before you rely on it. Each track is listed with its broadcast number, sound format,
+channel count and language, and audio description is named where the broadcaster flags it;
+the tick shows the track playing, and choosing another switches at once, from the same
+point. A track that starts later than the programme is silent until it begins. This only
+changes what you hear: a saved video keeps every track whichever one is chosen, and the next
+recording you open starts on its first track again. <strong>Video Streams</strong> lists the
+picture track the same way, for information.</p>
+<p><strong>Edit &rarr; Capture Frame</strong> (<kbd>Ctrl+C</kbd>) saves the frame on screen as a
+picture, at the recording&rsquo;s full resolution and in its proper shape &mdash; a widescreen
+standard-definition broadcast comes out 1024&times;576, not squashed. A small window asks
+where it goes: the <strong>clipboard</strong>, ready to paste, or a <strong>file</strong>, whose
+name is already filled in &mdash; the recording&rsquo;s with the timecode added, PNG unless you end
+it in <code>.jpg</code> &mdash; so <strong>OK</strong> saves straight away, and <strong>&hellip;</strong>
+opens the full Save dialog when you want to choose. <strong>Deinterlace</strong> removes the
+comb-like lines that movement shows in a still from an interlaced broadcast; a frame that is
+not interlaced is saved as it is either way. The folder is set like the others, under
+<strong>Settings &rarr; Files &amp; folders &rarr; Frame captures</strong>, and the window remembers your
+other choices.</p>
 <h3>Cutting in Cut Mode</h3>
 <ol>
   <li>Move to where the unwanted section starts and press <strong>Mark In</strong>
@@ -275,10 +295,15 @@ the playhead to its start, which is the quickest way to correct one you have alr
 select it, nudge whichever marker is wrong, and press <strong>Add Selection</strong>
 (or <strong>Cut Selection</strong> in Cut Mode) to replace it. The <strong>Selection</strong>
 row of the Info panel shows the duration and size of whatever is marked.</p>
-<p><strong>Add Unselected</strong> (<kbd>Ctrl+Insert</kbd>) does the inverse: it fills in
-every gap as a kept scene &mdash; handy when it is quicker to mark the parts you want to
-remove and then invert. <strong>Clear All Scenes</strong> (<kbd>Shift+Insert</kbd>) starts
-over.</p>
+<p><strong>Add Unselected</strong> (<kbd>Ctrl+Insert</kbd>) does the opposite of Add Selection,
+as in VideoReDo: everything <em>outside</em> the IN and OUT marks &mdash; from the start of the
+recording up to IN, and from OUT to the end &mdash; becomes the scenes, and the marked part is
+left unselected. Pick a scene from the list and press it to keep everything but that scene. <strong>Invert All
+Scenes</strong> (<kbd>Ctrl+I</kbd>, the button above Remove Selected Scenes, or <strong>Edit
+&rarr; Invert Selection</strong>) swaps every scene for the gaps between them &mdash; handy when it
+is quicker to mark the adverts and then invert; in Cut Mode the same button reads
+<strong>Invert All Cuts</strong>. <strong>Clear All Scenes</strong> (<kbd>Shift+Insert</kbd>)
+starts over.</p>
 
 <h3>Reading the navigation bar</h3>
 <p>The coloured bar beneath the thumbnails shows the shape of your edit at a glance:</p>
@@ -405,6 +430,14 @@ the other's too.</p>
 learned is still used to find its breaks, but saving a corrected project on that channel no
 longer starts a learning pass, which can take a few minutes on a long recording. Tick it
 again if the channel changes its logo or idents.</p>
+<p>Chalkline also does much of this for you. Once a channel's logo has been confirmed by five
+of your corrected projects in a row, the row says <strong>Settled</strong>, and a learning
+pass runs only on every tenth corrected project from that channel rather than on every one
+&mdash; enough to notice if the channel changes its logo or idents. If one of those checks
+does not confirm the logo, the channel goes back to learning from every project. Ticking
+<strong>Learn</strong> again after unticking it starts the count afresh. Until a channel
+settles, hovering over its <strong>Learn</strong> box shows how far it has got &mdash; for
+example &ldquo;3 of 5 confirmed saves&rdquo;.</p>
 <p align="center" class="figrow"><img class="gimg m780" src="img/chalkline.png" width="780" height="452" alt="The Remembered logos dialog, listing learned channel logos"></p>
 <p align="center" class="cap">Logos Chalkline has learned. Every row carries both a channel name and a service ID, so recordings from either kind of recorder are matched to the same logo. Learning is switched off for Channel 4 HD, and LEGEND has learned a break ident as well as its logo.</p>
 <div class="note">The drawing is not there to let you recognise the brand; it is far too
@@ -722,6 +755,14 @@ folder</strong>, <strong>Edit ignore list</strong>, <strong>Settings</strong> an
 its own, and its control window shows which one it will use. With Chalkline there is nothing
 to set up; with Comskip selected but its path not yet set, the watcher says so rather than
 silently doing nothing, and you set the path in the editor.</p>
+<p>A recording is only looked at once it has not been written to for the time set in
+<strong>Wait after last change</strong> (five minutes unless you change it), because a recorder keeps
+writing its padding after the programme's scheduled end. A scan that finds a recording still
+being written says so and when it will check again. After <strong>Scan now</strong> it
+comes back once for it when it should be finished, rather than waiting for the next
+regular scan; otherwise the next regular scan picks it up. <strong>Scan now</strong> always
+tells you what it found, even when that is nothing new. Regular scans are always the full
+interval apart, counted from when the last scan finished.</p>
 <div class="note">The watcher never teaches Chalkline anything. Logo learning happens only
 when <em>you</em> correct a detection and save the project, because the watcher's output is
 the detector's own guess &mdash; learning from it would compound whatever it got wrong. See
@@ -888,6 +929,7 @@ rather than the current setting.</p>
   <tr><td>Add Unselected</td><td><kbd>Ctrl+Insert</kbd></td></tr>
   <tr><td>Cut Selection</td><td><kbd>Ctrl+X</kbd></td></tr>
   <tr><td>Trim Unselected</td><td><kbd>Ctrl+T</kbd></td></tr>
+  <tr><td>Invert Selection</td><td><kbd>Ctrl+I</kbd></td></tr>
   <tr><td>Select All</td><td><kbd>Ctrl+Shift+A</kbd></td></tr>
   <tr><td>Clear All Scenes</td><td><kbd>Shift+Insert</kbd></td></tr>
   <tr><td>Clear current selection</td><td><kbd>Delete</kbd></td></tr>
@@ -899,6 +941,7 @@ rather than the current setting.</p>
   <tr><td>Show video program info</td><td><kbd>Ctrl+L</kbd></td></tr>
   <tr><td>Undo / Redo</td><td><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd></td></tr>
   <tr><td>Full Screen</td><td><kbd>F11</kbd></td></tr>
+  <tr><td>Capture Frame</td><td><kbd>Ctrl+C</kbd></td></tr>
 </table>
 
 <h2 id="tips">10. Tips and troubleshooting</h2>

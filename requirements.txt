@@ -28,8 +28,8 @@
 
 PySide6>=6.11.2,<6.12  # Qt 6 GUI toolkit (the interface); tested: 6.11.2
 av>=18.1.0,!=19.0.0,<20  # PyAV - decoding/muxing for the cutting engine; ships its own FFmpeg (18.1: 8.1.2, 19.0.1: 9.0.2); tested: 18.1.0, 19.0.1
-numpy>=2.5.3,<2.6    # array maths used during cutting and by the advert detector; tested: 2.5.3
+numpy>=2.5.3,<2.6    # array maths used during cutting and by the advert detector; tested: 2.5.3, 2.5.4
 bitstring==4.4.0     # bit-level parsing of the broadcast streams
-bitarray>=3.11.0,<4  # used by bitstring; tested: 3.11.0
+bitarray>=3.11.0,!=3.12.0,!=3.12.1,<4  # used by bitstring; tested: 3.11.0, 3.12.2
 tibs==0.5.7          # used by bitstring
 tqdm>=4.70.1,<5      # progress reporting in the cutting engine; tested: 4.70.1

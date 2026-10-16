@@ -6,6 +6,121 @@ All notable changes to Snipwright are documented here. Releases before
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [2.13.0] - 2026-10-16
+
+### Added
+
+- **Choose which audio track you hear while editing** - Tools -> Select
+  Stream -> Audio Streams, as in VideoReDo. Every track is listed with its
+  broadcast number, format, channels and language, with audio description
+  named where the broadcaster flags it, and choosing one switches playback
+  at once from the same point. Snipwright already tells you when a track
+  could not be kept; now you can listen to a second language or an
+  audio-description track before relying on it. Playback only - a saved
+  video keeps every track as before.
+- **Capture Frame** - Edit -> Capture Frame (Ctrl+C), as in VideoReDo,
+  saves the frame on screen at full resolution and in its proper shape, to
+  the clipboard or to a PNG or JPEG file named after the recording and the
+  timecode, with an option to deinterlace it. Its folder is set under
+  Settings -> Files & folders, like the others.
+- **Invert All Scenes / Invert All Cuts** - a button above Remove Selected
+  Scenes (and Edit -> Invert Selection, Ctrl+I) that swaps every kept part
+  for the gaps between them, as VideoReDo's Invert All Cuts does.
+
+### Changed
+
+- **Add Unselected and Trim Unselected now work as they do in VideoReDo.**
+  Add Unselected makes everything outside the IN and OUT marks the scenes -
+  pick a scene from the list and press it, and that scene is unselected and
+  the rest of the recording selected. It used to swap every scene for the
+  gaps between them, which is what the new Invert button does. Trim
+  Unselected keeps the marked part and cuts the rest; with a cut picked
+  from the list it used to cut the whole recording, and now keeps that part.
+  Cuts already made inside the marks stay cut, so cutting the adverts and
+  then trimming the ends still works.
+
+- **Chalkline stops re-learning a channel whose logo it already has right.**
+  Every corrected project you save starts a learning pass, which can take a
+  few minutes on a long recording. Once a channel's logo has been confirmed
+  by five corrected projects in a row it is marked Settled in Remembered
+  logos, and the pass runs only on every tenth project from that channel -
+  enough to notice if the channel changes its logo or idents. A check that
+  does not confirm the logo puts the channel back to learning from every
+  project. Until it settles, the Learn box's tooltip shows how far a
+  channel has got ("3 of 5 confirmed saves").
+
+- **Advert detection copes better with faint, see-through channel logos.**
+  Some channels - LEGEND among them - use a pale outline logo that almost
+  disappears on bright scenes, so detection kept losing it in the middle of
+  the programme and inventing breaks there. Chalkline now also learns how
+  much brighter the logo sits than the picture around it, from your
+  corrected projects, and uses that as a second way of seeing the logo -
+  but only on a channel where your other corrected projects show it helps.
+  On one LEGEND episode it removed four of six invented breaks. It is
+  decided per programme where it can be - one channel can show a
+  programme its logo stands out against and another it all but vanishes
+  in - from your earlier corrected projects of the same programme, and
+  from the channel as a whole only when there are none. It learns from
+  corrected projects saved from now on, and changes nothing where the
+  logo is already found reliably.
+
+- **The start of a programme is found where the channel's logo is too
+  faint to see at first.** Chalkline learns what the first moments of each
+  channel's programmes look like from your corrected projects, and uses
+  that to place the start of the recording's programme - but it only
+  trusted a match within 30 seconds of where the logo put the start. On a
+  channel with a faint logo the logo can stay unseen for a minute or more
+  of the opening scene, so the match was ignored and the start of the
+  episode was trimmed off with the padding - on one channel by up to
+  nearly three minutes, cold open included. A match for the start that
+  would keep more of the programme is now trusted up to four minutes away.
+
+- **numpy 2.5.4 and bitarray 3.12.2 are now among the tested library
+  versions**, so a new installation can take them; both gave results
+  identical to the earlier versions across the advert-detection test set and
+  the export regression set. bitarray 3.12.0 and 3.12.1 are excluded, as
+  untested.
+
+### Fixed
+
+- **Advert detection no longer sits at 99% with nothing moving.** On a
+  recording whose picture shape changes, the third pass spends longer
+  checking the changes than finding them, and the bar showed it all as
+  99%; then the analysis after the passes ran on silently too. The third
+  pass's bar now covers both halves, and the window says when it is
+  working out where the breaks are.
+
+- **Advert detection no longer cuts the end off a programme that overruns
+  its listed slot.** 2.12.0 began trimming the tail of a recording from
+  the moment the channel's "now and next" listing says the next programme
+  has started. On a channel running late, that moment can come before the
+  programme has finished - on one recording the final scene and the end
+  credits, a minute and a half, were trimmed off. Detection now also checks
+  the channel's logo across that moment: if it is still on screen, steadily,
+  the trim waits until it goes. A faint logo that flickers in bright
+  scenes is still recognised, and the on-off logo of the promotions
+  between programmes is not mistaken for a programme running on.
+
+- **Converting a Blu-ray rip to HEVC no longer switches its subtitles on.**
+  On a rip with more than one subtitle track, all switched off, the HEVC
+  re-encode marked the first track as the default one, so the converted
+  file opened with subtitles showing. A rip with a single subtitle track
+  was not affected. Subtitle tracks now keep exactly the flags the rip
+  has - off stays off, and a track the disc marks default or forced stays
+  that way.
+
+- **The Watcher says when a recording is still being written, and comes
+  back for it.** A recorder keeps writing its padding after a programme's
+  scheduled end, and the Watcher waits until a file has been left alone
+  for a few minutes before looking at it. A scan made in that window
+  skipped the recording without a word - Scan Now appeared to do nothing -
+  and the recording then waited for the next regular scan. The Watcher now
+  says how many recordings are still being written and when it will check
+  again; after Scan Now it checks once more when they should be finished.
+  Scan Now always reports what it found, and the next regular scan comes a
+  full interval after the last one, so a Scan Now no longer leaves a
+  regular scan due a few minutes later.
+
 ## [2.12.0] - 2026-10-11
 
 ### Added

@@ -57,6 +57,7 @@ from smartcut.misc_data import (
     AudioExportInfo,
     AudioExportSettings,
 )
+from export.sub_flags import subtitle_flags
 
 
 class ExportError(Exception):
@@ -1304,6 +1305,11 @@ def _mkvmerge_video_track_id(exe, ts_path):
     return 0
 
 
+def _is_matroska(path):
+    """True for a Matroska file, judged by its name as the cut writes it."""
+    return str(path).lower().endswith((".mkv", ".mka", ".mks", ".webm"))
+
+
 def _mkvmerge_subtitle_track_ids(exe, path):
     """Every subtitle track's id as mkvmerge sees it, or [] on any failure."""
     try:
@@ -1879,8 +1885,14 @@ def _write_mkv_chapters_mkvmerge(ts_path, mkv_path, segment_durations, exe,
         # went unnoticed while subtitles were being dropped altogether (fixed
         # in 2.7.25 and 2.7.28).  `--default-track` is the older spelling of
         # `--default-track-flag`, accepted by every MKVToolNix version.
-        for tid in _mkvmerge_subtitle_track_ids(exe, ts_path):
-            cmd += ["--default-track", "%d:0" % tid]
+        #
+        # Only for a transport-stream input, though.  A Blu-ray or DVD rip is
+        # cut to a MATROSKA intermediate, which carries the disc's own flags -
+        # and mkvmerge keeps those by itself - so clearing them would switch
+        # off a track the rip deliberately marks default (2026-10-14).
+        if not _is_matroska(ts_path):
+            for tid in _mkvmerge_subtitle_track_ids(exe, ts_path):
+                cmd += ["--default-track", "%d:0" % tid]
         cmd.append(ts_path)
         result = _run_cancellable(cmd, cancel_cb=cancel_cb)
         # mkvmerge: 0 = OK, 1 = OK with warnings, 2 = error.
@@ -1966,6 +1978,7 @@ def _reencode_mkv_audio(mkv_path, cancel_cb=None):
         # Two channels: the varying configuration is precisely the problem, so
         # settle on the one every player handles.
         "-c:a", "aac", "-ac", "2", "-b:a", "192k",
+        *subtitle_flags(mkv_path, tmp),     # see export/sub_flags.py
         tmp,
     ]
     try:
@@ -2168,7 +2181,12 @@ def _write_mkv_chapters_ffmpeg(ts_path, mkv_path, segment_durations,
         # Subtitles are not a default track - see the same step in
         # _write_mkv_chapters_mkvmerge.  ffmpeg marks the first stream of each
         # kind default unless told otherwise.
-        cmd += ["-disposition:s", "0"]
+        # As in the mkvmerge step, a Matroska intermediate already carries
+        # the source's own flags, which are restated instead.
+        if _is_matroska(ts_path):
+            cmd += subtitle_flags(ts_path)
+        else:
+            cmd += ["-disposition:s", "0"]
         cmd.append(mkv_path)
         if audio_reencode and progress_cb is not None and total_seconds > 0:
             # A whole-film audio re-encode takes minutes.  Report real
@@ -3577,7 +3595,7 @@ def _reencode_cut_audio_to_aac(cut_path, bitrate, cancel_cb=None):
     ]
     if bitrate:
         cmd += ["-b:a", "%dk" % bitrate]
-    cmd += [tmp]
+    cmd += [*subtitle_flags(cut_path, tmp), tmp]     # see export/sub_flags.py
     try:
         result = _run_cancellable(cmd, cancel_cb=cancel_cb)
     except _Cancelled:
@@ -3931,7 +3949,7 @@ def _apply_audio_adjustments(path, sync_ms=0, downmix="keep",
         cmd += ["-i", path, "-map", "0"]
     cmd += ["-map", "-0:d", "-ignore_unknown"]
 
-    cmd += ["-c:v", "copy", "-c:s", "copy"]
+    cmd += ["-c:v", "copy", "-c:s", "copy", *subtitle_flags(path, tmp)]
     if want_downmix or level:
         # A level filter has to touch every track - you cannot change the
         # loudness of packets you are copying.  A downmix on its own only

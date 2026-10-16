@@ -787,7 +787,11 @@ def scan_once(cfg, processed, comskip_binary=None, comskip_ini=None,
     seen_paths = []
     summary = {"scanned": 0, "projects": 0, "no_ads": 0,
                "skipped": 0, "errors": 0, "ignored": 0, "paused": False,
-               "forgotten": 0, "held": 0, "unreachable": []}
+               "forgotten": 0, "held": 0, "unreachable": [],
+               # When the first still-recording file will have been quiet for
+               # the settle time (epoch seconds), so the tray can come back
+               # for it then rather than at the next regular scan.
+               "settles_at": None}
 
     # Checked before any work, so the log says plainly that a share was down
     # rather than leaving a scan that found nothing to be read as a scan that
@@ -860,6 +864,12 @@ def scan_once(cfg, processed, comskip_binary=None, comskip_ini=None,
             continue
         if not file_settled(source, cfg.settle_seconds):
             summary["skipped"] += 1
+            try:
+                ready = os.path.getmtime(source) + cfg.settle_seconds
+                if summary["settles_at"] is None or ready < summary["settles_at"]:
+                    summary["settles_at"] = ready
+            except OSError:
+                pass
             log.info(
                 "Skipped (still recording - not untouched for %ds yet): %s",
                 cfg.settle_seconds, name,

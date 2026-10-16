@@ -9,45 +9,16 @@ __pycache__/
 venv/
 env/
 
-# Editor / OS cruft
+# Editor / OS files
 .vscode/
 .idea/
 *.swp
 .DS_Store
 
-# Claude context file (local only, not for GitHub)
-CLAUDE.md
-
-# The advert detector's own notes, split out of CLAUDE.md when it had grown
-# to 71% of it and was burying the sections meant to be read before every
-# change.  Same class as CLAUDE.md: internal working notes, not for GitHub.
-CHALKLINE.md
-
-# Working note for a job in progress — local only, and deleted once the work
-# it describes is finished.  Same class as CLAUDE.md: it records where a
-# half-done piece of work got to, which is nobody's business but this tree's.
-HANDOVER.md
-
-# Local config / logs (Snipwright stores these under ~/.config/snipwright)
+# Logs
 *.log
 
-# Unpacked delivery archives — better still, unpack these outside the repo
+# Unpacked or packaged builds
 snipwright-changes/
 snipwright-[0-9]*/
 *-changes.zip
-
-# Local release notes — read by gh at release time, never committed
-release-notes.md
-
-# Packaging checksum list — regenerated for each hand-over so the delivered
-# copy can be diffed against this one.  It describes a build, not the project.
-MANIFEST.txt
-
-# Development tooling and its results: corpus harness, detector diagnostics,
-# batch scores, trace logs. Local only, same class as CLAUDE.md.
-#
-# These live in the tree rather than in a scratch folder so a result is a
-# file next to the code that produced it, with a name and a date, instead of
-# terminal scrollback nobody can find again. Excluded from MANIFEST.txt too
-# — see the find command in CLAUDE.md.
-dev/

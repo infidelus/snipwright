@@ -30,6 +30,11 @@ DEFAULT_CONFIG = {
         #             want to keep.
         "edit_mode": "cut",
 
+        # Edit > Capture Frame: where the picture went last time ("file" or
+        # "clipboard") and whether interlaced frames are deinterlaced.
+        "capture_to": "file",
+        "capture_deinterlace": True,
+
         "qsf_on_open": False,
 
         "qsf_no_rewarn": False,
@@ -162,6 +167,11 @@ DEFAULT_CONFIG = {
         "project_folder": "",
         "last_project": "",
 
+        # Edit > Capture Frame's folder, the same way.
+        "capture_mode": "last",
+        "capture_folder": "",
+        "last_capture": "",
+
         # The format Save Project writes: "swproj" (Snipwright's own) or
         # "vprj" (VideoReDo's). This default is what a NEW installation gets;
         # an existing settings file without the key is given "vprj" by
@@ -229,6 +239,10 @@ DEFAULT_CONFIG = {
 
         "trim_unselected": "Ctrl+T",
 
+        # Swap kept and dropped everywhere (Edit > Invert Selection, the
+        # Invert button above Remove) - VideoReDo's Invert All Cuts.
+        "invert_selection": "Ctrl+I",
+
         "select_all": "Ctrl+Shift+A",
 
         "clear_all_scenes": "Shift+Insert",
@@ -281,6 +295,10 @@ DEFAULT_CONFIG = {
 
         # The whole window full screen, and back (View > Full Screen).
         "full_screen": "F11",
+
+        # Save the frame on screen as a picture (Edit > Capture Frame),
+        # VideoReDo's key for it.
+        "capture_frame": "Ctrl+C",
 
     }
 

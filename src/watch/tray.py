@@ -533,7 +533,7 @@ class WatchControlDialog(QDialog):
         # --- manual controls ---
         controls = QHBoxLayout()
         self.scan_btn = QPushButton(self.tr("Scan Now"))
-        self.scan_btn.clicked.connect(self.tray.scan_now)
+        self.scan_btn.clicked.connect(lambda: self.tray.scan_now(manual=True))
         self.pause_btn = QPushButton()
         self.pause_btn.clicked.connect(self._toggle_pause)
         self.open_out_btn = QPushButton(self.tr("Open Output Folder"))
@@ -817,6 +817,17 @@ class WatcherTray:
         self.timer.timeout.connect(self._maybe_scan)
         self._restart_timer()
 
+        # One extra scan after Scan Now, timed for when a recording that was
+        # still being written will have been quiet for the settle time - see
+        # _on_finished().  Without it a recording that finished just after
+        # the click waited for the next regular scan, which looked like the
+        # watcher ignoring it.
+        self._settle_timer = QTimer()
+        self._settle_timer.setSingleShot(True)
+        self._settle_timer.timeout.connect(self._follow_up_scan)
+        self._manual_scan = False
+        self._follow_up = False
+
         if self.no_tray:
             # No system tray - fall back to a visible control window.
             self.open_settings()
@@ -839,7 +850,7 @@ class WatcherTray:
     def _build_menu(self):
         menu = QMenu()
         self.act_scan = menu.addAction(self.tr("Scan now"))
-        self.act_scan.triggered.connect(self.scan_now)
+        self.act_scan.triggered.connect(lambda: self.scan_now(manual=True))
         self.act_pause = menu.addAction(self.tr("Pause"))
         self.act_pause.triggered.connect(lambda: self.set_paused(not self.cfg.paused))
         menu.addSeparator()
@@ -881,11 +892,23 @@ class WatcherTray:
         if not self.cfg.paused:
             self.scan_now()
 
+    def _follow_up_scan(self):
+        # Counts as part of the Scan Now that asked for it, so it reports
+        # what it found - but never schedules another; see _on_finished().
+        if not self.cfg.paused:
+            self.scan_now(manual=True, follow_up=True)
+
     # --- actions ---------------------------------------------------------- #
 
-    def scan_now(self):
+    def scan_now(self, manual=False, follow_up=False):
+        """Scan the watch folders.  `manual` is True for Scan Now (menu or
+        window button): that scan always says what it found, even if it was
+        nothing, so the click visibly does something.  `follow_up` marks the
+        one extra scan a Scan Now may ask for."""
         if self.worker is not None:
             return  # already scanning
+        self._manual_scan = bool(manual)
+        self._follow_up = bool(follow_up)
         # Only Comskip needs something installed.  This check must never run
         # for Chalkline, or selecting the built-in detector would leave the
         # watcher refusing to scan and reopening Settings at every timer tick
@@ -1023,6 +1046,11 @@ class WatcherTray:
     def _on_finished(self, summary):
         self.worker = None
         self.tray.setIcon(make_tray_icon(active=False))
+        # The next regular scan is a full interval after THIS one finished,
+        # whatever started it - the user's setting is the gap between checks
+        # (reported 2026-10-14: with 30 minutes set he expected the next
+        # check 30 minutes after the last one completed).
+        self._restart_timer()
         if "error" in summary:
             self._set_status(self.tr("Scan failed: %s") % summary['error'])
             return
@@ -1041,8 +1069,37 @@ class WatcherTray:
             msg += " " + self.tr(
                 "Removed %d stale ignore entry/entries: %s."
             ) % (len(pruned), ", ".join(sorted(pruned)))
+        # Recordings still being written: say so, and when they will be
+        # looked at.  Reported 2026-10-11: two 21:00 recordings had finished
+        # on the schedule, but their padding was written until about 22:10,
+        # so Scan Now at 22:13 rightly skipped them - silently - and the
+        # watcher then waited for its next regular scan.
+        #
+        # The extra scan is for Scan Now only, and only once.  It used to
+        # follow every scan and chain: a recording still being written moves
+        # its own settle time on, so each extra scan found it unsettled and
+        # booked another - a scan every five minutes (the settle time) for
+        # as long as anything was recording, whatever the interval was set
+        # to (reported 2026-10-14).  A regular scan waits for the next
+        # regular scan, as the user's interval says.
+        waiting = summary.get("skipped", 0)
+        settles_at = summary.get("settles_at")
+        follow_up, self._follow_up = self._follow_up, False
+        if waiting and settles_at:
+            now = datetime.datetime.now().timestamp()
+            due = now + self.timer.remainingTime() / 1000.0
+            if self._manual_scan and not follow_up:
+                extra = max(settles_at + 10, now + 30)
+                if extra < due:
+                    due = extra
+                    self._settle_timer.start(max(1000, int((due - now) * 1000)))
+            when = datetime.datetime.fromtimestamp(due).strftime("%H:%M")
+            msg += " " + self.tr(
+                "%(n)d still being recorded - checking again at %(when)s."
+            ) % {"n": waiting, "when": when}
         self._set_status(msg)
-        if projects or pruned:
+        manual, self._manual_scan = self._manual_scan, False
+        if projects or pruned or manual:
             self._notify(self.tr("Snipwright Watcher"), msg)
 
     # --- helpers ---------------------------------------------------------- #

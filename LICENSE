@@ -27,5 +27,6 @@ This product bundles smartcut (the frame-accurate cutting engine in the
 
     Copyright (c) 2024 Santtu Keskinen
 
-The bundled copy has been modified locally for use in Snipwright. Its original
-licence is retained in full at `src/smartcut/LICENSE`.
+The bundled copy has been modified and is maintained as part of Snipwright,
+since the original project is no longer maintained. Its original licence is
+retained in full at `src/smartcut/LICENSE`.

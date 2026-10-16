@@ -139,7 +139,7 @@ info "Installing the Python dependencies into the environment…"
 # export on a fresh install the day after it was published, because nothing
 # stopped pip taking it.
 KNOWN_DEPS=("PySide6>=6.11.2,<6.12" "av>=18.1.0,!=19.0.0,<20" "numpy>=2.5.3,<2.6"
-            "bitstring==4.4.0" "bitarray>=3.11.0,<4" "tibs==0.5.7" "tqdm>=4.70.1,<5")
+            "bitstring==4.4.0" "bitarray>=3.11.0,!=3.12.0,!=3.12.1,<4" "tibs==0.5.7" "tqdm>=4.70.1,<5")
 
 # Install the dependencies.  Prefer requirements.txt, fall back to the known
 # set.  We do NOT hide pip's output or let a failure pass silently - a partial

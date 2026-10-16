@@ -72,6 +72,13 @@ class FilesPage(SettingsPage):
         )
         self.add(self._project_row)
 
+        self._capture_row = PathRow(
+            self.tr("Frame captures:"),
+            p.get("capture_mode", "last"),
+            p.get("capture_folder", ""),
+        )
+        self.add(self._capture_row)
+
         # Which format Save Project writes. A .vprj can be opened in
         # VideoReDo; a .swproj cannot, but records which recording it
         # belongs to and places its cuts by exact frame. Chosen here rather
@@ -159,4 +166,6 @@ class FilesPage(SettingsPage):
         paths["export_folder"] = self._export_row.folder()
         paths["project_mode"] = self._project_row.mode()
         paths["project_folder"] = self._project_row.folder()
+        paths["capture_mode"] = self._capture_row.mode()
+        paths["capture_folder"] = self._capture_row.folder()
         paths["project_format"] = self._project_format.currentData() or "vprj"

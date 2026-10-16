@@ -171,7 +171,7 @@ Info "Installing Python dependencies (this can take a minute)..."
 # 19.0.0 broke every export on a fresh install the day after it was
 # published, because nothing stopped pip taking it.
 $knownDeps = @("PySide6>=6.11.2,<6.12", "av>=18.1.0,!=19.0.0,<20", "numpy>=2.5.3,<2.6",
-               "bitstring==4.4.0", "bitarray>=3.11.0,<4", "tibs==0.5.7", "tqdm>=4.70.1,<5")
+               "bitstring==4.4.0", "bitarray>=3.11.0,!=3.12.0,!=3.12.1,<4", "tibs==0.5.7", "tqdm>=4.70.1,<5")
 
 # Install dependencies.  A requirements.txt that's empty or missing (it has
 # been seen to extract as 0 bytes) would make "pip install -r" a silent no-op,

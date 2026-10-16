@@ -54,6 +54,62 @@ _CHANNELS = 2
 _BYTES_PER_SAMPLE = 2          # s16
 _FRAME_BYTES = _CHANNELS * _BYTES_PER_SAMPLE
 
+# Codec names as a user knows them, for the Select Stream menu.  A late-
+# starting audio-description track can report mp3 before its packets are
+# parsed; both are MPEG audio to the user, as VideoReDo labels them.
+_CODEC_LABELS = {
+    "mp1": "MPEG", "mp2": "MPEG", "mp3": "MPEG", "mp3float": "MPEG",
+    "mp2float": "MPEG", "aac": "AAC", "aac_latm": "AAC", "ac3": "AC-3",
+    "eac3": "E-AC-3", "dts": "DTS", "truehd": "TrueHD", "flac": "FLAC",
+    "pcm_bluray": "LPCM", "opus": "Opus", "vorbis": "Vorbis",
+    "mpeg2video": "MPEG-2", "h264": "H.264", "hevc": "HEVC",
+    "mpeg1video": "MPEG-1", "vc1": "VC-1", "av1": "AV1",
+}
+_DISPOSITION_VISUAL_IMPAIRED = 0x100     # AV_DISPOSITION_VISUAL_IMPAIRED
+
+
+def _nth_stream(container, kind, n):
+    """The n-th stream of `kind` ("audio"/"video"), or the first, or None."""
+    found = [s for s in container.streams if s.type == kind]
+    if not found:
+        return None
+    return found[n] if 0 <= n < len(found) else found[0]
+
+
+def describe_streams(container):
+    """The video and audio tracks of an open container, for Select Stream.
+
+    {"video": [track, ...], "audio": [track, ...]}, each track a dict with
+    "pid" (the transport-stream PID, or None), "codec", "channels" (0 when
+    the header does not say - a late-starting audio-description track does
+    not until its packets are read), "language", "ad" (flagged for the
+    visually impaired) and "size" ("720x576", video only).  Words are left
+    to the caller, which translates them.
+    """
+    out = {"video": [], "audio": []}
+    for s in container.streams:
+        if s.type not in out:
+            continue
+        cc = s.codec_context
+        name = getattr(cc, "name", "") or ""
+        try:
+            disp = int(s.disposition)
+        except Exception:
+            disp = 0
+        track = {
+            "pid": s.id if getattr(s, "id", 0) else None,
+            "codec": _CODEC_LABELS.get(name, name.upper() or "?"),
+            "channels": int(getattr(cc, "channels", 0) or 0)
+            if s.type == "audio" else 0,
+            "language": (s.metadata or {}).get("language", ""),
+            "ad": bool(disp & _DISPOSITION_VISUAL_IMPAIRED),
+            "size": (f"{cc.width}x{cc.height}"
+                     if s.type == "video" and getattr(cc, "width", 0) else ""),
+        }
+        out[s.type].append(track)
+    return out
+
+
 # Keep the decode roughly half a second ahead - enough to avoid underruns,
 # small enough that a seek doesn't leave much stale audio to discard.
 _MAX_BUFFER_BYTES = _RATE * _FRAME_BYTES // 2
@@ -93,10 +149,15 @@ class _DecodeThread(threading.Thread):
     """Decodes the audio stream from `start_seconds`, resampling to the fixed
     output format, and feeds the PCM buffer (throttled to stay ~just ahead)."""
 
-    def __init__(self, buffer, path, start_seconds):
+    def __init__(self, buffer, path, start_seconds, audio_track=0):
         super().__init__(daemon=True)
         self._buffer = buffer
         self._path = path
+        self._audio_track = int(audio_track)
+        # A position before the track begins - an audio-description track
+        # can start minutes into a recording - plays silence until it does,
+        # rather than the track's opening at the wrong moment.
+        self._silence = max(0.0, -float(start_seconds))
         self._start = max(0.0, float(start_seconds))
         self._stop_event = threading.Event()
 
@@ -160,9 +221,27 @@ class _DecodeThread(threading.Thread):
 
         return n_decoded, n_written, n_skipped, dec_err, res_err
 
+    def _pad_silence(self):
+        """Write self._silence seconds of silence, throttled like _pump."""
+        left = int(self._silence * _RATE) * _FRAME_BYTES
+        chunk = (_RATE // 10) * _FRAME_BYTES
+        while left > 0 and not self._stop_event.is_set():
+            n = min(chunk, left)
+            self._buffer.write(bytes(n))
+            left -= n
+            while (
+                    not self._stop_event.is_set()
+                    and self._buffer.size() > _MAX_BUFFER_BYTES
+            ):
+                time.sleep(0.02)
+
     def run(self):
         import os
         name = os.path.basename(self._path)
+        if self._silence > 0:
+            self._pad_silence()
+            if self._stop_event.is_set():
+                return
         try:
             container = av.open(self._path)
         except Exception as exc:
@@ -170,10 +249,7 @@ class _DecodeThread(threading.Thread):
             return
 
         try:
-            astream = next(
-                (s for s in container.streams if s.type == "audio"),
-                None,
-            )
+            astream = _nth_stream(container, "audio", self._audio_track)
             if astream is None:
                 log.warning("audio: %s has no audio stream", name)
                 return
@@ -349,6 +425,12 @@ class AudioController:
         # the picture without any manual per-file tuning.  Set in set_source.
         self._av_start_delay = 0.0
 
+        # Which audio track plays (Tools -> Select Stream), counted among the
+        # source's audio tracks, and every track's description for the menu.
+        # Playback only: an export keeps every track whichever is chosen.
+        self._audio_track = 0
+        self.tracks = {"video": [], "audio": []}
+
         # The device last announced at INFO.  The sink is rebuilt before
         # playback whenever it is missing or in an error state, so without
         # this the same "output device ready" line appeared on every play.
@@ -478,23 +560,41 @@ class AudioController:
     # -- source ----------------------------------------------------------
 
     def set_source(self, path):
-        """Point at a file (playback starts later, on play_from)."""
+        """Point at a file (playback starts later, on play_from).  Playback
+        goes back to the first audio track."""
         self.clear()
         self._source = path or None
-        self._av_start_delay = 0.0
+        self._audio_track = 0
+        self.tracks = {"video": [], "audio": []}
+        self._measure_start_delay(describe=True)
 
+    def audio_track(self):
+        return self._audio_track
+
+    def set_audio_track(self, n):
+        """Play the n-th audio track from now on.  The caller restarts
+        playback if it is running (play_from), as after a seek."""
+        n = int(n)
+        if n == self._audio_track or not (0 <= n < len(self.tracks["audio"])):
+            return False
+        self._audio_track = n
+        self._measure_start_delay()
+        return True
+
+    def _measure_start_delay(self, describe=False):
+        """The chosen audio track's start against the video's - see
+        _av_start_delay.  Measured per track: an audio-description track
+        can start at a different time from the main one."""
+        self._av_start_delay = 0.0
         if self._source and _HAVE_AV:
             try:
                 container = av.open(self._source)
                 try:
-                    v = next(
-                        (s for s in container.streams if s.type == "video"),
-                        None,
-                    )
-                    a = next(
-                        (s for s in container.streams if s.type == "audio"),
-                        None,
-                    )
+                    if describe:
+                        self.tracks = describe_streams(container)
+                    v = _nth_stream(container, "video", 0)
+                    a = _nth_stream(container, "audio", 0)
+                    chosen = _nth_stream(container, "audio", self._audio_track)
                     if v is not None and a is not None:
                         v_start = (v.start_time or 0) * float(
                             v.time_base or 0
@@ -512,6 +612,18 @@ class AudioController:
                         # any implausibly large value and play from the start.
                         if abs(self._av_start_delay) > 10.0:
                             self._av_start_delay = 0.0
+                        # Another track: the main track's delay plus where
+                        # it starts against that one.  Two audio tracks of
+                        # one recording share a clock, so their difference
+                        # is real even when it is large - an audio-
+                        # description track can begin minutes in - and must
+                        # not meet the 10 s guard above, which is for a
+                        # video start time that cannot be trusted.
+                        if chosen is not None and chosen is not a:
+                            c_start = (chosen.start_time or 0) * float(
+                                chosen.time_base or 0
+                            )
+                            self._av_start_delay += a_start - c_start
                 finally:
                     container.close()
             except Exception:
@@ -556,7 +668,9 @@ class AudioController:
         # Seek the audio relative to its OWN stream start: the requested
         # position is on the video timeline, so shift it by the video/audio
         # start-time difference to land on the matching sound.
-        decode_from = max(0.0, float(seconds) + self._av_start_delay)
+        # Negative before the chosen track begins: _DecodeThread pads that
+        # with silence.
+        decode_from = float(seconds) + self._av_start_delay
 
         # Verbose only: this fires on every play, including each nudge of the
         # playhead during scrubbing.
@@ -566,7 +680,8 @@ class AudioController:
             float(seconds), self._av_start_delay, decode_from,
         )
 
-        self._decoder = _DecodeThread(self._buffer, self._source, decode_from)
+        self._decoder = _DecodeThread(self._buffer, self._source, decode_from,
+                                      self._audio_track)
         self._decoder.start()
 
         try:

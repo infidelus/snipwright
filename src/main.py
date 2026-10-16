@@ -622,6 +622,11 @@ class MainWindow(QMainWindow):
             stretch=1,
         )
 
+        # Invert, above Remove as VideoReDo places its Invert All Cuts.
+        self.invert_btn = QPushButton(self.tr("Invert All Scenes"))
+        self.invert_btn.setFocusPolicy(Qt.NoFocus)
+        self.invert_btn.clicked.connect(self.invert_selection)
+
         # Remove the highlighted scene(s).  Enabled only while something is
         # selected (see _update_remove_button).
         self.remove_scenes_btn = QPushButton(
@@ -640,6 +645,8 @@ class MainWindow(QMainWindow):
         # current mode - otherwise the interface would show Scene Mode's
         # labels until the first video was opened.
         self._apply_edit_mode()
+
+        right.addWidget(self.invert_btn)
 
         right.addWidget(
             self.remove_scenes_btn
@@ -831,6 +838,12 @@ class MainWindow(QMainWindow):
 
         # The removal button acts on whatever the list is showing, so its
         # label follows too: cuts in Cut Mode, scenes in Scene Mode.
+        invert_btn = getattr(self, "invert_btn", None)
+        if invert_btn is not None:
+            invert_btn.setText(
+                self.tr("Invert All Cuts") if mode == "cut"
+                else self.tr("Invert All Scenes")
+            )
         remove_btn = getattr(self, "remove_scenes_btn", None)
         if remove_btn is not None:
             remove_btn.setText(
@@ -1008,6 +1021,13 @@ class MainWindow(QMainWindow):
             )
         )
 
+        # Capture Frame, as in VideoReDo's Edit menu.
+        capture_action = edit_menu.addAction(
+            self._menu_label(self.tr("Capture Frame\u2026"), "capture_frame")
+        )
+        capture_action.triggered.connect(self.capture_frame)
+        edit_menu.addSeparator()
+
         mark_in_action = edit_menu.addAction(
             self._menu_label(self.tr("Mark In"), "mark_in")
         )
@@ -1039,6 +1059,11 @@ class MainWindow(QMainWindow):
             self._menu_label(self.tr("Trim Unselected"), "trim_unselected")
         )
         trim_unselected_action.triggered.connect(self.trim_unselected)
+
+        invert_action = edit_menu.addAction(
+            self._menu_label(self.tr("Invert Selection"), "invert_selection")
+        )
+        invert_action.triggered.connect(self.invert_selection)
 
         select_all_action = edit_menu.addAction(
             self._menu_label(self.tr("Select All"), "select_all")
@@ -1095,6 +1120,15 @@ class MainWindow(QMainWindow):
                 self.tr("Tools")
             )
         )
+
+        # Select Stream, as in VideoReDo: which audio track plays while
+        # editing, so a second or audio-description track can be heard and
+        # checked.  Filled each time it opens, from the loaded file.
+        stream_menu = tools_menu.addMenu(self.tr("Select Stream"))
+        self._video_stream_menu = stream_menu.addMenu(self.tr("Video Streams"))
+        self._audio_stream_menu = stream_menu.addMenu(self.tr("Audio Streams"))
+        stream_menu.aboutToShow.connect(self._fill_stream_menus)
+        tools_menu.addSeparator()
 
         qsf_action = (
             tools_menu
@@ -1611,6 +1645,144 @@ class MainWindow(QMainWindow):
             self.tr("The Snipwright Watcher has started and now lives in your system "
             "tray."),
         )
+
+    def capture_frame(self):
+        """Save the frame on screen as a picture, or put it on the clipboard
+        (Edit -> Capture Frame) - see ui/capture_dialog.py.
+
+        Full resolution and corrected to the display shape, as render_frame()
+        draws it for the preview - a 16:9 SD broadcast is stored 720 wide
+        and would otherwise come out squashed.  The folder follows Settings
+        -> Files -> Frame captures, like the other folder settings.
+        """
+        if not self.frames or not getattr(self, "current_filename", None):
+            return
+        frame = self.frames[self.current_frame]
+        if frame is None:
+            return
+
+        from utils.timecode import seconds_to_timecode
+        from ui.capture_dialog import CaptureFrameDialog
+        from media.renderer import capture_image
+        stem = os.path.splitext(os.path.basename(self.current_filename))[0]
+        stamp = seconds_to_timecode(
+            self._content_seconds(self.current_frame)).replace(":", ".")
+        folder = (self._start_dir("capture")
+                  or os.path.dirname(self.current_filename))
+        settings = self.config.setdefault("settings", {})
+        dialog = CaptureFrameDialog(
+            os.path.join(folder, f"{stem} - {stamp}.png"),
+            settings.get("capture_to", "file") == "clipboard",
+            settings.get("capture_deinterlace", True),
+            bool(getattr(frame, "interlaced_frame", False)),
+            self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        settings["capture_to"] = ("clipboard" if dialog.to_clipboard()
+                                  else "file")
+        settings["capture_deinterlace"] = dialog.deinterlace()
+        save_config(self.config)
+
+        try:
+            image = capture_image(frame, self.container, dialog.deinterlace())
+        except Exception:
+            log.exception("Capture Frame: could not render the frame")
+            image = None
+        if image is None or image.isNull():
+            QMessageBox.warning(
+                self, self.tr("Capture Frame"),
+                self.tr("This frame could not be captured."))
+            return
+
+        if dialog.to_clipboard():
+            QApplication.clipboard().setImage(image)
+            done = self.tr("Frame copied to the clipboard")
+            where = "the clipboard"
+        else:
+            path = os.path.expanduser(dialog.path())
+            if not path:
+                return
+            if not os.path.splitext(path)[1]:
+                path += ".png"
+            fmt = ("JPEG" if path.lower().endswith((".jpg", ".jpeg"))
+                   else "PNG")
+            if not image.save(path, fmt, 95 if fmt == "JPEG" else -1):
+                QMessageBox.warning(
+                    self, self.tr("Capture Frame"),
+                    self.tr("The picture could not be saved to %s.") % path)
+                return
+            self._remember_dir("capture", path)
+            done = self.tr("Frame saved to %s") % path
+            where = path
+        log.info("Captured frame %d (%dx%d%s) to %s", self.current_frame,
+                 image.width(), image.height(),
+                 ", deinterlaced" if dialog.deinterlace()
+                 and getattr(frame, "interlaced_frame", False) else "",
+                 where)
+        self.statusBar().showMessage(done, 5000)
+        self._status_hold_until = time.monotonic() + 5.0
+
+    def _stream_label(self, track):
+        """One track as the Select Stream menu shows it, in VideoReDo's
+        shape: "0x1A23 - MPEG (1 ch) (eng)"."""
+        parts = []
+        if track.get("pid") is not None:
+            parts.append(f"0x{track['pid']:04X} - ")
+        parts.append(track.get("codec") or "?")
+        if track.get("size"):
+            parts.append(f" ({track['size']})")
+        if track.get("channels"):
+            parts.append(" " + self.tr("(%d ch)") % track["channels"])
+        if track.get("language"):
+            parts.append(f" ({track['language']})")
+        if track.get("ad"):
+            parts.append(" - " + self.tr("audio description"))
+        return "".join(parts)
+
+    def _fill_stream_menus(self):
+        """List the loaded file's tracks, ticking the ones in use."""
+        audio = getattr(self, "audio", None)
+        tracks = (audio.tracks if audio is not None
+                  else {"video": [], "audio": []})
+        for menu, kind in ((self._video_stream_menu, "video"),
+                           (self._audio_stream_menu, "audio")):
+            menu.clear()
+            found = tracks.get(kind) or []
+            if not found:
+                none = menu.addAction(self.tr("None"))
+                none.setEnabled(False)
+                continue
+            group = QActionGroup(menu)
+            group.setExclusive(True)
+            current = audio.audio_track() if kind == "audio" else 0
+            for n, track in enumerate(found):
+                act = menu.addAction(self._stream_label(track))
+                act.setCheckable(True)
+                act.setChecked(n == current)
+                group.addAction(act)
+                if kind == "audio":
+                    act.triggered.connect(
+                        lambda _checked=False, n=n: self._select_audio_track(n))
+                else:
+                    # Playback, the frame index, scrubbing and thumbnails
+                    # all read the first video track; every recording and
+                    # disc rip seen so far has only one.  Listed for
+                    # information, as VideoReDo lists it.
+                    act.setEnabled(n == 0)
+
+    def _select_audio_track(self, n):
+        """Play the n-th audio track, from the current point if playing."""
+        audio = getattr(self, "audio", None)
+        if audio is None or not audio.set_audio_track(n):
+            return
+        tracks = audio.tracks.get("audio") or []
+        if 0 <= n < len(tracks):
+            self.statusBar().showMessage(
+                self.tr("Playing audio track %d: %s")
+                % (n + 1, self._stream_label(tracks[n])), 4000)
+            # update_timecode() clears the status bar on every frame.
+            self._status_hold_until = time.monotonic() + 4.0
+        self._resync_audio()
 
     def show_program_info(self):
         """Show the open file's stream/format details (Tools -> Show Video
@@ -2254,7 +2426,12 @@ class MainWindow(QMainWindow):
         # message arrived truncated *and* made the dialog jump wider partway
         # through detection.  Measuring the text rather than hard-coding a
         # width keeps this right in German too, where the string is longer.
-        widest = self.tr("Detecting commercials (%s) - pass %s…") % (name, 8)
+        finishing = self.tr("Detecting commercials (%s) - working out where "
+                            "the breaks are…") % name
+        widest = max(
+            (self.tr("Detecting commercials (%s) - pass %s…") % (name, 8),
+             finishing),
+            key=progress.fontMetrics().horizontalAdvance)
         margin = 80        # dialog margins, plus room for a wider pass number
         progress.setMinimumWidth(
             progress.fontMetrics().horizontalAdvance(widest) + margin
@@ -2273,7 +2450,12 @@ class MainWindow(QMainWindow):
             # separate passes over the recording by design.  Either way the
             # bar legitimately drops back to 0, and naming the pass keeps
             # that from reading as a crash and restart.
-            if pass_no > 1:
+            # Chalkline's "pass" 4 is the analysis after its three passes
+            # (see _PASS_NUMBERS) - named, not numbered.  Comskip never
+            # reports more than three.
+            if pass_no == 4 and name == "Chalkline":
+                progress.setLabelText(finishing)
+            elif pass_no > 1:
                 progress.setLabelText(
                     self.tr("Detecting commercials (%s) - pass %s…")
                     % (name, pass_no)
@@ -3038,6 +3220,21 @@ class MainWindow(QMainWindow):
                         info["error"])
             self._learn_channel = None
             return
+        if info.get("settled"):
+            # A settled channel skipping its pass - see SETTLE_AFTER.
+            log.info("Chalkline: %s", info.get("skipped"))
+            self._learn_channel = None
+            return
+        if info.get("now_settled"):
+            channel = info.get("label") or info.get("channel", "this channel")
+            log.info("Chalkline: %s's logo is now settled - confirmed by %d "
+                     "corrected projects in a row; learning now runs on every "
+                     "10th project only", channel, info["settle_streak"])
+            self.statusBar().showMessage(
+                self.tr("Chalkline's logo for %s is now settled - learning will "
+                        "run on every 10th corrected project only.") % channel,
+                15000,
+            )
         if info.get("active_changed"):
             channel = info.get("label") or info.get("channel", "this channel")
             log.info("Chalkline changed which logo it uses for %s", channel)
@@ -3598,7 +3795,7 @@ class MainWindow(QMainWindow):
         """Return the directory a file dialog of the given kind should start
         in, honouring the user's path settings.
 
-        kind is one of "open", "export", "project".
+        kind is one of "open", "export", "project", "capture".
 
         - "fixed" mode: always start in the configured folder (if it exists).
         - "last" mode: start in the last-used folder; if none has been
@@ -4281,6 +4478,9 @@ class MainWindow(QMainWindow):
         self.transport_panel.set_enabled(on)
         self.transport_controls.set_enabled(on)
         self.action_bar.set_enabled(on)
+        invert_btn = getattr(self, "invert_btn", None)
+        if invert_btn is not None:
+            invert_btn.setEnabled(on)
 
     #
     # Playback state.  `playing` is a property so that every place that starts
@@ -6365,7 +6565,26 @@ class MainWindow(QMainWindow):
                 self.tr("Mark IN and OUT first, then trim."), 4000)
             return
 
-        if sel.intersect_range(sel.pending_in, sel.pending_out):
+        start = min(sel.pending_in, sel.pending_out)
+        end = max(sel.pending_in, sel.pending_out)
+        if self.frames:
+            # The marked span is what is KEPT.  Cuts lying inside it stay
+            # cut (cut the adverts, then top-and-tail), but when the marks
+            # ARE a cut - picked from the list, as clicking one does - or
+            # sit inside one, keeping only what was already kept there
+            # leaves nothing, and the whole recording went (reported
+            # 2026-10-15): then the span itself is kept, the rest cut.
+            cuts = sel.cut_ranges(len(self.frames) - 1)
+            inside = any(c_start <= start and end <= c_end
+                         for c_start, c_end in cuts)
+            if inside:
+                if sel.ranges != [(start, end)]:
+                    sel.push_undo_state()
+                    sel.ranges = [(start, end)]
+                    sel.clear_pending()
+                    self._after_selection_change()
+                return
+        if sel.intersect_range(start, end):
             self._after_selection_change()
 
     def select_all(self):
@@ -6378,49 +6597,75 @@ class MainWindow(QMainWindow):
             self._after_selection_change()
 
     def add_unselected(self):
-        """Invert the kept ranges: keep what's currently dropped, and vice versa.
+        """Scene Mode: everything OUTSIDE the marked IN/OUT becomes the
+        scenes - VideoReDo's Add Unselected.
 
-        The gaps between the current green ranges (and the head/tail of the
-        file) become the new keep-ranges.  With nothing yet marked, this keeps
-        the whole file.
+        From the start of the recording to just before IN, and from just
+        after OUT to the end; the marked part ends up unselected whatever
+        it was before.  One undo step.  This used to invert every scene instead, which is what
+        VideoReDo's separate Invert does - that is invert_selection() now.
+        """
+        if not self.frames:
+            return
+        if self._edit_mode() == "cut":
+            # Cut Mode's counterpart, as the button beside Cut Selection is.
+            self.trim_unselected()
+            return
+        sel = self.selection
+        if sel.pending_in is None or sel.pending_out is None:
+            self.statusBar().showMessage(
+                self.tr("Mark IN and OUT first, then add what is outside "
+                        "them."), 4000)
+            self._status_hold_until = time.monotonic() + 4.0
+            return
+        start = min(sel.pending_in, sel.pending_out)
+        end = max(sel.pending_in, sel.pending_out)
+        last = len(self.frames) - 1
+        spans = []
+        if start > 0:
+            spans.append((0, start - 1))
+        if end < last:
+            spans.append((end + 1, last))
+        # The scenes BECOME everything outside the marks - the marked part
+        # unselected, the rest selected.  Merging the outside into the
+        # existing scenes instead kept a scene picked from the list, so the
+        # whole recording ended up selected (reported 2026-10-15).
+        if sel.ranges == spans:
+            return
+        pin, pout = sel.pending_in, sel.pending_out
+        sel.push_undo_state()
+        sel.ranges = spans
+        # The marks stay, as after a committed scene (see commit_selection).
+        sel.pending_in, sel.pending_out = pin, pout
+        self._after_selection_change()
+
+    def invert_selection(self):
+        """Swap what is kept for what is not - VideoReDo's Invert All Cuts.
+
+        The gaps between the current kept ranges (and the head and tail of
+        the recording) become the kept ranges; in Scene Mode the scenes
+        become the adverts between them.  With nothing kept, it keeps the
+        whole recording.  One undo step.
         """
         if not self.frames:
             return
 
         total = len(self.frames)
-
         ranges = sorted(self.selection.ranges)
 
         inverted = []
         cursor = 0
-
         for start, end in ranges:
             if start > cursor:
-                inverted.append(
-                    (cursor, start - 1)
-                )
+                inverted.append((cursor, start - 1))
             cursor = max(cursor, end + 1)
-
         if cursor <= total - 1:
-            inverted.append(
-                (cursor, total - 1)
-            )
+            inverted.append((cursor, total - 1))
 
         self.selection.push_undo_state()
-
         self.selection.ranges = inverted
-
         self.selection.clear_pending()
-
-        self.scene_list.refresh()
-
-        self.update_timecode()
-
-        self.scene_bar.update()
-
-        self.draw_thumbnails()
-
-        self.info_panel.update_info()
+        self._after_selection_change()
 
     def clear_all_scenes(self):
         """Start again in one undoable step (VideoReDo's Clear All).
@@ -6812,6 +7057,10 @@ class MainWindow(QMainWindow):
             self.toggle_full_screen()
             return
 
+        if self.keys.match(event, "capture_frame"):
+            self.capture_frame()
+            return
+
         if self.keys.match(event, "open_video"):
             self.open_video()
             return
@@ -7051,6 +7300,10 @@ class MainWindow(QMainWindow):
 
             self.trim_unselected()
 
+            return
+
+        if self.keys.match(event, "invert_selection"):
+            self.invert_selection()
             return
 
         if self.keys.match(

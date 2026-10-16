@@ -1845,7 +1845,12 @@ def sar_track(video, duration, interval=10.0, coarse=60.0, progress_cb=None,
         if s:
             samples[round(t, 3)] = s
         if t - last_report >= 15.0:
-            pct = min(100.0, 100.0 * t / duration)
+            # The sweep is the first half of the bar; refining is the
+            # second, and on a recording whose shape changes it can take
+            # longer than the sweep (45 s against 17 s on a LEGEND
+            # recording) - reported as 100% of the sweep, it sat at 99%
+            # with nothing moving (reported 2026-10-15).
+            pct = min(50.0, 50.0 * t / duration)
             if progress_cb is not None:
                 progress_cb(pct, "sample aspect ratio")
             else:
@@ -1886,6 +1891,11 @@ def sar_track(video, duration, interval=10.0, coarse=60.0, progress_cb=None,
         if spans and progress_cb is None:
             print(f"    sample aspect ratio: refining {len(spans)} "
                   f"span(s) at {interval:.0f}s", file=sys.stderr)
+        todo = sum(max(0.0, min(hi, duration) - max(0.0, lo)) / interval
+                   for lo, hi in spans) or 1.0
+        done = 0
+        if progress_cb is not None:
+            progress_cb(50.0, "sample aspect ratio")
         for lo, hi in spans:
             u = max(0.0, lo)
             stop = min(hi, duration)
@@ -1898,6 +1908,10 @@ def sar_track(video, duration, interval=10.0, coarse=60.0, progress_cb=None,
                     if s:
                         samples[key] = s
                 u += interval
+                done += 1
+                if progress_cb is not None and done % 5 == 0:
+                    progress_cb(50.0 + 50.0 * min(1.0, done / todo),
+                                "sample aspect ratio")
 
     if progress_cb is not None:
         progress_cb(100.0, "sample aspect ratio")
@@ -2141,6 +2155,7 @@ def detect(video, verbose=False, keep=None, learn=None,
               f"  channel {channel or 'unknown'}{origin}", file=sys.stderr)
 
     info = {}
+    epg_logo = None      # (present, times) of a persistent mask - EPG tail
     # Audio first and on its own - it must not share an ffmpeg run with the
     # video work, see audio_signals().
     silences = audio_signals(video, duration, verbose,
@@ -2223,6 +2238,12 @@ def detect(video, verbose=False, keep=None, learn=None,
             if verbose:
                 print(f"  sar {len(sar_br)} candidate brackets",
                       file=sys.stderr)
+
+        # Everything from here is analysis of what the passes gathered -
+        # usually a few seconds, but on a long recording it ran on at 99%
+        # with nothing moving.  Its own stage, so the window says so.
+        if progress_cb is not None:
+            progress_cb(0.0, "working out the breaks")
 
         # Reuses the same widths/heights/dominant shape_regions() already
         # computed - no extra decode work, just a different question asked
@@ -2342,6 +2363,28 @@ def detect(video, verbose=False, keep=None, learn=None,
                 if tracks is not None:
                     track, ring = tracks
                     ungated = track > MASK_ON
+
+                    # The faint-logo reading, where this channel's own
+                    # corrected projects say it helps - see BRIGHT_MARGIN.
+                    choice = None
+                    blum = None
+                    if entry.get("kind") == "persistent":
+                        choice = brightness_choice(
+                            entry, exclude_project=os.path.basename(video))
+                    if choice is not None:
+                        blum = mask_lum_track(frames, mask)
+                        if blum is not None:
+                            k, gain = choice
+                            before_n = int(ungated.sum())
+                            ungated = ungated | (blum > k)
+                            info["bright_k"] = k
+                            if verbose:
+                                print(f"    mask: faint logo - brightness "
+                                      f"reading used (threshold {k}, "
+                                      f"+{gain:.2f} on this channel's "
+                                      f"projects): present "
+                                      f"{before_n} -> {int(ungated.sum())} "
+                                      f"frame(s)", file=sys.stderr)
 
                     # An advert's own wordmark over the logo - see
                     # MASK_RING_RATIO.  Persistent masks only: an
@@ -2464,6 +2507,17 @@ def detect(video, verbose=False, keep=None, learn=None,
                     live = gated if (MASK_POLARITY_GATE and gated is not None) \
                         else ungated
                     marks, mask_br = _mask_arm(live)
+
+                    # Kept for the EPG tail, which checks the logo across the
+                    # EPG's switch - see epg.logo_confirmed_switch().  The raw
+                    # reading, before the ring and shape gates, as measured.
+                    # With the faint-logo reading in use, through it as well:
+                    # the edges lost LEGEND's logo at the switch on S02E18.
+                    if entry.get("kind") == "persistent":
+                        logo_now = track > MASK_ON
+                        if info.get("bright_k") is not None and blum is not None:
+                            logo_now = logo_now | (blum > info["bright_k"])
+                        epg_logo = (logo_now, times.copy())
 
                     # Does this mask fit this recording at all?  See
                     # MASK_FIT_MIN.  Judged on the live arm and applied to
@@ -2882,6 +2936,7 @@ def detect(video, verbose=False, keep=None, learn=None,
     # only lengthen the tail the other techniques settled on - and not while
     # learning, which measures the recording rather than reporting breaks.
     epg_switch = None
+    shift = 0.0
     if learn is None:
         try:
             # Run as a script (the corpus harness, the command line) src/ is
@@ -2890,7 +2945,11 @@ def detect(video, verbose=False, keep=None, learn=None,
             if src_dir not in sys.path:
                 sys.path.insert(0, src_dir)
             from repair.epg import present_events, programme_switch_out
+            if progress_cb is not None:
+                progress_cb(60.0, "working out the breaks")
             changes = present_events(video, cancel_cb=cancel_cb)
+            if progress_cb is not None:
+                progress_cb(95.0, "working out the breaks")
             epg_switch = programme_switch_out(changes, duration)
             if epg_switch is not None:
                 # The EPG reader counts from the first video frame; these
@@ -2898,7 +2957,22 @@ def detect(video, verbose=False, keep=None, learn=None,
                 # earlier of the video's and the audio's.
                 v0, a0 = stream_starts(video)
                 if v0 is not None:
-                    epg_switch += v0 - min(v0, a0 if a0 is not None else v0)
+                    shift = v0 - min(v0, a0 if a0 is not None else v0)
+                    epg_switch += shift
+                # A programme that overran its slot: wait for the logo to go.
+                if epg_logo is not None and epg_switch is not None:
+                    from repair.epg import logo_confirmed_switch
+                    present, ltimes = epg_logo
+                    moved = logo_confirmed_switch(epg_switch - shift, present,
+                                                  ltimes) + shift
+                    if moved != epg_switch:
+                        info["epg_overrun"] = round(moved - epg_switch, 2)
+                        if verbose:
+                            print(f"  EPG: the switch is at {epg_switch:.2f} "
+                                  f"but the logo stays until {moved:.2f} - "
+                                  f"the programme overran its slot; trimming "
+                                  f"from there", file=sys.stderr)
+                        epg_switch = moved
         except Exception as exc:          # never let it cost a detection
             epg_switch = None
             if verbose:
@@ -3517,6 +3591,13 @@ def mask_history(entry):
                              "fit": bool(v.get("fit", True))}
                     for k, v in stored["on"].items() if isinstance(v, dict)
                 }
+            # The faint-logo profiles - see BRIGHT_MARGIN.  Carried as
+            # written; brightness_choice() checks each before using it.
+            if isinstance(stored.get("bright"), dict):
+                record["bright"] = {
+                    str(k): v for k, v in stored["bright"].items()
+                    if isinstance(v, dict) and isinstance(v.get("curve"), list)
+                    and len(v["curve"]) == BRIGHT_KS}
             out.append({"mask": mask_fields(item), "record": record})
     if out:
         return out
@@ -3661,7 +3742,8 @@ def add_mask(entry, mask):
     return write_history(entry, history, active)
 
 
-def record_result(entry, mask, prog, false_count, fitted, project=""):
+def record_result(entry, mask, prog, false_count, fitted, project="",
+                  bright=None):
     """Note how `mask` did against one corrected project.
 
     `project` names the recording, so two masks scored against the same one
@@ -3679,8 +3761,40 @@ def record_result(entry, mask, prog, false_count, fitted, project=""):
                                 "fit": bool(fitted)}
             while len(on) > MASK_TRIALS_KEEP:
                 del on[next(iter(on))]
+            if bright:
+                br = item["record"].setdefault("bright", {})
+                br[str(project)] = bright
+                while len(br) > BRIGHT_KEEP:
+                    del br[next(iter(br))]
             break
     return write_history(entry, history)
+
+
+# A channel whose logo keeps being confirmed is SETTLED and stops paying
+# for a learning pass on every save (the user's request, 2026-10-14: "if the
+# logo we have stored ... is used for x amount of recordings without being
+# superseded by another, we turn off learning for that channel").  Option A,
+# his choice: settled after SETTLE_AFTER confirmed saves in a row, then the
+# full pass runs only on every RECHECK_EVERY-th corrected project.  Not off
+# altogether, because the same pass also refreshes the channel's break
+# idents and programme markers, and a re-check is how a channel that changes
+# its logo or idents gets noticed - a re-check that does not confirm starts
+# the count again.  "Confirmed" means the pass kept the mask in use AND that
+# mask fitted this project.  Stored on the logo entry as
+# settle = {"streak": n, "since": m}; absent means never confirmed.
+SETTLE_AFTER = 5
+RECHECK_EVERY = 10
+
+
+def settle_state(entry):
+    """(streak, since) for a logo entry - confirmed saves in a row, and
+    corrected projects skipped since the last full pass."""
+    s = (entry or {}).get("settle") or {}
+    return int(s.get("streak", 0) or 0), int(s.get("since", 0) or 0)
+
+
+def is_settled(entry):
+    return settle_state(entry)[0] >= SETTLE_AFTER
 
 
 # How many corrected projects a mask must have been tested against before a
@@ -3744,6 +3858,113 @@ def score_mask_project(track, times, cuts, duration):
     return {"prog": prog, "false": false, "fitted": fitted}
 
 
+# A second reading of a learned mask, for FAINT logos (2026-10-14).  LEGEND's
+# and Great! Action's are see-through white wordmarks that leave too few
+# edges for mask_track(): on a LEGEND recording the logo read as present in
+# 40% of the programme.  Their pixels are still a few levels brighter than
+# the ring around them, which mask_lum_track() measures.  Learned per
+# channel from corrected projects and used only where, on the channel's
+# OTHER projects, it separates programme from adverts better than the edges
+# by BRIGHT_MARGIN; then a frame counts as logo-present if either reading
+# says so.  Simulated over the brightness census with each recording judged
+# only on its channel's other recordings (dev/scripts/brightness-sim.py):
+# adopted on LEGEND and More 4 and nowhere else; programme read as
+# logo-absent fell by 4,318 s, adverts read as present rose by 335 s.  The
+# margin: 0.05 also adopted it on one Channel 4 HD recording for little
+# gain; 0.20 kept only two of the five recordings that benefit.
+BRIGHT_MARGIN = 0.10
+# One other project is enough, as in the simulation: More 4 has two corpus
+# recordings, so each is judged on the other alone, and both gained.  The
+# margin is the guard against one project that happens to favour it.
+BRIGHT_MIN_PROJECTS = 1
+BRIGHT_KEEP = 8
+BRIGHT_KS = 40          # thresholds 0..39 levels, one per integer
+# Never below this many levels.  Two levels is within the noise of a busy
+# picture: the threshold learned for one LEGEND recording from the other two
+# was 2, and it read a run of adverts with bright artwork in that corner
+# (white boxes and lettering) as the logo, leaving 173 s of them in.  At 6,
+# simulated: programme in absent spans -4,462 s (was -4,468), adverts
+# -285 s (was -335); nothing else changes.  Requiring brightness to hold
+# for 10-90 s, or a quiet surround, cost far more than it saved - see
+# CHALKLINE.md "Faint see-through logos".
+BRIGHT_K_MIN = 6
+BRIGHT_EDGE = 3.0       # seconds either side of a cut left out
+
+
+def brightness_profile(edges_present, lum, times, cuts):
+    """How well each reading separates this project's programme from its
+    adverts: the edges' separation, and the brightness reading's at every
+    threshold 0..BRIGHT_KS-1.  Separation = share of programme frames read
+    as present minus share of advert frames read as present."""
+    times = np.asarray(times)
+    cut = np.zeros(len(times), dtype=bool)
+    near = np.zeros(len(times), dtype=bool)
+    for a, b in cuts:
+        cut |= (times >= a + BRIGHT_EDGE) & (times <= b - BRIGHT_EDGE)
+        near |= (times >= a - BRIGHT_EDGE) & (times <= b + BRIGHT_EDGE)
+    prog = ~near
+    if not cut.any() or not prog.any():
+        return None
+    edges_present = np.asarray(edges_present, dtype=bool)
+    lum = np.asarray(lum, dtype=float)
+    esep = float(edges_present[prog].mean() - edges_present[cut].mean())
+    curve = [round(float((lum[prog] > k).mean() - (lum[cut] > k).mean()), 4)
+             for k in range(BRIGHT_KS)]
+    return {"esep": round(esep, 4), "curve": curve}
+
+
+def programme_title(name):
+    """The programme a recording's file name belongs to, lower-cased: the
+    text before an episode number (S02E18) or the first " - ".  Empty when
+    neither is there - such a name is matched with nothing."""
+    base = os.path.splitext(os.path.basename(str(name)))[0]
+    m = re.search(r"\s+S\d+\s*E\d+", base, re.IGNORECASE)
+    if m:
+        base = base[:m.start()]
+    elif " - " in base:
+        base = base.split(" - ", 1)[0]
+    else:
+        return ""
+    return " ".join(base.split()).lower()
+
+
+def brightness_choice(entry, exclude_project=""):
+    """(threshold, gain) when the brightness reading should be used for this
+    recording, else None.  From the active mask's brightness records, leaving
+    out `exclude_project` - the recording being detected, which must not
+    vouch for itself.
+
+    Earlier projects of the SAME PROGRAMME decide it when there are any;
+    the whole channel only when there are none.  One channel can carry both
+    kinds of picture: on LEGEND the edge reading separated a space-opera
+    episode's programme from its adverts 92% of the way and a sunlit
+    car-chase series' only 29% (brightness 55%), and with the channel
+    judged as one, the first vetoed the reading for the second
+    (2026-10-14)."""
+    history = mask_history(entry or {})
+    record = None
+    for item in history:
+        if same_mask(item["mask"], entry):
+            record = item["record"]
+            break
+    profiles = {k: v for k, v in ((record or {}).get("bright") or {}).items()
+                if k != exclude_project and v and v.get("curve")}
+    title = programme_title(exclude_project)
+    same = [v for k, v in profiles.items()
+            if title and programme_title(k) == title]
+    profiles = same or list(profiles.values())
+    if len(profiles) < BRIGHT_MIN_PROJECTS:
+        return None
+    best = [int(np.argmax(p["curve"])) for p in profiles]
+    k = int(round(float(np.median(best))))
+    k = min(max(k, BRIGHT_K_MIN), BRIGHT_KS - 1)
+    gain = float(np.median([p["curve"][k] for p in profiles])
+                 - np.median([p["esep"] for p in profiles]))
+    if gain <= BRIGHT_MARGIN:
+        return None
+    return k, gain
+
+
 def trial_masks(frames, box, times, history, cuts, duration):
     """Score every mask a channel has against one corrected project.
 
@@ -3759,9 +3980,18 @@ def trial_masks(frames, box, times, history, cuts, duration):
             continue
         if mask is None or not mask.any():
             continue
-        result = score_mask_project(mask_track(frames, mask), times, cuts,
-                                    duration)
+        track = mask_track(frames, mask)
+        result = score_mask_project(track, times, cuts, duration)
         result["mask"] = item["mask"]
+        # The faint-logo reading's profile on this project - see
+        # BRIGHT_MARGIN.  One more pass over the frames, no decode.
+        try:
+            lum = mask_lum_track(frames, mask)
+            if track is not None and lum is not None:
+                result["bright"] = brightness_profile(track > MASK_ON, lum,
+                                                      times, cuts)
+        except Exception:
+            pass
         trials.append(result)
     return trials
 
@@ -3966,6 +4196,24 @@ MARKER_WINDOW = 6.0        # seconds either side of an edge a marker comes from
 MARKER_CLEAR = 15.0        # a marker frame must be this far from the programme
 MARKER_DARK = 24.0         # mean level below this is black, never a marker
 MARKER_SEARCH = 30.0       # a sighting must predict an edge this near today's
+# ...or this near, when the move can only KEEP more programme - a lead-in
+# ending earlier, a tail starting later.  On a LEGEND series the logo is too
+# faint to see for the first minute or so of the episode, so the lead-in ran
+# 88 s into it (S02E18, 2026-10-15); the start marker predicted the start
+# within 2 s and was thrown away for being more than 30 s off.  30 s stays
+# the limit for a move that would cut more: widening it both ways would let
+# Rewind TV's one wrong sighting through (run 41).  240 s, not the 120 s
+# first tried: a Great! Action episode's cold open put its prediction 171 s
+# from today's edge (start +165 s -> -5.3 s at 240); lead-ins are only
+# looked for within MARKER_HEAD_REACH (360 s) anyway.
+#
+# START side only.  At 240 s on the tail too, corpus run 54 moved tptv's
+# tail start 190 s LATER onto a wrong end-marker sighting (+10 s -> +201 s
+# of continuity kept), and a Great! Action episode's end markers predicted
+# 212 s off its real end - end markers recur in the continuity after a
+# programme, so a far sighting there is not to be trusted.  At 120 s on
+# both sides run 52 changed no tail at all, so ends keep MARKER_SEARCH.
+MARKER_SEARCH_KEEP = 240.0
 MARKER_SNAP = 3.0          # snap to black/silence within this of the prediction
 MARKER_RUN_GAP = 1.0       # sightings this close together are one sighting
 MARKER_EDGE_NEAR = 5.0     # a CORRECTED cut this near the file's end is padding
@@ -4224,7 +4472,7 @@ def place_programme_markers(breaks, cards, times, projects, events, duration,
         if not sources:
             continue
         every = np.stack([fp.reshape(-1) for src in sources for fp, _ in src])
-        reach = MARKER_SEARCH + MARKER_WINDOW
+        reach = max(MARKER_SEARCH, MARKER_SEARCH_KEEP) + MARKER_WINDOW
         idx = np.where(np.abs(times - today) <= reach)[0]
         hit = [i for i in idx
                if float(np.abs(every - cards[i].reshape(-1)).mean(axis=1).min())
@@ -4246,10 +4494,17 @@ def place_programme_markers(breaks, cards, times, projects, events, duration,
                     onsets.append(min(offs))
             if onsets:
                 predictions.append(float(times[run[0]] - np.median(onsets)))
-        near = [p for p in predictions if abs(p - today) <= MARKER_SEARCH]
+        def keeps(p):
+            # Heads only - see MARKER_SEARCH_KEEP.
+            return side == "start" and p < today
+        near = [p for p in predictions
+                if abs(p - today) <= MARKER_SEARCH
+                or (keeps(p) and abs(p - today) <= MARKER_SEARCH_KEEP)]
         if not near:
             report.append(f"programme {side}: no marker sighting within "
-                          f"{MARKER_SEARCH:.0f}s of {today:.1f}s - unchanged")
+                          f"{MARKER_SEARCH:.0f}s of {today:.1f}s (or "
+                          f"{MARKER_SEARCH_KEEP:.0f}s keeping more) - "
+                          f"unchanged")
             continue
         predicted = min(near, key=lambda p: abs(p - today))
         snaps = [(m, sc) for m, sc in events if abs(m - predicted) <= MARKER_SNAP]
@@ -4859,6 +5114,9 @@ _PASS_NUMBERS = {
     "audio signals": 1,
     "video signals": 2,
     "sample aspect ratio": 3,
+    # Not a pass over the recording: the analysis after them.  The window
+    # names it rather than numbering it - see main._on_detect_progress.
+    "working out the breaks": 4,
 }
 
 
@@ -5094,6 +5352,26 @@ def learn_from_project(video, vprj_path, store_path=LOGO_STORE, channel=None,
                            f"Remembered logos")
         return info
 
+    # Settled (see SETTLE_AFTER): skip the decode, except on every
+    # RECHECK_EVERY-th corrected project.  Counted here, before the decode,
+    # because skipping it is the point.
+    lstore = load_store(store_path)
+    lentry = store_get(lstore, key)
+    if lentry is not None and is_settled(lentry):
+        streak, since = settle_state(lentry)
+        since += 1
+        if since < RECHECK_EVERY:
+            lentry = dict(lentry, settle={"streak": streak, "since": since})
+            store_set(lstore, key, lentry)
+            save_store(lstore, store_path)
+            info["skipped"] = (
+                f"{label}'s logo is settled - confirmed by {streak} corrected "
+                f"projects in a row - so it is re-checked on every "
+                f"{RECHECK_EVERY}th; {RECHECK_EVERY - since} to go")
+            info["settled"] = True
+            return info
+        info["recheck"] = True
+
     # A channel that already has a logo used to stop here, so one poor edit
     # could not quietly undo a good mask.  It cannot now either: the masks
     # are scored against this project and a candidate only takes over on its
@@ -5169,7 +5447,8 @@ def learn_from_project(video, vprj_path, store_path=LOGO_STORE, channel=None,
             for trial in trials:
                 entry = record_result(entry, trial["mask"], trial["prog"],
                                       trial["false"], trial["fitted"],
-                                      project=project)
+                                      project=project,
+                                      bright=trial.get("bright"))
             store_set(store, key, entry)
             save_store(store, store_path)
             info["trials"] = [
@@ -5180,6 +5459,18 @@ def learn_from_project(video, vprj_path, store_path=LOGO_STORE, channel=None,
             info["masks_held"] = len(mask_history(entry))
             info["active_count"] = entry.get("count")
             info["active_changed"] = not same_mask(before, entry)
+
+            # Settling: did this pass confirm the mask in use?
+            active_fit = any(same_mask(t["mask"], entry) and t["fitted"]
+                             for t in trials)
+            streak, _since = settle_state(entry)
+            streak = streak + 1 if (active_fit and not info["active_changed"]) \
+                else 0
+            entry = dict(entry, settle={"streak": streak, "since": 0})
+            store_set(store, key, entry)
+            save_store(store, store_path)
+            info["settle_streak"] = streak
+            info["now_settled"] = streak == SETTLE_AFTER
 
     # An edge card, reported whatever became of the logo: Film4 learns a
     # card and no logo at all.  detect() has already filed it, in its own

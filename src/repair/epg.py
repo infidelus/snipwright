@@ -280,3 +280,99 @@ def epg_tail(breaks, switch_out, duration):
     if added <= 0.5:
         return breaks, None
     return result, (start, switch_out, added)
+
+
+# A recording can run past its EPG slot.  On LEGEND (2026-10-14) the "now"
+# event switched to the next programme 94 s before the episode ended - its
+# final scene and the end credits were still to come - so trimming from the
+# switch cut them.  Every one of the 26 corpus recordings measured before
+# had switched AFTER the end; LEGEND had never been measured, because the
+# corpus's LEGEND recording came from a recorder that keeps no EPG.
+#
+# What showed the real end was the channel's logo: present, if patchily,
+# through the overrun and the credits, then gone for the promos and ident
+# that follow the programme.  So the trim waits for the first sustained
+# logo absence after the switch, when one begins soon enough.  Simulated
+# over the census's per-frame logo tracks and the corpus's EPG events (18
+# recordings with both, plus the LEGEND one): 30 s rescued LEGEND to within
+# 0.2 s and left 4 s more tail in, on one recording, across the rest; 20 s
+# also rescued it but left 53 s; 10 s did not rescue it.  The window was
+# flat from 120 to 300 s.  It can only move the trim LATER, never earlier.
+EPG_LOGO_GAP = 30.0
+EPG_LOGO_WINDOW = 180.0
+
+
+# The logo is judged present at the switch on the first EPG_LOGO_LEAD
+# seconds after it, and a present reading of EPG_LOGO_BLIP seconds or less
+# inside an absence does not end it - both for a faint logo read through its
+# brightness, which flickers.  On S02E18 of a LEGEND series the logo reads
+# absent on the switch frame itself and goes for good 117 s later with two
+# one-frame returns in the first ten seconds of its absence; without these
+# the overrun check saw neither.
+EPG_LOGO_LEAD = 5.0
+EPG_LOGO_BLIP = 2.0
+# ...and only a STEADY logo counts as the programme running on: present in
+# at least this share of the time between the switch and the absence that
+# ends it.  An overrunning programme shows its logo throughout (0.72-0.99
+# on the LEGEND recordings it rescues); continuity between programmes
+# flickers it on and off.  Without this, the bridging above moved a More 4
+# recording's trim 102 s later, through promotions where the logo read
+# present half the time (0.50) - corpus run 51, 2026-10-15.
+EPG_LOGO_STEADY = 0.6
+
+
+def logo_confirmed_switch(switch, present, times, gap=EPG_LOGO_GAP,
+                          window=EPG_LOGO_WINDOW):
+    """The switch, moved to the first sustained logo absence after it.
+
+    `present` is the persistent logo mask's per-frame reading, `times` its
+    timestamps, both on the same clock as `switch`.  Returns `switch` itself
+    when there is no such absence within `window` seconds - including when
+    the logo stays continuously absent across the switch, which is the
+    ordinary case of a programme that ended earlier.
+    """
+    import numpy as np
+    present = np.asarray(present, dtype=bool)
+    times = np.asarray(times, dtype=float)
+    if switch is None or len(present) == 0:
+        return switch
+    after = times >= switch
+    if not after.any():
+        return switch
+    first = int(np.argmax(after))
+    step = float(times[1] - times[0]) if len(times) > 1 else 0.5
+    # The switch frame itself, or most of the first few seconds: a faint
+    # logo read through its brightness flickers, and one dark frame landing
+    # on the switch must not decide it (S02E18 of a LEGEND series,
+    # 2026-10-14).  The switch frame alone is kept as enough, because that
+    # is what found S02E17's overrun, where the logo went a moment after.
+    lead = present[first:first + max(1, int(round(EPG_LOGO_LEAD / step)))]
+    if not present[first] and lead.mean() < 0.5:
+        # Already no logo at the switch: nothing is overrunning it.
+        return switch
+    need = max(1, int(round(gap / step)))
+    blip = max(1, int(round(EPG_LOGO_BLIP / step)))
+    run = 0          # absent frames so far, blips bridged
+    pres = 0         # present frames in a row
+    for i in range(first, len(present)):
+        if times[i] - switch > window + gap:
+            break
+        if present[i]:
+            pres += 1
+            if pres > blip:
+                run = 0
+            continue
+        if run:
+            run += pres          # a blip inside an absence: bridge it
+        pres = 0
+        run += 1
+        if run >= need:
+            start = times[i - run + 1]
+            if start - switch > window:
+                return switch
+            held = present[first:i - run + 1]
+            if len(held) and held.mean() < EPG_LOGO_STEADY:
+                return switch
+            return float(start)
+    return switch
+

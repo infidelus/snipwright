@@ -21,6 +21,7 @@ import subprocess
 from media.pixfmt import for_output as pixfmt_for_output
 
 from utils.proc import run_cancellable
+from export.sub_flags import subtitle_flags
 
 _CROP_RE = re.compile(r"crop=(\d+):(\d+):(\d+):(\d+)")
 _DEFAULT_KBPS = 8000          # fallback target when the source bitrate is unknown
@@ -385,7 +386,12 @@ def crop_reencode(in_path, out_path, rect=None, *, cap_kbps, fps, sar=None,
         # H.264: keep interlaced sources interlaced, with the original order.
         cmd += ["-flags", "+ilme+ildct",
                 "-x264-params", "tff=1" if field_order == "tt" else "bff=1"]
-    cmd += ["-c:a", "copy", "-c:s", "copy", "-progress", "pipe:1", out_path]
+    # Subtitle flags restated, or ffmpeg switches the first of several
+    # subtitle tracks on by itself - see export/sub_flags.py.  This is the
+    # step that turned on a Blu-ray rip's subtitles in an HEVC re-encode.
+    cmd += ["-c:a", "copy", "-c:s", "copy",
+            *subtitle_flags(in_path, out_path),
+            "-progress", "pipe:1", out_path]
     return _run_progress(cmd, total_seconds, progress_cb, cancel_cb)
 
 
