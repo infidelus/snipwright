@@ -6,7 +6,7 @@
 # a range that admits bug-fix releases of the tested version and nothing
 # newer: numpy 2.5.x, PySide6 6.11.x, tqdm 4.x and bitarray 3.x (bitstring's
 # own limit).  PyAV's range covers the two major versions tested (18.1.0 and
-# 19.0.1), leaves out 19.0.0, which was never tested, and stops short of 20.
+# 19.0.1 and 19.0.2), leaves out 19.0.0, which was never tested, and stops short of 20.
 # bitstring and tibs stay LOCKED to one version each: bitstring decides which
 # tibs it will accept, so letting bitstring move on its own could ask for a
 # tibs the lock forbids, and the install would fail.  Each range ends its
@@ -27,9 +27,9 @@
 # in step.  dev/scripts/check-dependency-updates.py reports newer releases.
 
 PySide6>=6.11.2,<6.12  # Qt 6 GUI toolkit (the interface); tested: 6.11.2
-av>=18.1.0,!=19.0.0,<20  # PyAV - decoding/muxing for the cutting engine; ships its own FFmpeg (18.1: 8.1.2, 19.0.1: 9.0.2); tested: 18.1.0, 19.0.1
+av>=18.1.0,!=19.0.0,<20  # PyAV - decoding/muxing for the cutting engine; ships its own FFmpeg (18.1: 8.1.2, 19.0.1/19.0.2: 9.0.2); tested: 18.1.0, 19.0.1, 19.0.2
 numpy>=2.5.3,<2.6    # array maths used during cutting and by the advert detector; tested: 2.5.3, 2.5.4
 bitstring==4.4.0     # bit-level parsing of the broadcast streams
-bitarray>=3.11.0,!=3.12.0,!=3.12.1,<4  # used by bitstring; tested: 3.11.0, 3.12.2
+bitarray>=3.11.0,!=3.12.0,!=3.12.1,<4  # used by bitstring; tested: 3.11.0, 3.12.2, 3.12.3
 tibs==0.5.7          # used by bitstring
 tqdm>=4.70.1,<5      # progress reporting in the cutting engine; tested: 4.70.1

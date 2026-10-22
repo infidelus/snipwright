@@ -6,6 +6,146 @@ All notable changes to Snipwright are documented here. Releases before
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [2.14.0] - 2026-10-22
+
+### Added
+
+- **An email address in the About box.** For questions or problems from
+  anyone who would rather not use GitHub Discussions: Help -> About Snipwright now
+  shows snipwright@outlook.com as a link, and the user guide's closing
+  section gives it alongside Discussions.
+
+- **Each entry in the Watcher's ignore list has its own Match setting.**
+  The list used to be matched one way throughout, so a film series whose
+  shared name comes second ("Carrot Cake Murder: A Hannah Swensen Mystery")
+  could only be caught by switching every entry to Keyword. The list is now
+  a table with a Match choice on every row: Programme name (the file name
+  starts with the entry), Keyword (anywhere in the name), and two new ones -
+  Whole title, where "Doctor Who" ignores Doctor Who but not Doctor Who
+  Confidential, and Regex, a regular expression searched for in the title,
+  which is checked when the list is saved. Add starts a row and pasting a
+  list adds one row per line. Existing entries match exactly as before: a
+  list that was set to Keyword has that setting moved onto each entry. The
+  list is still a plain text file that can be edited by hand.
+
+### Changed
+
+- **PyAV 19.0.2 and bitarray 3.12.3 are now tested**, so a new installation
+  that picks them up is running something checked: both gave identical
+  exports and identical advert detection to the versions before them.
+
+- **Left arrow in Go to timecode starts from the end, as in VideoReDo.**
+  The box opens with the current timecode selected, and pressing Left
+  jumped to its first digit. It now steps back from the last one, so three
+  presses land just after the seconds - handy for nudging a cut by a second,
+  such as the one-second padding Channel 4 leaves at each end of a scene.
+
+- **Less programme cut when two readings of a break disagree about where it
+  ends.** Where detection had two equally good candidates for one break -
+  one ending when the programme came back, one running on further - the
+  longer could win by accident, cutting on into the programme: 103 s of a
+  LEGEND episode. When the channel's remembered logo is clearly back for a
+  long stretch inside the longer reading, the shorter one is now chosen, as
+  long as it stands as a break in its own right - and the same goes for
+  where the padding at the start of a recording ends. On the episodes
+  checked, three edges that were 29 s, 84 s and 103 s out now land within a
+  second and an invented break is gone; on the advert-detection test set
+  two recordings' start trims stopped cutting into the programme (by 52 s
+  and 59 s) and one invented break went, with nothing else changing.
+
+- **Fewer stretches of programme cut out on channels with a faint logo.**
+  A pale see-through logo on a bright, sunlit scene leaves almost nothing
+  for detection to see, so it could decide the logo had gone and cut
+  several minutes of programme as an advert break - on one Great! Action
+  episode nearly four minutes, twice. Chalkline now also checks whether the
+  logo's corner is still a little brighter than the bright picture around
+  it, which it is when the logo is there. On four Great! Action and two
+  LEGEND episodes the programme cut out fell from about 14 minutes to
+  about 5, with fewer adverts left in too.
+
+- **Fewer adverts left in when an advert puts its own artwork in the logo's
+  corner.** Detection could take the artwork for the channel's logo
+  returning, end the break there, and keep the rest of it as programme.
+  Busy artwork in the corner is now recognised on channels whose programmes
+  are busy behind the logo too, and where one way of reading the logo sees a
+  break whole and another sees it in pieces, the whole one is considered as
+  well. Across the same six episodes the adverts left in fell by about a
+  fifth, and on the advert-detection test set three recordings lost more of
+  their padding and one break that had been split in two became whole.
+
+### Fixed
+
+- **A video saved as .mkv no longer loses Opus audio.** Videos downloaded
+  from YouTube usually carry Opus sound, and mkvtoolnix, which Snipwright
+  uses to build .mkv files, cannot read Opus from the intermediate it is
+  given - so the .mkv came out with no sound at all, with only a warning to
+  say so. The check that should have caught it saw no audio tracks and
+  treated that as nothing to compare. The Opus audio is now taken out
+  separately and added back unchanged, and an .mkv missing a track that
+  had sound is never accepted.
+- **VP9 and AV1 videos can be saved.** YouTube downloads are often VP9.
+  Saving one as .mp4 or .mkv produced an empty picture, and Snipwright
+  blamed a damaged recording and suggested Quick Stream Fix, which could
+  not help: the cut went through a transport stream on the way, and that
+  cannot carry VP9 or AV1. They now go through Matroska instead, and the
+  picture is copied as it is into both .mkv and .mp4 rather than
+  re-encoded.
+- **Closing a video now lets go of the file.** After saving a video, the
+  recording stayed open in the background until Snipwright was closed, so
+  deleting it - on a network share, at least - failed or left a hidden
+  ".fuse" file behind. Every save now closes the files it opened.
+- **Film Renamer finds films recorded off air.** A recording's file name
+  carries the channel and the recording date after the title ("The
+  Silence of the Lambs - - BBC TWO HD - 2026-10-16 22-00"); the whole of
+  that was searched for, and the recording date taken as the film's year,
+  so nothing was found. The date is now ignored, and the search tries the
+  title with the extra parts dropped one at a time.
+- **A video's cover picture is kept.** Downloaded videos often carry a
+  cover picture - youtube-dl embeds the thumbnail - and every save left it
+  out without a word. It is now kept in .mkv (as an attachment) and .mp4
+  (as cover art), including through an HEVC re-encode or a crop. A .ts has
+  nowhere to put one, and the summary now says so.
+- **Recordings whose clock leaps forward save at the right length.** A
+  Tvheadend recording's clock can jump hours ahead in the middle of a
+  programme; the cut already closed the gap, but a single audio or subtitle
+  packet stamped inside the gap - on one recording, the first packet of an
+  audio-description track - was placed as if it came after it. Saved as
+  .mkv, that one packet put the end of the file 26 hours away, so the video
+  reported that length and its chapters were squeezed into the start. Such
+  packets belong to neither side of the gap and are now left out. The log's
+  breakdown of the cut by scene is also right for these recordings.
+- **Advert detection on recordings whose clock leaps forward.** Chalkline
+  measures a recording without the leap, while the editor and saved
+  projects keep it, so on such a recording everything after the leap was
+  hours apart between the two: learning compared the corrected cuts with
+  the wrong stretch of picture and called the logo unfit, and detected
+  breaks after the leap would have been placed hours late. The two are now
+  converted at the hand-over in both directions. The log also stopped
+  claiming the decode had stopped early on these recordings, when it had
+  read the whole recording.
+- **Joining videos keeps their chapters.** The Joiner gave the joined file
+  one chapter per piece and dropped the chapters inside each one, so three
+  saved episodes with a chapter at every scene joined into a file with
+  three chapters. Each piece's own chapters now come across in their right
+  places, as .mkv or .mp4, and a join saved with a profile that re-encodes
+  (HEVC, a crop, AAC audio) gets a chapter at every join too - it used to
+  get one for the whole file.
+- **YouTube videos no longer lose a frame's timestamp at every keyframe.**
+  YouTube's H.264 puts a small information block after the picture in
+  every keyframe, where the standard does not allow one. A cut goes through
+  a transport stream on its way to .mkv or .mp4, and there anything reading
+  it - ffmpeg, mkvtoolnix - took the block as the start of the next frame,
+  so the frame after every keyframe lost its timestamp and decoded with an
+  error: 291 of them in a 24-minute video, and the reason saving one such
+  video as .mkv failed outright. The block is now moved in front of the
+  picture as it is copied; the picture itself is unchanged.
+- **A video saved as .mp4 has chapters.** The guide has always said a
+  saved video gets a chapter at every scene join and at each of your
+  markers, but only an .mkv ever did - an .mp4 came out with none, so a
+  YouTube video's chapters, which Snipwright turns into markers when it
+  opens it, were lost too. An .mp4 now gets the same chapters as an .mkv,
+  including through an HEVC re-encode or a crop.
+
 ## [2.13.0] - 2026-10-16
 
 ### Added

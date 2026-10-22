@@ -146,6 +146,8 @@ class PassthruAudioCutter:
         for p in in_packets:
             if p.dts is None or p.pts is None:
                 continue
+            if cut_segment.clock_jumps and cut_segment.in_gap(p.pts * in_tb):
+                continue
             if self._latm is not None:
                 try:
                     packet = Packet(self._latm.to_adts(bytes(p)))
@@ -239,6 +241,12 @@ class SubtitleCutter:
                 self.current_packet_i += 1
             else:
                 break
+
+        # A subtitle stamped inside a clock leap's gap has no place in the
+        # output - see CutSegment.in_gap.
+        if cut_segment.clock_jumps:
+            out_packets = [p for p in out_packets
+                           if not cut_segment.in_gap(p.pts * in_tb)]
 
         for packet in out_packets:
             packet.stream = self.out_stream

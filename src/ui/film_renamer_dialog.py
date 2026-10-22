@@ -11,6 +11,7 @@ core (``match_films``) is kept free of widgets so it can be unit-tested.
 """
 
 import os
+import re
 import shutil
 
 from PySide6.QtCore import Qt, QT_TRANSLATE_NOOP, QCoreApplication
@@ -116,6 +117,45 @@ class FilmRow:
         return self.new_name is not None and self.note is None
 
 
+_REC_DATE = re.compile(r"\s*-?\s*\b(19|20)\d{2}-\d{2}-\d{2}(?:[ _T]\d{2}[-:.]\d{2}(?:[-:.]\d{2})?)?\s*$")
+_FILM_YEAR = re.compile(r"[(\[]\s*((?:19|20)\d{2})\s*[)\]]|\b((?:19|20)\d{2})\b")
+
+
+def film_queries(path):
+    """The searches worth trying for a film's file name, best first.
+
+    [(title, year or None), ...].  A PVR names a recording "Title - subtitle
+    - Channel - 2026-10-16 22-00", and the whole of that is no film's title:
+    "The Silence of the Lambs - - BBC TWO HD" found nothing, and the
+    recording DATE was taken for the film's year as well (reported
+    2026-10-17).  So the recording date is removed first, the year is taken
+    only from what is left, and then the name is tried whole and with its
+    " - " parts dropped from the end one at a time - a title that itself
+    contains " - " is still found at the length that matches.
+    """
+    stem = os.path.splitext(os.path.basename(path))[0]
+    stem = _REC_DATE.sub("", stem).strip()
+    year = None
+    m = _FILM_YEAR.search(stem)
+    if m:
+        year = int(m.group(1) or m.group(2))
+        if m.group(1):          # "(1991)" belongs to the year, not the title
+            stem = (stem[:m.start()] + stem[m.end():]).strip()
+    # " - " separators, including the empty-subtitle "  -  - " form.
+    parts = [p.strip(" ._-") for p in re.split(r"\s+-(?:\s+-)*\s+", stem)]
+    parts = [p for p in parts if p]
+    out = []
+    for n in range(len(parts), 0, -1):
+        title = " - ".join(parts[:n])
+        title = re.sub(r"[._]+", " ", title).strip()
+        if title and title not in [t for t, _y in out]:
+            out.append((title, year))
+    if not out:
+        p = parse_filename(path)
+        out.append((p.show, p.year))
+    return out
+
+
 def match_films(client, rows, pattern, progress_cb=None):
     """Auto-match each unmatched row to its best TMDB movie (no Qt, so it's
     testable).
@@ -137,9 +177,13 @@ def match_films(client, rows, pattern, progress_cb=None):
         ):
             return rows
         p = parse_filename(r.path)
-        results = client.search_movie(p.show, p.year)
-        if not results and p.year:
-            results = client.search_movie(p.show)
+        results = []
+        for title, year in film_queries(r.path):
+            results = client.search_movie(title, year) if year else []
+            if not results:
+                results = client.search_movie(title)
+            if results:
+                break
 
         if not results:
             r.movie, r.new_name = None, None
@@ -692,7 +736,7 @@ class FilmRenamerDialog(QDialog):
         if r < 0 or r >= len(self.rows):
             return
         row = self.rows[r]
-        movie = self._pick_movie(parse_filename(row.path).show)
+        movie = self._pick_movie(film_queries(row.path)[-1][0])
         if not movie:
             return
         ext = parse_filename(row.path).ext

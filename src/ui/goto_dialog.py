@@ -1,3 +1,4 @@
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -47,6 +48,7 @@ class GoToTimecodeDialog(QDialog):
             frame_to_timecode(current_frame)
         )
         self._edit.selectAll()
+        self._edit.installEventFilter(self)
         layout.addWidget(self._edit)
 
         hint = QLabel(
@@ -68,6 +70,22 @@ class GoToTimecodeDialog(QDialog):
         layout.addWidget(buttons)
 
         self._edit.returnPressed.connect(self._on_ok)
+
+    def eventFilter(self, obj, event):
+        # The timecode opens selected, and Qt's Left on a selection jumps to
+        # its START.  VideoReDo's went one back from the END, so three
+        # presses land after the seconds - which is the usual edit (a
+        # Channel 4 scene's one-second padding).  Only for the selection the
+        # box opens with; once the cursor is placed, Left is ordinary.
+        if (obj is self._edit and event.type() == QEvent.KeyPress
+                and event.key() == Qt.Key_Left
+                and event.modifiers() in (Qt.NoModifier, Qt.KeypadModifier)
+                and self._edit.hasSelectedText()
+                and self._edit.selectedText() == self._edit.text()):
+            self._edit.setCursorPosition(len(self._edit.text()))
+            self._edit.cursorBackward(False, 1)
+            return True
+        return super().eventFilter(obj, event)
 
     def _parse(self, text):
         """Return the absolute target frame, or None if the text is invalid."""

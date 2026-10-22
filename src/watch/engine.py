@@ -22,13 +22,14 @@ import fnmatch
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import time
 
 from project.edl import parse_edl_cuts
 from project.formats import save_project_from_cuts
-from repair.chalkline import run_chalkline, ChalklineError
+from repair.chalkline import run_chalkline, ChalklineError, programme_title
 from repair.comskip import run_comskip, ComskipError, pick_comskip_ini
 
 log = logging.getLogger("snipwright.watch")
@@ -149,12 +150,154 @@ def load_ignore_patterns(path):
 #                exists to prevent.)
 #   "anywhere" - the entry may appear anywhere in the name.  More catching, and
 #                correspondingly easier to catch the wrong thing.
+#   "title"    - the programme title (see recording_title) must BE the entry.
+#                "Doctor Who" then ignores Doctor Who and nothing else - not
+#                "Doctor Who Confidential", which "start" catches too.
 #
-# Either way, an entry written with a leading * is always matched anywhere, so
-# a keyword can be used without changing the setting for the whole list.
+#   "regex"    - a regular expression, searched for in the programme title.
+#
+# Each ENTRY carries its own kind, as a prefix on its line, so one list can
+# mix them - a film series whose shared name comes second ("Carrot Cake
+# Murder: A Hannah Swensen Mystery") wants a keyword while everything else
+# is a programme name (asked for 2026-10-17):
+#
+#   Doctor Who            programme name - no prefix, as every list began
+#   *Hannah Swensen       keyword - the prefix that always existed
+#   =Doctor Who           whole title
+#   re:^(a|b)$            regular expression
+#
+# Only lines that ask for it are read as an expression: a whole list read
+# that way would change what ordinary entries mean - "Who Wants to Be a
+# Millionaire?" would stop matching itself.  The file stays a plain list
+# anyone can edit by hand.
+#
+# There used to be ONE setting for the whole list (`mode`, the config's
+# ignore_match_mode).  migrate_ignore_match_mode() writes an old "anywhere"
+# setting onto each plain line as a "*" once, so nothing matches differently;
+# `mode` is still honoured for a plain line when given.
 MATCH_START = "start"
 MATCH_ANYWHERE = "anywhere"
+MATCH_TITLE = "title"
+MATCH_REGEX = "regex"
+MATCH_KINDS = (MATCH_START, MATCH_ANYWHERE, MATCH_TITLE, MATCH_REGEX)
 DEFAULT_MATCH_MODE = MATCH_START
+REGEX_PREFIX = "re:"
+KEYWORD_PREFIX = "*"
+TITLE_PREFIX = "="
+
+
+def split_ignore_entry(line):
+    """(kind, text) for one ignore-list line: what its prefix asks for, and
+    the entry without it."""
+    entry = (line or "").strip()
+    if entry[:len(REGEX_PREFIX)].lower() == REGEX_PREFIX:
+        return MATCH_REGEX, entry[len(REGEX_PREFIX):].strip()
+    if entry.startswith(KEYWORD_PREFIX):
+        return MATCH_ANYWHERE, entry[1:].strip()
+    if entry.startswith(TITLE_PREFIX):
+        return MATCH_TITLE, entry[1:].strip()
+    return MATCH_START, entry
+
+
+def join_ignore_entry(kind, text):
+    """The ignore-list line for an entry of this kind; see split_ignore_entry."""
+    text = (text or "").strip()
+    if kind == MATCH_REGEX:
+        return REGEX_PREFIX + text
+    if kind == MATCH_ANYWHERE:
+        return KEYWORD_PREFIX + text
+    if kind == MATCH_TITLE:
+        return TITLE_PREFIX + text
+    return text
+
+
+def migrate_ignore_match_mode(cfg, ignore_path, seen_path=None):
+    """Move an old list-wide Match setting onto the entries themselves.
+
+    Before each entry had its own kind, a single setting decided for every
+    plain line.  Plain lines now mean "programme name", so a list that was
+    set to keyword (or, briefly, whole title) has the matching prefix
+    written onto each plain line, its seen-dates carried across, and the
+    setting returned to the default.  Comments, blank lines and order are
+    left exactly as they were.  Returns the number of lines changed.
+    """
+    mode = getattr(cfg, "ignore_match_mode", DEFAULT_MATCH_MODE)
+    if mode not in (MATCH_ANYWHERE, MATCH_TITLE):
+        return 0
+    try:
+        with open(ignore_path, encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError:
+        lines = None
+    renamed = {}
+    if lines is not None:
+        out = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") \
+                    and split_ignore_entry(stripped)[0] == MATCH_START:
+                new = join_ignore_entry(mode, stripped)
+                renamed[stripped] = new
+                end = "\n" if line.endswith("\n") else ""
+                out.append(line[:len(line) - len(line.lstrip())] + new + end)
+            else:
+                out.append(line)
+        if renamed:
+            try:
+                with open(ignore_path, "w", encoding="utf-8") as f:
+                    f.writelines(out)
+            except OSError:
+                return 0       # leave the setting alone; try again next time
+    if renamed and seen_path is not None:
+        seen = IgnoreSeenLog(seen_path)
+        for old, new in renamed.items():
+            when = seen.last_seen(old)
+            if when is not None:
+                seen.forget([old])
+                seen.note(new, when)
+        seen.save()
+    cfg.ignore_match_mode = DEFAULT_MATCH_MODE
+    try:
+        cfg.save()
+    except Exception:
+        log.exception("could not save the watch config after moving the "
+                      "ignore list's Match setting onto its entries")
+    log.info("Ignore list: the list-wide %s setting is now on each entry "
+             "(%d line(s)).", mode, len(renamed))
+    return len(renamed)
+
+# Expressions that would not compile, so each is logged once rather than on
+# every scan.
+_bad_regex = set()
+
+
+def recording_title(filename):
+    """A recording's programme title, lower-cased, for the ignore list.
+
+    Chalkline's reading - the name before an episode number (S02E18) or the
+    first " - " - and, for a name with neither, the whole name without its
+    extension.
+    """
+    title = programme_title(filename)
+    if title:
+        return title
+    base = os.path.splitext(os.path.basename(str(filename)))[0]
+    return " ".join(base.split()).lower()
+
+
+def _regex_matches(entry, title):
+    """Whether the "re:" entry's expression is found in `title`."""
+    expr = entry[len(REGEX_PREFIX):].strip()
+    if not expr:
+        return False
+    try:
+        return re.search(expr, title, re.IGNORECASE) is not None
+    except re.error as exc:
+        if entry not in _bad_regex:
+            _bad_regex.add(entry)
+            log.warning("Ignore list: %r is not a valid regular expression "
+                        "(%s) - skipped.", entry, exc)
+        return False
 
 
 def matching_ignore_patterns(filename, patterns, mode=DEFAULT_MATCH_MODE):
@@ -164,17 +307,33 @@ def matching_ignore_patterns(filename, patterns, mode=DEFAULT_MATCH_MODE):
     or hand them to the pruner - which matches on the text of the line.
     """
     name = os.path.basename(filename).lower()
+    title = None
     hits = []
     for raw in patterns:
         entry = (raw or "").strip()
         if not entry:
             continue
-        if entry.startswith("*"):
+        if entry[:len(REGEX_PREFIX)].lower() == REGEX_PREFIX:
+            if title is None:
+                title = recording_title(filename)
+            if _regex_matches(entry, title):
+                hits.append(raw)
+        elif entry.startswith(TITLE_PREFIX):
+            if title is None:
+                title = recording_title(filename)
+            if " ".join(entry[1:].split()).lower() == title:
+                hits.append(raw)
+        elif entry.startswith("*"):
             needle = entry[1:].strip().lower()
             if needle and needle in name:
                 hits.append(raw)
         elif mode == MATCH_ANYWHERE:
             if entry.lower() in name:
+                hits.append(raw)
+        elif mode == MATCH_TITLE:
+            if title is None:
+                title = recording_title(filename)
+            if " ".join(entry.split()).lower() == title:
                 hits.append(raw)
         elif name.startswith(entry.lower()):
             hits.append(raw)

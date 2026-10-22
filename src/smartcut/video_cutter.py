@@ -41,6 +41,46 @@ def is_annexb(packet: Packet | bytes | None) -> bool:
         data = bytes(packet)
         return data[:3] == b'\0\0\x01' or data[:4] == b'\0\0\0\x01'
 
+def sei_before_slices(data: bytes) -> bytes:
+    """Move any H.264 SEI that follows a slice to just before the first slice.
+
+    YouTube's H.264 puts an SEI AFTER the picture in every keyframe's
+    access unit - IDR slice, then SEI.  The standard allows SEI only before
+    the first slice, and in an MPEG-TS that matters: a reader splitting the
+    stream into frames (ffmpeg's parser, mkvmerge, players) takes the late
+    SEI as the start of the NEXT frame, so every copied keyframe left the
+    frame after it with no timestamp and the keyframe with that frame's.  The
+    units are only reordered, never changed, so the picture is untouched.
+    `data` is Annex B (start codes); anything else comes back as it was.
+    """
+    if b'\x00\x00\x01\x06' not in data:      # no SEI at all: the usual case
+        return data
+    starts = []
+    i = 0
+    while True:
+        j = data.find(b'\x00\x00\x01', i)
+        if j < 0 or j + 3 >= len(data):
+            break
+        starts.append((j - 1 if j > 0 and data[j - 1] == 0 else j, j + 3))
+        i = j + 3
+    if not starts:
+        return data
+    head = data[:starts[0][0]]
+    units = []
+    for k, (begin, hdr) in enumerate(starts):
+        end = starts[k + 1][0] if k + 1 < len(starts) else len(data)
+        units.append((data[hdr] & 0x1f, data[begin:end]))
+    first_vcl = next((k for k, (t, _u) in enumerate(units) if 1 <= t <= 5), None)
+    if first_vcl is None:
+        return data
+    late = [k for k in range(first_vcl + 1, len(units)) if units[k][0] == 6]
+    if not late:
+        return data
+    order = (list(range(first_vcl)) + late
+             + [k for k in range(first_vcl, len(units)) if k not in late])
+    return head + b''.join(units[k][1] for k in order)
+
+
 def copy_packet(p: Packet) -> Packet:
     # return p
     packet = Packet(bytes(p))
@@ -179,6 +219,14 @@ def _normalize_output_codec_tag(
         out_codec_ctx.codec_tag = 'hev1'
     elif is_mp4_mov_mkv and in_codec_name in ('hevc', 'h265') and _is_mpegts_hevc_tag(in_codec_ctx.codec_tag):
         out_codec_ctx.codec_tag = 'hvc1'
+
+    # Matroska has no codec tags of its own and refuses an MP4 one: VP9 cut
+    # from a YouTube MP4 into Matroska failed to start ("Tag vp09
+    # incompatible with output codec id") - 2026-10-17.  Clear it and let
+    # the muxer choose.
+    is_matroska = any(name in container_name for name in ('matroska', 'webm'))
+    if is_matroska and in_codec_name in ('vp9', 'vp8', 'av1', 'libdav1d'):
+        out_codec_ctx.codec_tag = '\x00\x00\x00\x00'
 
 
 def _apply_source_colour(enc_codec, src_codec_ctx) -> None:
@@ -771,7 +819,29 @@ class VideoCutter:
         result_packets.extend(self.remux_bitstream_filter.filter(None))
 
         self.remux_bitstream_filter.flush()
+        if self.codec_name == 'h264':
+            result_packets = [self._reordered(p) for p in result_packets]
         return self._renumber(result_packets, copy_run)
+
+    def _reordered(self, p: Packet) -> Packet:
+        """`p` with any late SEI moved ahead of its slices; see
+        sei_before_slices."""
+        data = bytes(p)
+        new_data = sei_before_slices(data)
+        if new_data is data:
+            return p
+        packet = Packet(new_data)
+        packet.pts = p.pts
+        packet.dts = p.dts
+        packet.duration = p.duration
+        if q(p.time_base) is not None:
+            packet.time_base = p.time_base
+        if p.stream is not None:
+            packet.stream = p.stream
+        packet.is_keyframe = p.is_keyframe
+        for side_data in p.iter_sidedata():
+            packet.set_sidedata(side_data)
+        return packet
 
     def _should_hybrid_recode_cra(self, s: CutSegment) -> bool:
         """

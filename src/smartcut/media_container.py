@@ -3,6 +3,8 @@ from fractions import Fraction
 from typing import cast
 
 import logging
+import threading
+import weakref
 import numpy as np
 
 from smartcut.latm import LatmError, LatmRepacketiser
@@ -188,6 +190,21 @@ class AudioTrack:
     frame_times_pts: np.ndarray = field(default_factory = lambda: np.empty(()))
     frame_times: np.ndarray = field(default_factory = lambda: np.empty(()))
 
+# Every MediaContainer still alive, so a caller can close the ones it made
+# (see opened_since / close_opened).  The export never closed the one it
+# cut from: reference cycles kept the file open until Python's collector
+# happened to run, which in an idle editor could be never - and on a FUSE
+# share a file deleted while open becomes a .fuse_hidden file that will not
+# go away until Snipwright exits (reported 2026-10-17).
+_LIVE = weakref.WeakSet()
+
+
+def live_containers():
+    """The MediaContainers opened by THIS thread that are still alive."""
+    me = threading.get_ident()
+    return [c for c in list(_LIVE) if getattr(c, "_thread", None) == me]
+
+
 class MediaContainer:
     av_container: InputContainer
     video_stream: VideoStream | None
@@ -212,6 +229,8 @@ class MediaContainer:
 
     def __init__(self, path: str) -> None:
         self.path = path
+        self._thread = threading.get_ident()
+        _LIVE.add(self)
 
         frame_pts = []
         self.video_keyframe_indices = []
@@ -549,7 +568,19 @@ class MediaContainer:
                     "Couldn't cache the smartcut index", exc_info=True)
 
     def close(self) -> None:
-        self.av_container.close()
+        """Close the file and every lazy audio reader opened on it."""
+        for t in getattr(self, "audio_tracks", None) or []:
+            packets = getattr(t, "packets", None)
+            closer = getattr(packets, "close", None)
+            if callable(closer):
+                try:
+                    closer()
+                except Exception:
+                    pass
+        try:
+            self.av_container.close()
+        except Exception:
+            pass
 
     def get_next_frame_time(self, t: Fraction) -> Fraction:
         assert self.video_stream is not None

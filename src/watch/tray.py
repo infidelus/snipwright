@@ -14,13 +14,14 @@ window instead of failing.
 import datetime
 import logging
 import os
+import re
 import subprocess
 import sys
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal, QUrl, QRectF, QCoreApplication
 from PySide6.QtGui import (
     QIcon, QPixmap, QPainter, QColor, QBrush, QPen, QDesktopServices,
-    QGuiApplication,
+    QGuiApplication, QKeySequence, QShortcut,
 )
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -28,7 +29,7 @@ from PySide6.QtWidgets import (
     QGridLayout, QLabel, QPushButton, QListWidget, QLineEdit, QSpinBox,
     QCheckBox, QFileDialog, QMessageBox, QGroupBox, QPlainTextEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QComboBox,
+    QComboBox, QStyledItemDelegate,
 )
 
 from watch.config import (
@@ -38,6 +39,8 @@ from watch.config import (
 from watch.engine import (
     scan_once, ProcessedLog, load_ignore_patterns, IgnoreSeenLog,
     prune_ignore_list, months_between, DETECTOR_COMSKIP,
+    migrate_ignore_match_mode, split_ignore_entry, join_ignore_entry,
+    MATCH_START, MATCH_ANYWHERE, MATCH_TITLE, MATCH_REGEX,
 )
 from watch import autostart
 
@@ -112,6 +115,7 @@ class WatchScanWorker(QThread):
             PROCESSED_FILE, PROCESSED_MISSING_FILE,
             grace_seconds=self._cfg.processed_grace_seconds,
         )
+        migrate_ignore_match_mode(self._cfg, IGNORE_FILE, IGNORE_SEEN_FILE)
         ignore_patterns = load_ignore_patterns(IGNORE_FILE)
         ignore_seen = IgnoreSeenLog(IGNORE_SEEN_FILE)
 
@@ -334,9 +338,41 @@ class IgnorePruneDialog(QDialog):
         )
 
 
+class _MatchDelegate(QStyledItemDelegate):
+    """The Match column's drop-down: one per row, showing the entry's kind."""
+
+    def __init__(self, labels, tip, parent=None):
+        super().__init__(parent)
+        self._labels = labels          # [(kind, label)]
+        self._tip = tip
+
+    def createEditor(self, parent, option, index):
+        combo = QComboBox(parent)
+        for kind, label in self._labels:
+            combo.addItem(label, kind)
+        combo.setToolTip(self._tip)
+        # Commit as soon as it changes: these editors stay open, so there is
+        # no "finished editing" moment to wait for.
+        combo.currentIndexChanged.connect(
+            lambda _i, c=combo: self.commitData.emit(c))
+        return combo
+
+    def setEditorData(self, editor, index):
+        i = editor.findData(index.data(Qt.UserRole))
+        editor.blockSignals(True)
+        editor.setCurrentIndex(max(0, i))
+        editor.blockSignals(False)
+
+    def setModelData(self, editor, model, index):
+        model.setData(index, editor.currentData(), Qt.UserRole)
+        model.setData(index, editor.currentText(), Qt.DisplayRole)
+
+
 class IgnoreListDialog(QDialog):
-    """A plain text editor for the ignore list - one programme title per line.
-    Recordings whose file name contains any line are skipped by the watcher."""
+    """The ignore list, one entry per row, each with its own kind of match.
+
+    Kept on disk as the plain text file it always was - see the prefixes in
+    watch/engine.py - so it can still be edited by hand."""
 
     def __init__(self, cfg, tray=None, parent=None):
         super().__init__(parent)
@@ -344,36 +380,65 @@ class IgnoreListDialog(QDialog):
         self.tray = tray
         self.setWindowTitle(self.tr("Edit ignore list"))
         self.setModal(True)
-        self.setMinimumSize(480, 560)
+        self.setMinimumSize(520, 560)
+        # Comment lines in the file, which have no row; written back first.
+        self._comments = []
 
         layout = QVBoxLayout(self)
         info = QLabel(
-            self.tr("One programme title per line. Matching ignores case, and "
-            "lines starting with # are comments.")
+            self.tr("One programme per row, each matched in its own way. "
+            "Matching ignores case. To add several at once, paste a list "
+            "with one title per line.")
         )
         info.setWordWrap(True)
+        layout.addWidget(info)
 
-        # The matching mode sits on the same row as the explanation, right
-        # aligned - it is a one-off setting and doesn't warrant a group box of
-        # its own taking height away from the list.
-        self.match_combo = QComboBox()
-        self.match_combo.addItem(self.tr("Programme name"), "start")
-        self.match_combo.addItem(self.tr("Keyword"), "anywhere")
-        self.match_combo.setToolTip(self.tr(
+        self._kinds = [
+            (MATCH_START, self.tr("Programme name")),
+            (MATCH_ANYWHERE, self.tr("Keyword")),
+            (MATCH_TITLE, self.tr("Whole title")),
+            (MATCH_REGEX, self.tr("Regex")),
+        ]
+        self._match_tip = self.tr(
             "<b>Programme name</b> - the file name must start with the entry."
             "<br><b>Keyword</b> - the entry may appear anywhere in the name."
-            "<br><br>An entry beginning with * is always matched anywhere."
-        ))
+            "<br><b>Whole title</b> - the programme's title must be exactly "
+            "the entry, so \"Doctor Who\" does not also catch \"Doctor Who "
+            "Confidential\"."
+            "<br><b>Regex</b> - a regular expression, searched for in the "
+            "programme's title - for example <i>^(doctor who|torchwood)$</i>."
+        )
 
-        top = QHBoxLayout()
-        top.addWidget(info, 1)
-        top.addWidget(QLabel(self.tr("Match:")))
-        top.addWidget(self.match_combo)
-        layout.addLayout(top)
+        self._table = QTableWidget(0, 2)
+        self._table.setHorizontalHeaderLabels(
+            [self.tr("Programme"), self.tr("Match")])
+        self._table.horizontalHeaderItem(1).setToolTip(self._match_tip)
+        header = self._table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._table.setEditTriggers(
+            QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed
+            | QAbstractItemView.AnyKeyPressed)
+        self._table.setItemDelegateForColumn(
+            1, _MatchDelegate(self._kinds, self._match_tip, self._table))
+        self._table.setSortingEnabled(True)
+        layout.addWidget(self._table, 1)
 
-        self._editor = QPlainTextEdit()
-        self._editor.setLineWrapMode(QPlainTextEdit.NoWrap)
-        layout.addWidget(self._editor, 1)
+        paste = QShortcut(QKeySequence.Paste, self._table)
+        paste.setContext(Qt.WidgetShortcut)
+        paste.activated.connect(self._paste)
+
+        edit_row = QHBoxLayout()
+        add_btn = QPushButton(self.tr("Add"))
+        add_btn.clicked.connect(self._add_clicked)
+        edit_row.addWidget(add_btn)
+        remove_btn = QPushButton(self.tr("Remove"))
+        remove_btn.clicked.connect(self._remove_selected)
+        edit_row.addWidget(remove_btn)
+        edit_row.addStretch(1)
+        layout.addLayout(edit_row)
 
         # --- housekeeping: age entries out once a programme stops airing ---
         house = QGroupBox(self.tr("Housekeeping"))
@@ -421,14 +486,79 @@ class IgnoreListDialog(QDialog):
 
         self._load()
 
+    def _add_row(self, kind, text):
+        sorting = self._table.isSortingEnabled()
+        self._table.setSortingEnabled(False)
+        row = self._table.rowCount()
+        self._table.insertRow(row)
+        self._table.setItem(row, 0, QTableWidgetItem(text))
+        match = QTableWidgetItem(dict(self._kinds).get(kind, ""))
+        match.setData(Qt.UserRole, kind)
+        self._table.setItem(row, 1, match)
+        self._table.openPersistentEditor(match)
+        self._table.setSortingEnabled(sorting)
+        return self._table.row(match)
+
+    def _add_clicked(self):
+        row = self._add_row(MATCH_START, "")
+        self._table.scrollToItem(self._table.item(row, 0))
+        self._table.setCurrentCell(row, 0)
+        self._table.editItem(self._table.item(row, 0))
+
+    def _paste(self):
+        """Each pasted line becomes a row, read like a line of the file - so a
+        list copied out of an old ignore file keeps its kinds."""
+        text = QGuiApplication.clipboard().text()
+        added = None
+        for line in text.splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                kind, entry = split_ignore_entry(line)
+                if entry:
+                    added = self._add_row(kind, entry)
+        if added is not None:
+            self._table.scrollToItem(self._table.item(added, 0))
+
+    def _remove_selected(self):
+        rows = sorted({i.row() for i in self._table.selectedIndexes()},
+                      reverse=True)
+        for row in rows:
+            self._table.removeRow(row)
+
+    def _entries(self):
+        """[(kind, text)] for every row with something in it."""
+        out = []
+        for row in range(self._table.rowCount()):
+            title = self._table.item(row, 0)
+            match = self._table.item(row, 1)
+            text = (title.text() if title else "").strip()
+            if text:
+                out.append((match.data(Qt.UserRole) if match else MATCH_START,
+                            text))
+        return out
+
     def _load(self):
+        # A list set up when the Match setting covered the whole list has it
+        # moved onto its entries first, so every row shows what it does.
+        migrate_ignore_match_mode(self.cfg, IGNORE_FILE, IGNORE_SEEN_FILE)
+        self._comments = []
+        self._table.setRowCount(0)
         try:
             with open(IGNORE_FILE, encoding="utf-8") as f:
-                self._editor.setPlainText(f.read())
+                lines = f.read().splitlines()
         except OSError:
-            self._editor.setPlainText("")
-        idx = self.match_combo.findData(self.cfg.ignore_match_mode)
-        self.match_combo.setCurrentIndex(max(0, idx))
+            lines = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                self._comments.append(line)
+                continue
+            kind, entry = split_ignore_entry(line)
+            if entry:
+                self._add_row(kind, entry)
+        self._table.sortItems(0, Qt.AscendingOrder)
         self.prune_chk.setChecked(self.cfg.ignore_prune_enabled)
         self.prune_spin.setValue(self.cfg.ignore_prune_months)
         self._refresh_prune_enabled()
@@ -441,8 +571,10 @@ class IgnoreListDialog(QDialog):
         complains) if it couldn't be written."""
         try:
             os.makedirs(os.path.dirname(IGNORE_FILE), exist_ok=True)
+            lines = self._comments + [join_ignore_entry(kind, text)
+                                      for kind, text in self._entries()]
             with open(IGNORE_FILE, "w", encoding="utf-8") as f:
-                f.write(self._editor.toPlainText())
+                f.write("".join(line + "\n" for line in lines))
         except OSError as exc:
             QMessageBox.warning(self, self.tr("Ignore list"),
                                 self.tr("Couldn't save the ignore list:\n\n%s") % exc)
@@ -470,9 +602,25 @@ class IgnoreListDialog(QDialog):
             self._load()
 
     def _save(self):
+        # A regular expression that will not compile would match nothing, and
+        # the scan only logs it - so say so here, while it can be fixed.
+        bad = []
+        for kind, text in self._entries():
+            if kind != MATCH_REGEX:
+                continue
+            try:
+                re.compile(text)
+            except re.error as exc:
+                bad.append("%s  (%s)" % (text, exc))
+        if bad:
+            QMessageBox.warning(
+                self, self.tr("Ignore list"),
+                self.tr("These lines are not valid regular expressions, so "
+                        "they would never match anything:\n\n%s")
+                % "\n".join(bad))
+            return
         if not self._write_list():
             return
-        self.cfg.ignore_match_mode = self.match_combo.currentData()
         self.cfg.ignore_prune_enabled = self.prune_chk.isChecked()
         self.cfg.ignore_prune_months = self.prune_spin.value()
         self.cfg.save()

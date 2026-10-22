@@ -230,6 +230,37 @@ def recommended_target(entries):
     return (best_w or 1920, best_h or 1080, fps or 25)
 
 
+def _source_chapter_starts(path):
+    """Where each chapter in `path` starts, in seconds from the start of the
+    file - empty for a file with none (a broadcast .ts) or one that cannot
+    be read."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries",
+             "chapter=start_time:format=start_time", "-of", "json", path],
+            capture_output=True, text=True, timeout=60,
+        ).stdout
+        data = json.loads(out or "{}")
+    except Exception:
+        return []
+    try:
+        origin = float((data.get("format") or {}).get("start_time") or 0)
+    except (TypeError, ValueError):
+        origin = 0.0
+    starts = []
+    for ch in data.get("chapters") or []:
+        try:
+            t = float(ch.get("start_time"))
+        except (TypeError, ValueError):
+            continue
+        # Chapters normally count from zero; a container that numbers them
+        # on its own clock has them start at or after its start time.
+        if origin > 0 and t >= origin:
+            t -= origin
+        starts.append(t)
+    return sorted(starts)
+
+
 def _probe_video(path):
     """Return (codec_name, interlaced) for the first video stream."""
     out = subprocess.run(
@@ -255,6 +286,8 @@ class JoinerRenderWorker(QThread):
         super().__init__(parent)
         self._entries = list(entries)
         self._out = out_path
+        self._chapter_marks = []    # set by run(); see there
+        self._durations = []
         # The full output profile chosen in the Save Video dialogue (the same
         # dialogue used everywhere else).  It carries container, video mode
         # (copy/HEVC), crop, aspect and audio settings, and is applied to the
@@ -471,6 +504,11 @@ class JoinerRenderWorker(QThread):
         index_cache = {}
         segments = []
         durations = []
+        # The sources' own chapters, moved onto the joined timeline.  A join
+        # used to keep only a chapter per piece: three recordings saved as
+        # .mkv, each with a chapter at every scene, joined into one file with
+        # three chapters (2026-10-21).
+        self._chapter_marks = []
         try:
             n = len(self._entries)
             if n == 0:
@@ -551,8 +589,16 @@ class JoinerRenderWorker(QThread):
                     summary_compact=True,
                 )
                 self._check_cancel()
+                offset = sum(durations)
+                for t in _source_chapter_starts(src):
+                    if entry.start < t < entry.end:
+                        self._chapter_marks.append(offset + t - entry.start)
                 segments.append(seg)
                 durations.append(entry.duration)
+
+            if self._chapter_marks:
+                logger.info("Joiner: %d chapter(s) from the sources kept.",
+                            len(self._chapter_marks))
 
             self._report(0,
                          QT_TRANSLATE_NOOP("ExportNotes", "Joining scenes…")
@@ -584,6 +630,7 @@ class JoinerRenderWorker(QThread):
                 self._finalize(joined_ts, durations)
             else:
                 self._report(0, _APPLYING_PROFILE, stage="finish")
+                self._durations = list(durations)
                 self._apply_profile(joined_ts, 0)
             self._check_cancel()
 
@@ -1133,6 +1180,16 @@ class JoinerRenderWorker(QThread):
         p = self._profile
         index = build_index_sync(joined_ts)
         last = max(0, index.frame_count - 1)
+        # One range covering the whole file gives one chapter, so the joins
+        # and the sources' chapters go in as markers - the exporter writes
+        # those as chapters, as it does for an ordinary save.
+        join_points = []
+        acc = 0.0
+        for d in getattr(self, "_durations", [])[:-1]:
+            acc += float(d)
+            join_points.append(acc)
+        markers = sorted({index.index_of_seconds(t)
+                          for t in join_points + self._chapter_marks})
 
         span = max(1, 99 - base)
 
@@ -1195,6 +1252,7 @@ class JoinerRenderWorker(QThread):
             encoder_gop_seconds=(p.effective_gop_seconds()
                                  if hasattr(p, "effective_gop_seconds")
                                  else None),
+            markers=markers,
         )
 
     def _finalize(self, joined_ts, durations):
@@ -1235,7 +1293,8 @@ class JoinerRenderWorker(QThread):
 
             _write_mkv_chapters(
                 joined_ts, self._out, durations,
-                cancel_cb=lambda: self._cancel, progress_cb=_mkv_cb)
+                cancel_cb=lambda: self._cancel, progress_cb=_mkv_cb,
+                extra_marks=self._chapter_marks)
             self._check_cancel()
         elif self._out_format == "mp4":
             self._report(0, _CONVERTING_MP4, stage="finish")
@@ -1250,7 +1309,9 @@ class JoinerRenderWorker(QThread):
             _transcode_to_mp4(
                 joined_ts, self._out, codec, interlaced,
                 total_seconds=sum(durations), progress_cb=_cb,
-                cancel_cb=lambda: self._cancel)
+                cancel_cb=lambda: self._cancel,
+                segment_durations=durations,
+                extra_marks=self._chapter_marks)
             self._check_cancel()
             # An .mp4 has no place for DVB subtitles or teletext.  The
             # exporter says so for an ordinary export; this conversion is the

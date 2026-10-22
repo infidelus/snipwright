@@ -7,11 +7,6 @@ on doing one thing well — fast, frame-accurate cuts of videos and PVR/broadcas
 recordings without re-encoding — and takes its inspiration from VideoReDo,
 distilling the part many people relied on most into a free, open-source tool.
 
-> **Formerly VRD Next.** The project was renamed in July 2026 at the request of
-> one of VideoReDo's original developers, so that nobody mistakes it for that
-> product or sends its author support requests meant for this one. Only the name
-> has changed — settings are carried over automatically on first run.
-
 ![Snipwright editor](docs/screenshots/editor.png)
 
 ## Features

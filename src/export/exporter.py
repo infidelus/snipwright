@@ -16,7 +16,8 @@ Output:
                Matroska (with chapters), an .mp4 as MP4, and anything else
                passes through as it is
   - "mkv"   -> Matroska, always with a chapter per kept segment
-  - "mp4"   -> MP4 (cannot carry DVB subtitles; they are dropped)
+  - "mp4"   -> MP4, with the same chapters (cannot carry DVB subtitles;
+               they are dropped)
   - ".ts" and "mkv" keep any DVB subtitle track, cut to match the video
 
 Frame->time conversion uses smartcut's own scheme so cuts land exactly on the
@@ -898,25 +899,39 @@ def _build_seg_info(source, segments, keep_ranges, fps):
     # at 51,305s, putting every segment past the last scene, so the whole
     # export was labelled "scene 5 of 5" in the log and the progress dialog.
     # Shift the spans onto the same timeline before comparing.
+    #
+    # And use the scenes' own source times (`segments`, on the same clock as
+    # the cut segments) rather than frame numbers over fps: a recording whose
+    # clock leaps forward mid-programme puts every cut segment after the leap
+    # hours past a/fps, so a Tvheadend ITV2 recording logged "scene 1: 113,
+    # scene 4: 1992" for four real scenes (2026-10-21).  A segment is given
+    # to the scene it overlaps most - one straddling the leap has its middle
+    # in the gap.
+    # `segments` count from the recording's start; the cut segments are on
+    # the source clock, which begins at start_time.
     base = float(getattr(source, "start_time", 0) or 0)
-    scene_spans = []
-    for a, b in keep_ranges:
-        scene_spans.append((base + a / fps, base + (b + 1) / fps))
+    scene_spans = [(base + float(t0), base + float(t1))
+                   for t0, t1 in segments]
+    if len(scene_spans) != len(keep_ranges):
+        scene_spans = [(base + a / fps, base + (b + 1) / fps)
+                       for a, b in keep_ranges]
 
     info = {}
     for i, cs in enumerate(cut_segments, start=1):
         phase = "encode" if cs.require_recode else "copy"
 
-        mid = (float(cs.start_time) + float(cs.end_time)) / 2.0
-        scene = 1
-        for s_i, (s0, s1) in enumerate(scene_spans, start=1):
-            if s0 <= mid <= s1:
-                scene = s_i
-                break
+        c0, c1 = float(cs.start_time), float(cs.end_time)
+        overlaps = [min(c1, s1) - max(c0, s0) for s0, s1 in scene_spans]
+        best = max(range(len(overlaps)), key=lambda k: overlaps[k]) \
+            if overlaps else 0
+        if overlaps and overlaps[best] > 0:
+            scene = best + 1
         else:
-            # Past the last scene start; attribute to nearest by start.
-            for s_i, (s0, s1) in enumerate(scene_spans, start=1):
-                if mid >= s0:
+            # No overlap at all: the scene whose start is the latest one
+            # not after this segment.
+            scene = 1
+            for s_i, (s0, _s1) in enumerate(scene_spans, start=1):
+                if c0 >= s0:
                     scene = s_i
 
         info[i] = (phase, scene)
@@ -1199,6 +1214,147 @@ def _have_mkvmerge():
     return _mkvmerge_exe() is not None
 
 
+def _mkvpropedit_exe():
+    """mkvpropedit, from beside the mkvmerge in use or else on PATH."""
+    exe = _mkvmerge_exe()
+    if exe:
+        name = "mkvpropedit" + (".exe" if exe.lower().endswith(".exe") else "")
+        beside = os.path.join(os.path.dirname(exe), name)
+        if os.path.isfile(beside):
+            return beside
+    return shutil.which("mkvpropedit")
+
+
+# Cover pictures, by codec: the MIME type Matroska files them under and the
+# extension a file of that kind takes.  An .mp4 holds only the first three as
+# cover art.
+_COVER_KINDS = {
+    "mjpeg": ("image/jpeg", ".jpg"),
+    "png": ("image/png", ".png"),
+    "bmp": ("image/bmp", ".bmp"),
+    "webp": ("image/webp", ".webp"),
+    "gif": ("image/gif", ".gif"),
+}
+_MP4_COVER_CODECS = ("mjpeg", "png", "bmp")
+
+
+def _cover_pictures(path):
+    """The source's cover pictures, as [(stream index, codec, file name)].
+
+    FFmpeg reports these as video streams marked attached_pic, whether the
+    file is an MP4 with cover art (youtube-dl embeds the thumbnail) or a
+    Matroska file with an image attachment.
+    """
+    try:
+        raw = subprocess.run(
+            ["ffprobe", "-hide_banner", "-loglevel", "error",
+             "-show_entries",
+             "stream=index,codec_name:stream_disposition=attached_pic"
+             ":stream_tags=filename",
+             "-of", "json", path],
+            capture_output=True, text=True, timeout=60,
+        ).stdout
+        streams = json.loads(raw or "{}").get("streams", [])
+    except Exception:
+        return []
+    return [
+        (s["index"], s.get("codec_name") or "",
+         (s.get("tags") or {}).get("filename") or "")
+        for s in streams
+        if (s.get("disposition") or {}).get("attached_pic") == 1
+    ]
+
+
+def _carry_cover_picture(source_path, out_path, out_kind, cancel_cb=None):
+    """Put the source's cover picture into the finished file.
+
+    The cut copies the programme's own streams and nothing else, so a cover
+    picture used to vanish from every export without a word.  It is added to
+    the finished file afterwards: an .mp4 is remuxed with it as cover art,
+    and an .mkv has it attached in place by mkvpropedit.  A transport stream
+    has nowhere to put one.
+
+    Returns None when there was nothing to do or the picture was kept, and
+    otherwise the reason it was not, in English for the log and the summary.
+    """
+    covers = _cover_pictures(source_path)
+    if not covers:
+        return None
+    # A file has one cover in practice; more than one would be a set of
+    # attachments that the Matroska branch below carries as they are.
+    if out_kind == "ts":
+        return "a transport stream (.ts) cannot hold a cover picture"
+
+    if out_kind == "mp4":
+        # Put in by _transcode_to_mp4 during the conversion, and carried
+        # through a crop or HEVC re-encode by export/crop.py; this only
+        # checks it arrived.
+        codec = covers[0][1]
+        if codec not in _MP4_COVER_CODECS:
+            return "an .mp4 cannot hold a %s cover picture" % (codec or "?")
+        if not _cover_pictures(out_path):
+            return "it could not be added to the .mp4 - see the log"
+        logger.info("Cover picture kept (%s).", codec)
+        return None
+
+    # Matroska: mkvpropedit adds attachments to the finished file in place,
+    # without remuxing anything else.
+    exe = _mkvpropedit_exe()
+    if not exe:
+        return "mkvpropedit (part of MKVToolNix) was not found"
+    added = 0
+    for index, codec, name in covers:
+        mime, ext = _COVER_KINDS.get(codec, ("", ""))
+        if not mime:
+            logger.warning("Cover picture in stream %d is %s, which "
+                           "Snipwright does not know how to attach.",
+                           index, codec or "of an unknown kind")
+            continue
+        name = os.path.basename(name) or ("cover" + ext)
+        pic = out_path + ".cover.tmp" + ext
+        proc = _run_cancellable(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-i", source_path, "-map", "0:%d" % index, "-c", "copy",
+             "-frames:v", "1", "-f", "image2", "-update", "1", pic],
+            cancel_cb=cancel_cb,
+        )
+        try:
+            if (proc.returncode != 0 or not os.path.exists(pic)
+                    or os.path.getsize(pic) == 0):
+                if cancel_cb is not None and cancel_cb():
+                    raise _Cancelled()
+                logger.warning("Reading the cover picture failed (ffmpeg "
+                               "rc=%s): %s", proc.returncode,
+                               (proc.stderr or "").strip()[:500])
+                continue
+            proc = _run_cancellable(
+                [exe, out_path,
+                 "--attachment-name", name,
+                 "--attachment-mime-type", mime,
+                 "--add-attachment", pic],
+                cancel_cb=cancel_cb,
+            )
+            # mkvpropedit exits 1 for warnings, with the change made.
+            if proc.returncode not in (0, 1):
+                if cancel_cb is not None and cancel_cb():
+                    raise _Cancelled()
+                logger.warning("Attaching the cover picture failed "
+                               "(mkvpropedit rc=%s): %s", proc.returncode,
+                               ((proc.stdout or "") + (proc.stderr or ""))
+                               .strip()[:500])
+                continue
+            added += 1
+        finally:
+            _safe_remove(pic)
+    if not added:
+        return "it could not be attached to the .mkv - see the log"
+    logger.info("Cover picture%s kept as %s.",
+                "s" if added > 1 else "",
+                "attachments" if added > 1 else "an attachment")
+    return None
+
+
+
 def _aspect_dar(aspect):
     """The display ratio string mkvmerge/ffmpeg want for an aspect override, or
     None for 'source'/unknown."""
@@ -1303,6 +1459,28 @@ def _mkvmerge_video_track_id(exe, ts_path):
     except Exception:
         pass
     return 0
+
+
+# Audio mkvmerge cannot read from an MPEG-TS - it identifies the .ts
+# without the track and leaves it out of the .mkv without an error.  Opus
+# (YouTube's audio) is the one met so far (2026-10-17).  Named rather than
+# found by comparing track counts: mkvmerge also under-reports broadcast
+# audio-description tracks whose header has not been parsed yet (most of
+# the corpus's raw recordings), and those it does carry through a cut.
+MKVMERGE_TS_UNREADABLE = ("opus",)
+
+
+def _mkvmerge_missing_audio(exe, ts_path):
+    """Codec names of the cut's audio tracks mkvmerge would not read."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=codec_name", "-of", "csv=p=0", ts_path],
+            capture_output=True, text=True, timeout=60).stdout
+    except Exception:
+        return []
+    probed = [l.strip().lower() for l in out.splitlines() if l.strip()]
+    return sorted({p for p in probed if p in MKVMERGE_TS_UNREADABLE})
 
 
 def _is_matroska(path):
@@ -1459,7 +1637,8 @@ def _audio_decode_errors(path, cancel_cb=None, progress_cb=None,
     )
 
 
-def _audio_census_ok(candidate, reference, cancel_cb=None):
+def _audio_census_ok(candidate, reference, cancel_cb=None,
+                     require_tracks=False):
     """True if the finished file holds the audio the cut it came from held.
 
     A decode check answers "does what is there play?".  It cannot answer "is
@@ -1478,6 +1657,22 @@ def _audio_census_ok(candidate, reference, cancel_cb=None):
     """
     reference_counts = _audio_frame_counts(reference)
     candidate_counts = _audio_frame_counts(candidate)
+    # `require_tracks`: every track with audio in it must still be there.
+    # For the .mkv, built from a .ts that already holds exactly the tracks
+    # wanted, a missing track is a fault, not a choice.  mkvmerge does not
+    # read Opus from MPEG-TS at all and leaves it out without an error, so a
+    # YouTube download's only audio track vanished from the .mkv and this
+    # check passed it - with no audio tracks left there was "nothing to
+    # compare" (2026-10-17).
+    if require_tracks:
+        wanted = len([n for n in (reference_counts or []) if n > 0])
+        have = len([n for n in (candidate_counts or []) if n > 0])
+        if have < wanted:
+            logger.warning(
+                "Audio census: %d audio track(s) in the finished file against "
+                "%d in the cut it was built from - a track was left out.",
+                have, wanted)
+            return False
     if not reference_counts or not candidate_counts:
         return True               # nothing to compare; not evidence of a fault
 
@@ -1631,6 +1826,41 @@ def _chapter_marks(segment_durations, extra_marks=None):
     return merged, total
 
 
+def _write_ffmetadata_chapters(meta_path, segment_durations, extra_marks=None):
+    """Write the output's chapters as an ffmpeg metadata file; returns its path.
+
+    The same list mkvmerge is given - a chapter at every scene join plus the
+    user's own marks - for the ffmpeg-written .mkv and for an .mp4.
+    """
+    chapters = [";FFMETADATA1"]
+    starts, total = _chapter_marks(segment_durations, extra_marks)
+
+    for i, start in enumerate(starts, start=1):
+        start_ms = int(round(start * 1000))
+
+        # Each chapter runs to the next one, the last to the end of the file.
+        next_start = starts[i] if i < len(starts) else total
+        end_ms = int(round(next_start * 1000))
+
+        # Human-readable timecode of the chapter start (HH:MM:SS).
+        total_s = start_ms // 1000
+        h, rem = divmod(total_s, 3600)
+        m, s = divmod(rem, 60)
+        tc = f"{h:02d}:{m:02d}:{s:02d}"
+
+        chapters += [
+            "[CHAPTER]",
+            "TIMEBASE=1/1000",
+            f"START={start_ms}",
+            f"END={end_ms}",
+            f"title=Chapter {i:02d} ({tc})",
+        ]
+
+    with open(meta_path, "w") as f:
+        f.write("\n".join(chapters) + "\n")
+    return meta_path
+
+
 def _marks_in_output(markers, keep_ranges, frame_index, segment_durations,
                      clock_jumps=()):
     """Convert source-frame chapter marks into output times, in seconds.
@@ -1706,6 +1936,48 @@ def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
     if cancel_cb is not None and cancel_cb():
         raise _Cancelled()
     exe = _mkvmerge_exe()
+    # Only a transport stream: from a Matroska intermediate mkvmerge reads
+    # Opus itself, and the route below would add the audio a second time.
+    missing = (_mkvmerge_missing_audio(exe, ts_path)
+               if exe and not _is_matroska(ts_path) else [])
+    if missing:
+        # mkvmerge cannot read every audio track from the cut - Opus, from a
+        # YouTube download, it does not take from MPEG-TS at all - and would
+        # leave those out without an error.  ffmpeg copies them unchanged.
+        #
+        # So ffmpeg lifts the audio out of the .ts into a Matroska audio
+        # file, unchanged, and mkvmerge takes the video from the .ts as
+        # usual and the audio from that.  Not ffmpeg for the whole .mkv:
+        # the cut of a YouTube MP4 carries video packets with no timestamp
+        # at all, which mkvmerge copes with and ffmpeg's Matroska muxer
+        # refuses ("Can't write packet with unknown timestamp") - the first
+        # version of this fix failed exactly so on the real file.
+        logger.info(
+            "mkvmerge cannot read %s audio from the cut's .ts; taking the "
+            "audio across with ffmpeg, unchanged.", ", ".join(missing))
+        _busy("finalise_mkv")
+        audio_mka = mkv_path + ".audio.mka"
+        try:
+            r = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                 *DEEP_PROBE, "-i", ts_path, "-map", "0:a", "-c", "copy",
+                 audio_mka], capture_output=True, text=True)
+            if r.returncode != 0 or not os.path.exists(audio_mka):
+                raise ExportError("Taking the audio out of the cut failed:\n"
+                                  + (r.stderr or "").strip())
+            _write_mkv_chapters_mkvmerge(ts_path, mkv_path, segment_durations,
+                                         exe, aspect=aspect,
+                                         cancel_cb=cancel_cb,
+                                         ad_source=ad_source,
+                                         extra_marks=extra_marks,
+                                         extra_inputs=[audio_mka])
+        finally:
+            if os.path.exists(audio_mka):
+                os.remove(audio_mka)
+        if not _audio_census_ok(mkv_path, ts_path, cancel_cb=cancel_cb,
+                                require_tracks=True):
+            logger.error("The .mkv is missing audio - see the census above.")
+        return False
     if exe:
         _busy("finalise_mkv")
         _write_mkv_chapters_mkvmerge(ts_path, mkv_path, segment_durations, exe,
@@ -1717,7 +1989,8 @@ def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
         # now.  The census runs first: it is far cheaper than the decode, and
         # a file that has lost most of its frames need not be decoded to be
         # rejected.
-        if (_audio_census_ok(mkv_path, ts_path, cancel_cb=cancel_cb)
+        if (_audio_census_ok(mkv_path, ts_path, cancel_cb=cancel_cb,
+                             require_tracks=True)
                 and _mkv_audio_ok(mkv_path, cancel_cb=cancel_cb,
                                   reference_path=ts_path,
                                   progress_cb=progress_cb)):
@@ -1752,7 +2025,8 @@ def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
         # So re-encode the audio, which normalises the stream to one
         # configuration.  It is a real loss of quality, and it is still far
         # better than a file nobody can watch.
-        if (_audio_census_ok(mkv_path, ts_path, cancel_cb=cancel_cb)
+        if (_audio_census_ok(mkv_path, ts_path, cancel_cb=cancel_cb,
+                             require_tracks=True)
                 and _mkv_audio_ok(mkv_path, cancel_cb=cancel_cb,
                                   reference_path=ts_path,
                                   progress_cb=progress_cb)):
@@ -1798,7 +2072,7 @@ def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
 
 def _write_mkv_chapters_mkvmerge(ts_path, mkv_path, segment_durations, exe,
                                  aspect="source", cancel_cb=None, ad_source=None,
-                                 extra_marks=None):
+                                 extra_marks=None, extra_inputs=()):
     """Mux the cut .ts into .mkv with mkvmerge (native AAC, lossless)."""
     # mkvmerge's simple/OGM chapter format: absolute HH:MM:SS.mmm timestamps.
     lines = []
@@ -1894,6 +2168,7 @@ def _write_mkv_chapters_mkvmerge(ts_path, mkv_path, segment_durations, exe,
             for tid in _mkvmerge_subtitle_track_ids(exe, ts_path):
                 cmd += ["--default-track", "%d:0" % tid]
         cmd.append(ts_path)
+        cmd += list(extra_inputs)
         result = _run_cancellable(cmd, cancel_cb=cancel_cb)
         # mkvmerge: 0 = OK, 1 = OK with warnings, 2 = error.
         if result.returncode >= 2 or not os.path.exists(mkv_path):
@@ -2115,33 +2390,8 @@ def _write_mkv_chapters_ffmpeg(ts_path, mkv_path, segment_durations,
     frame is rejected, the encoder receives almost nothing, and the result is
     a technically-valid audio track a couple of seconds long.
     """
-    chapters = [";FFMETADATA1"]
-    starts, total = _chapter_marks(segment_durations, extra_marks)
-
-    for i, start in enumerate(starts, start=1):
-        start_ms = int(round(start * 1000))
-
-        # Each chapter runs to the next one, the last to the end of the file.
-        next_start = starts[i] if i < len(starts) else total
-        end_ms = int(round(next_start * 1000))
-
-        # Human-readable timecode of the chapter start (HH:MM:SS).
-        total_s = start_ms // 1000
-        h, rem = divmod(total_s, 3600)
-        m, s = divmod(rem, 60)
-        tc = f"{h:02d}:{m:02d}:{s:02d}"
-
-        chapters += [
-            "[CHAPTER]",
-            "TIMEBASE=1/1000",
-            f"START={start_ms}",
-            f"END={end_ms}",
-            f"title=Chapter {i:02d} ({tc})",
-        ]
-
-    meta_path = mkv_path + ".chapters.txt"
-    with open(meta_path, "w") as f:
-        f.write("\n".join(chapters) + "\n")
+    meta_path = _write_ffmetadata_chapters(
+        mkv_path + ".chapters.txt", segment_durations, extra_marks)
 
     try:
         cmd = [
@@ -2560,7 +2810,8 @@ def _ts_audio_config_varies(ts_path, stream=0):
 def _transcode_to_mp4(
         ts_path, mp4_path, video_codec, interlaced,
         total_seconds=0.0, progress_cb=None,
-        cancel_cb=None, ad_source=None, drop_audio=False,
+        cancel_cb=None, ad_source=None, drop_audio=False, cover=None,
+        segment_durations=None, extra_marks=None,
 ):
     """Convert the freshly-cut .ts into an .mp4.
 
@@ -2578,7 +2829,9 @@ def _transcode_to_mp4(
     and only rename it into place when finished, so an external tool watching
     for the final filename can't grab or rename a half-written file.
     """
-    copy_video = (video_codec or "").lower() in ("h264", "hevc")
+    # VP9 and AV1 go into MP4 as they are too - a YouTube download's VP9
+    # was being re-encoded to H.264 for no reason (2026-10-17).
+    copy_video = (video_codec or "").lower() in ("h264", "hevc", "vp9", "av1")
 
     # Write under a non-media temp name, then atomically rename on success.
     part_path = mp4_path + ".vrd-encoding.tmp"
@@ -2597,6 +2850,12 @@ def _transcode_to_mp4(
             "the kept scenes and would stall the encode.", len(dead_audio)
         )
 
+    # The chapters, as ffmpeg metadata beside the output; removed below.
+    meta_path = None
+    if segment_durations:
+        meta_path = _write_ffmetadata_chapters(
+            mp4_path + ".chapters.tmp.txt", segment_durations, extra_marks)
+
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostats", "-y",
         *DEEP_PROBE,
@@ -2606,24 +2865,51 @@ def _transcode_to_mp4(
         # it belongs (5USA, 2026-10-04; see FILL_AUDIO_GAPS).
         "-copyts",
         "-i", ts_path,
+        # Before any output option: ffmpeg applies what precedes an -i to
+        # that input.
+        *(["-i", cover[0]] if cover else []),
+        *(["-i", meta_path] if meta_path else []),
         "-map", "0:v:0",
         "-map", "0:a?",
     ]
     for a in dead_audio:
         cmd += ["-map", "-0:a:%d" % a]
 
+    # The video options below name the programme's stream (v:0) rather than
+    # every video stream, so that a cover picture taken in here is copied as
+    # it is instead of deinterlaced and encoded as a one-frame H.264 video.
+    # With the one video stream there was before, the two mean the same.
     if copy_video:
         cmd += ["-c:v", "copy"]
     else:
         cmd += [
-            "-c:v", "libx264",
+            "-c:v:0", "libx264",
             "-preset", "medium",
             "-crf", "20",
             # Keep the source's bit depth rather than flattening 10-bit to 8.
-            "-pix_fmt", pixfmt_for_output(ts_path, "libx264"),
+            "-pix_fmt:v:0", pixfmt_for_output(ts_path, "libx264"),
         ]
         if interlaced:
-            cmd += ["-vf", "yadif"]
+            cmd += ["-filter:v:0", "yadif"]
+    if cover:
+        # The source's cover picture goes in during this pass rather than in
+        # a remux afterwards.  A second remux of the finished .mp4 was tried
+        # and lost the last Opus frame - 20ms - to the edit list.
+        # Chapters and tags from the cut only.  Left to itself ffmpeg takes
+        # chapters from the first input that has any, which put the uncut
+        # source's chapter list on the cut.
+        cmd += ["-map", "1:%d" % cover[1],
+                "-c:v:1", "copy", "-disposition:v:1", "attached_pic",
+                "-map_metadata", "0"]
+    # Chapters from the metadata file only.  An .mp4 used to get none at
+    # all: only the .mkv was ever given the scene joins and the user's marks.
+    # Stated even without one, because ffmpeg otherwise takes chapters from
+    # the first input that has any - the cover input is the source itself,
+    # and that put the uncut recording's chapter list on the cut.
+    if meta_path:
+        cmd += ["-map_chapters", "2" if cover else "1"]
+    elif cover:
+        cmd += ["-map_chapters", "-1"]
 
     # Copy the audio when MP4 can carry it as it is.  Re-encoding was there for
     # broadcast LATM AAC and MP2, which MP4 cannot hold - but it was applied to
@@ -2730,6 +3016,16 @@ def _transcode_to_mp4(
             "total_scenes": 1,
         })
 
+    try:
+        _run_mp4_conversion(cmd, part_path, mp4_path, total_seconds,
+                            progress_cb, cancel_cb, phase)
+    finally:
+        _safe_remove(meta_path)
+
+
+def _run_mp4_conversion(cmd, part_path, mp4_path, total_seconds,
+                        progress_cb, cancel_cb, phase):
+    """Run _transcode_to_mp4's ffmpeg command, reporting progress."""
     # stderr to a temp file, never a pipe - see utils/proc.py.
     proc, err_file = popen_progress(cmd)
 
@@ -3613,6 +3909,9 @@ def _reencode_cut_audio_to_aac(cut_path, bitrate, cancel_cb=None):
 # Subtitle codecs a transport stream can carry.  Everything else - a rip's
 # PGS, SubRip or ASS - has nowhere to live in a .ts.
 TS_SUBTITLE_CODECS = ("dvb_subtitle", "dvb_teletext")
+# Video a transport stream carries - see the intermediate choice in
+# _export_ranges().
+TS_VIDEO_CODECS = ("h264", "hevc", "mpeg2video", "mpeg1video")
 
 # The summary's "<headline> - see logs".  A template rather than a pasted-on
 # suffix, so the dialog can translate both halves.
@@ -3650,6 +3949,7 @@ _NOTE_MP4_NO_AUDIO = QT_TRANSLATE_NOOP("ExportNotes", "audio missing from the MP
 _NOTE_ADJUST_FAILED = QT_TRANSLATE_NOOP("ExportNotes", "audio adjustment not applied")
 _NOTE_NO_AUDIO = QT_TRANSLATE_NOOP("ExportNotes", "output has no audio")
 _NOTE_REPACKAGED = QT_TRANSLATE_NOOP("ExportNotes", "repackaged audio")
+_NOTE_COVER_LOST = QT_TRANSLATE_NOOP("ExportNotes", "cover picture not carried over")
 _NOTE_SHORTER = QT_TRANSLATE_NOOP("ExportNotes", "output ~%.1fs shorter than the edit")
 _NOTE_LONGER = QT_TRANSLATE_NOOP("ExportNotes", "output ~%.1fs longer than the edit")
 _NOTE_RECODE_FAILED = QT_TRANSLATE_NOOP(
@@ -4170,7 +4470,33 @@ def _finalise_ts_audio_meta(path, ad_source=None, progress_cb=None):
     return True
 
 
-def export_ranges(
+def export_ranges(*args, **kwargs):
+    """Export the kept ranges - see _export_ranges(), which does the work.
+
+    Closes every source container the export opened, however it ends.  They
+    used to be left to Python's collector, and reference cycles inside them
+    meant the source stayed open after the export - and after Close Video -
+    until the collector happened to run, which in an idle editor could be
+    never.  On a FUSE share a file deleted while open becomes a .fuse_hidden
+    file that would not go until Snipwright exited (reported 2026-10-17).
+    Only containers made by this thread during this call are closed, so a
+    batch export running alongside in another thread is untouched.
+    """
+    from smartcut.media_container import live_containers
+    before = {id(c) for c in live_containers()}
+    try:
+        return _export_ranges(*args, **kwargs)
+    finally:
+        for c in live_containers():
+            if id(c) not in before:
+                try:
+                    c.close()
+                except Exception:
+                    logger.debug("Closing a source container failed",
+                                 exc_info=True)
+
+
+def _export_ranges(
         source_path,
         out_path,
         keep_ranges,
@@ -4400,12 +4726,29 @@ def export_ranges(
             "subtitle(s) cannot be carried through a transport stream.",
             ", ".join(sorted(set(foreign_subs))),
         )
+    # Nor can a transport stream carry VP9 or AV1 - YouTube's picture
+    # formats.  Cut through one, a VP9 video came out with a video track and
+    # not a single readable frame, and the export blamed a damaged recording
+    # and sent the user to Quick Stream Fix, which could not help (2026-10-17).
+    # Matroska carries both, so they are cut to an .mkv intermediate whatever
+    # the output - the .mp4 is made from it just as from a .ts.
+    vcodec = ""
+    try:
+        vcodec = (source.video_stream.codec_context.name or "").lower()
+    except Exception:
+        pass
+    if needs_temp_ts and vcodec and vcodec not in TS_VIDEO_CODECS:
+        temp_ext = ".tmp.mkv"
+        logger.info(
+            "Cutting to a Matroska intermediate: %s video cannot be carried "
+            "through a transport stream.", vcodec.upper())
     cut_target = out_path + temp_ext if needs_temp_ts else out_path
 
     start_time = time.perf_counter()
 
     success = False
     aspect_source = None        # temp aspect-corrected source for .ts/.mp4
+    cover_source = source_path  # the real file, whatever is cut below
     try:
         # A 4:3/16:9 override can't be stamped onto the finished cut for .ts/.mp4
         # - smartcut's output has an SPS at every seam and the bitstream filter
@@ -4771,17 +5114,34 @@ def export_ranges(
             # it has looked at the codecs, so it announces the phase itself
             # rather than have this guess from the video codec alone and get
             # it wrong for every repaired recording.
-            _transcode_to_mp4(
-                cut_target,
-                out_path,
-                video_codec,
-                interlaced,
+            mp4_args = dict(
+                segment_durations=segment_durations,
+                extra_marks=chapter_marks,
                 total_seconds=sum(segment_durations),
                 progress_cb=progress_cb,
                 cancel_cb=cancel_cb,
                 ad_source=source_path,
                 drop_audio=silent_output,
             )
+            # The source's cover picture goes in during this conversion; see
+            # _carry_cover_picture, which reports on it afterwards.
+            mp4_cover = None
+            if not summary_compact:
+                covers = _cover_pictures(cover_source)
+                if covers and covers[0][1] in _MP4_COVER_CODECS:
+                    mp4_cover = (cover_source, covers[0][0])
+            try:
+                _transcode_to_mp4(cut_target, out_path, video_codec,
+                                  interlaced, cover=mp4_cover, **mp4_args)
+            except ExportError as exc:
+                if not mp4_cover:
+                    raise
+                # A cover picture is not worth losing the export over.
+                logger.warning(
+                    "MP4 conversion failed with the cover picture; trying "
+                    "again without it. %s", exc)
+                _transcode_to_mp4(cut_target, out_path, video_codec,
+                                  interlaced, **mp4_args)
 
             # MP4 repackages the audio too - broadcast AAC's configuration
             # moves out of the per-frame headers and into the container - so
@@ -4963,6 +5323,24 @@ def export_ranges(
                 "Finishing re-encode error (%s); kept the previous output "
                 "- it is NOT in the requested codec.", exc
             )
+
+    # The source's cover picture, last, so it goes into the file in its final
+    # form - after the re-encode above, which would otherwise rebuild the file
+    # without it.  A joiner scene piece is skipped: it is an intermediate, and
+    # the join reports what it keeps.
+    if not summary_compact:
+        why = _carry_cover_picture(
+            cover_source, out_path,
+            "mkv" if want_mkv else "mp4" if want_mp4 else "ts",
+            cancel_cb=cancel_cb,
+        )
+        if why:
+            logger.warning("The source's cover picture was not kept: %s.", why)
+            notes.append((
+                NoteText(_NOTE_COVER_LOST),
+                "The source has a cover picture, which was not kept: %s."
+                % why,
+            ))
 
     # Stop the clock here, after the crop re-encode, so the reported time and
     # frames/sec include it rather than just the fast cut that preceded it.

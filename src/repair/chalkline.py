@@ -438,6 +438,19 @@ MASK_POLARITY_MIN = 0.0
 MASK_RING_RATIO = 8.0
 MASK_RING_FLOOR = 0.10
 MASK_RING_RUN_MAX = 60.0
+# ...but on a channel whose logo sits over busy programme the ratio limit is
+# out of reach: on Great! Action the median ring over present frames is
+# ~0.17-0.21, so 8 x that is 1.4-1.7 on a measure that tops out at 1, and an
+# advert's corner artwork (ring ~0.43, mask fill ~0.75) split its breaks
+# untouched (2026-10-16).  So a run is also dropped when its ring is over
+# MASK_RING_CAP absolute AND over MASK_RING_CAP_RATIO x the median - a
+# lower ceiling that only matters where the ratio limit cannot be reached.
+# Measured over 32 recordings (dev/scripts/ring-ratio-census.py).
+MASK_RING_CAP = 0.40
+# A mask bracket covering corner brackets with a gap of more than this
+# between them is offered as a candidate too - see _assemble().
+MASK_BRIDGE_GAP = 10.0
+MASK_RING_CAP_RATIO = 2.0
 
 # How much more often a pixel must be an edge just after a segment starts
 # than during the rest of the programme before it is taken to be logo.
@@ -511,6 +524,23 @@ MASK_SELF_AGREE_ON = 0.50
 # run 30 no bracket either rule dropped lies within 60 seconds of an end, so
 # the wider figure changes nothing the corner rule had measured.
 MASK_AGREE_EDGE = 60.0
+
+# A corner bracket whose last (or first) stretch the remembered mask reads as
+# continuously "logo present" for at least this long is trimmed back to where
+# the mask sees the logo return - see mask_trims().  On a LEGEND Dukes of
+# Hazzard episode the corner had 2017-2304.5 and 2017-2424.5, tied on support
+# and evidence, and the longer won by the sort's accident (CHALKLINE.md, "an
+# exact-tie bug"); the mask had the logo back from 2305.0 to 2435.0, so the
+# extra 120 s were programme and 103 s of it were cut (2026-10-18).
+MASK_TRIM_RUN = 60.0
+#
+# The trimmed reading is offered BESIDE the original, and replaces it only
+# if build_breaks() admits it as a break in its own right (prefer_trimmed).
+# Replacing it outright lost a whole break on 5action: the trimmed 3662-3737
+# refined to 68 s, under MIN_BREAK, so the tail was taken from the EPG switch
+# and 43 s of padding kept (corpus run 59b, 2026-10-21).  Requiring another
+# candidate to agree with the trim instead (run 60) did not help 5action -
+# one did - and lost e4's 52 s head gain.
 SMALL_MASK_CONTRAST = 0.60
 
 # How far either side of the programme the junction is looked for, when a
@@ -1326,6 +1356,55 @@ def mask_disagreements(brackets, marks, duration, threshold):
     return kept, dropped
 
 
+def mask_trims(brackets, marks, duration, min_run=MASK_TRIM_RUN):
+    """Trim brackets whose end (or start) the remembered mask reads as programme.
+
+    `marks` are the mask's smoothed "logo present" spans.  A span that starts
+    inside a bracket and runs on to its end, `min_run` seconds or more of it
+    inside, means the logo came back that long before the bracket says the
+    break ended: the bracket's end moves to where the span starts.  The same
+    for a span that covers the bracket's start.  Within MASK_AGREE_EDGE of
+    the recording's start only the bracket's end may move, and within it of
+    the end not at all, for the reason mask_disagreements() gives.
+
+    Returns (brackets, trimmed): every original bracket, plus each trimmed
+    reading as an extra candidate after its original, and trimmed holding
+    (lo, hi, new_lo, new_hi).  Pass `trimmed` to build_breaks() as
+    prefer_trimmed, which drops an original only when its trimmed reading
+    survives as a break - so a trim can never lose a break.
+    """
+    if not marks:
+        return list(brackets), []
+    out, trimmed = [], []
+    slack = 2.0      # the marks are smoothed; an end may lag by a sample
+    for br in brackets:
+        lo, hi = br[0], br[1]
+        at_head = lo <= MASK_AGREE_EDGE
+        at_tail = hi >= duration - MASK_AGREE_EDGE
+        if at_head and at_tail:
+            out.append(br)
+            continue
+        new_lo, new_hi = lo, hi
+        for a, b in marks:
+            # The head padding's END may move: the logo back for a minute
+            # or more before the bracket ends is the programme under way.
+            # A LEGEND Dukes of Hazzard episode's head ran to 367 s with the
+            # logo back from 266.5 and the programme starting at 281.4
+            # (2026-10-21).  The edge itself is never moved, nor a start
+            # near the end, where continuity carries the logo (more4).
+            if (not at_tail and lo < a < hi and b >= hi - slack
+                    and hi - a >= min_run):
+                new_hi = min(new_hi, a)
+            if (not at_head and not at_tail and lo < b < hi
+                    and a <= lo + slack and b - lo >= min_run):
+                new_lo = max(new_lo, b)
+        out.append(br)
+        if (new_lo, new_hi) != (lo, hi) and new_hi > new_lo:
+            trimmed.append((lo, hi, new_lo, new_hi))
+            out.append((new_lo, new_hi) + tuple(br[2:]))
+    return out, trimmed
+
+
 def logo_brackets(logo_on, times):
     """Propose break brackets from the logo track, with a support count.
 
@@ -1457,7 +1536,7 @@ def refine_edge(t, events, bracket, edge, search=20.0):
 
 
 def build_breaks(brackets, events, analysis_end, short_ok=(), verbose=False,
-                 duration=0.0):
+                 duration=0.0, prefer_trimmed=()):
     """Refine every bracket into a break, and choose between the overlaps.
 
     `short_ok` lists the raw (lo, hi) spans allowed down to
@@ -1508,6 +1587,7 @@ def build_breaks(brackets, events, analysis_end, short_ok=(), verbose=False,
     should still be judged the normal way.
     """
     scored = []
+    admitted = {}       # raw (lo, hi) -> its scored entries
     short_ok = {(round(lo, 3), round(hi, 3)) for lo, hi in short_ok}
 
     # Why each bracket did not become a break.  Every `continue` below is a
@@ -1600,6 +1680,20 @@ def build_breaks(brackets, events, analysis_end, short_ok=(), verbose=False,
                   f"({b - a:6.1f}s, support {support}, "
                   f"evidence {sa:.2f}+{sb:.2f}){edge}", file=sys.stderr)
         scored.append((support, sa + sb, a, b))
+        admitted.setdefault((round(lo, 3), round(hi, 3)), []).append(
+            scored[-1])
+    # A bracket whose mask-trimmed reading was itself admitted gives way to
+    # it - see mask_trims().  Only then: a trimmed reading too short to be a
+    # break leaves its original standing.
+    for lo, hi, nlo, nhi in prefer_trimmed:
+        if (round(nlo, 3), round(nhi, 3)) in admitted:
+            for item in admitted.get((round(lo, 3), round(hi, 3)), []):
+                if item in scored:
+                    scored.remove(item)
+                    if verbose:
+                        print(f"    gave way {lo:8.2f} - {hi:8.2f} to its "
+                              f"trimmed reading {nlo:.2f} - {nhi:.2f}",
+                              file=sys.stderr)
     scored.sort(reverse=True)
     chosen = []
     for support, evidence, a, b in scored:
@@ -2128,6 +2222,7 @@ def detect(video, verbose=False, keep=None, learn=None,
     has always behaved.
     """
     duration, fps = probe(video)
+    source_duration = duration
     # An explicit channel overrides what the recording says about itself.
     #
     # The two PVRs preserve opposite halves of the DVB identity and never
@@ -2200,6 +2295,25 @@ def detect(video, verbose=False, keep=None, learn=None,
         # early.
         info["analysis_frames"] = int(n)
         info["analysis_expected"] = int(round(duration * FPS)) if duration else 0
+        # A recording whose clock leaps reports the leap as length; without
+        # this, a whole decode of one read as "7% - THE DECODE STOPPED
+        # EARLY" (2026-10-21).  Only looked for when the numbers disagree.
+        if duration and duration - n / FPS > CLOCK_LEAP_MIN:
+            leaped = sum(a for _ap, _sp, a in clock_leaps(video))
+            if leaped:
+                # And measure the recording by its pictures from here on:
+                # every "share of the recording" figure divided by the
+                # leaped length, so the ITV2 mask that reads the logo in 99%
+                # of the programme read it in "5.8% of this recording" and
+                # was discarded as unfit (2026-10-21).  The length reported
+                # back stays the recording's own (source_duration), which is
+                # the clock the project it is written into uses.
+                duration = duration - leaped
+                info["analysis_expected"] = int(round(duration * FPS))
+                if verbose:
+                    print(f"  clock leaps {leaped:.1f}s - measuring the "
+                          f"recording as {duration:.1f}s of pictures",
+                          file=sys.stderr)
 
         widths, heights = shape_track(frames)
         shape_br, dominant = shape_regions(widths, heights, times)
@@ -2371,6 +2485,22 @@ def detect(video, verbose=False, keep=None, learn=None,
                     if entry.get("kind") == "persistent":
                         choice = brightness_choice(
                             entry, exclude_project=os.path.basename(video))
+                    # Bright surround - see BRIGHT_SURROUND.  Persistent
+                    # masks only, like the reading above.
+                    if entry.get("kind") == "persistent":
+                        lt = mask_lum_track(frames, mask, with_ring=True)
+                        if lt is not None and lt[0] is not None:
+                            sd, sring = lt
+                            extra = (sd > BRIGHT_SURROUND_K) & \
+                                (sring > BRIGHT_SURROUND) & ~ungated
+                            if extra.any():
+                                ungated = ungated | extra
+                                info["bright_surround"] = int(extra.sum())
+                                if verbose:
+                                    print(f"    mask: logo read through a "
+                                          f"bright surround on "
+                                          f"{int(extra.sum())} frame(s)",
+                                          file=sys.stderr)
                     if choice is not None:
                         blum = mask_lum_track(frames, mask)
                         if blum is not None:
@@ -2654,6 +2784,7 @@ def detect(video, verbose=False, keep=None, learn=None,
         """
         logo_br_arm = list(logo_br)
         mask_short_ok_arm = []
+        arm_trims = []
 
         # A CORNER bracket the remembered mask disagrees with is not a break.
         #
@@ -2692,6 +2823,14 @@ def detect(video, verbose=False, keep=None, learn=None,
                     print(f"    dropped {lo:8.2f} - {hi:8.2f}: the "
                           f"remembered mask says the logo is present for "
                           f"{100 * frac:.0f}% of it", file=sys.stderr)
+            logo_br_arm, arm_trims = mask_trims(
+                logo_br_arm, arm_marks_track, duration)
+            if arm_verbose:
+                for lo, hi, nlo, nhi in arm_trims:
+                    print(f"    trimmed {lo:8.2f} - {hi:8.2f} to "
+                          f"{nlo:8.2f} - {nhi:8.2f} as well: the remembered "
+                          f"mask has the logo back for the rest",
+                          file=sys.stderr)
 
         if arm_mask_br is not None:
             uncovered = [
@@ -2699,6 +2838,28 @@ def detect(video, verbose=False, keep=None, learn=None,
                 if not any(min(hi, d) - max(lo, c) > 0
                            for c, d, _s in logo_br_arm)
             ]
+            # ...and a mask bracket that spans a GAP between corner
+            # brackets goes in too, as a candidate beside them for
+            # build_breaks() to judge.  The corner search can be split by an
+            # advert's own artwork where the remembered mask is not (its
+            # ring gate drops that artwork): on a Great! Action episode the
+            # corner had 2648-2796 and 2865-2947, the mask the whole
+            # 2646-2947; the mask's was discarded as "covered", the first
+            # fragment then failed the edge check, and 217 s of a break was
+            # kept as programme (2026-10-17).
+            for lo, hi in arm_mask_br:
+                if (lo, hi) in uncovered:
+                    continue
+                inside = sorted((c, d) for c, d, _s in logo_br_arm
+                                if min(hi, d) - max(lo, c) > 0)
+                reach = None
+                gap = False
+                for c, d in inside:
+                    if reach is not None and c - reach > MASK_BRIDGE_GAP:
+                        gap = True
+                    reach = d if reach is None else max(reach, d)
+                if gap:
+                    uncovered.append((lo, hi))
             # An anchor covering this span is a more complete reading than a
             # mask fragment, the same principle as the shape suppression
             # below - not because the mask shares any measurement with the
@@ -2827,7 +2988,7 @@ def detect(video, verbose=False, keep=None, learn=None,
         arm_breaks = build_breaks(
             brackets, events, analysis_end,
             short_ok=mask_short_ok_arm, verbose=arm_verbose,
-            duration=duration,
+            duration=duration, prefer_trimmed=arm_trims,
         ) if brackets else []
 
         arm_coincidence = []
@@ -2836,7 +2997,8 @@ def detect(video, verbose=False, keep=None, learn=None,
             if arm_coincidence:
                 arm_breaks = build_breaks(
                     brackets + arm_coincidence, events, analysis_end,
-                    verbose=arm_verbose, duration=duration)
+                    verbose=arm_verbose, duration=duration,
+                    prefer_trimmed=arm_trims)
 
         # The tail sweep (item 1e).  After everything else has settled, so it
         # can only ever lengthen a break that already exists.
@@ -2999,7 +3161,9 @@ def detect(video, verbose=False, keep=None, learn=None,
 
     info.update({
         "channel": channel,
-        "duration": duration,
+        # The recording's own length, for the project it is written into -
+        # not the leap-free one measured with (see clock_leaps()).
+        "duration": source_duration,
         "fps": fps,
         "logo_corner": corner,
         "logo_cluster": strength,
@@ -3365,8 +3529,10 @@ def ring_gate(present, ring, times):
     """
     if not present.any():
         return present, []
+    med = float(np.median(ring[present]))
     limit = max(MASK_RING_FLOOR,
-                MASK_RING_RATIO * float(np.median(ring[present])))
+                min(MASK_RING_RATIO * med,
+                    max(MASK_RING_CAP, MASK_RING_CAP_RATIO * med)))
     out = present.copy()
     dropped = []
     for a, b in runs_of(present, times, min_len=2.0, merge_gap=4.0):
@@ -3380,7 +3546,7 @@ def ring_gate(present, ring, times):
     return out, dropped
 
 
-def mask_lum_track(frames, mask, pad=6):
+def mask_lum_track(frames, mask, pad=6, with_ring=False):
     """Signed luminance: mean inside the mask minus mean in the ring around it.
 
     mask_track()'s companion, and the same geometry - the difference is that
@@ -3411,6 +3577,7 @@ def mask_lum_track(frames, mask, pad=6):
 
     n = frames.shape[0]
     out = np.zeros(n)
+    ring = np.zeros(n) if with_ring else None
     for i in range(0, n, 512):
         # edge_chunk() drops the last row and column, so the mask grid is
         # (GH-1, GW-1).  Take the same corner of the raw frames to line up -
@@ -3418,9 +3585,13 @@ def mask_lum_track(frames, mask, pad=6):
         # wrong corner would silently offset every measurement by a pixel.
         block = np.asarray(frames[i:i + 512, :eh, :ew]).astype(np.float32)
         sl = slice(i, min(i + 512, n))
-        out[sl] = block[:, mask].mean(axis=1) - block[:, around].mean(axis=1)
+        around_mean = block[:, around].mean(axis=1)
+        out[sl] = block[:, mask].mean(axis=1) - around_mean
+        if with_ring:
+            # The surround's own brightness - see BRIGHT_SURROUND.
+            ring[sl] = around_mean
         del block
-    return out
+    return (out, ring) if with_ring else out
 
 
 STORE_VERSION = 2
@@ -3873,6 +4044,19 @@ def score_mask_project(track, times, cuts, duration):
 # margin: 0.05 also adopted it on one Channel 4 HD recording for little
 # gain; 0.20 kept only two of the five recordings that benefit.
 BRIGHT_MARGIN = 0.10
+# ...and on EVERY channel, where the logo's surround is bright: a faint white
+# logo on a sunlit background leaves no edges at all, but still reads a few
+# levels brighter than what surrounds it.  On Great! Action (not adopted by
+# the per-channel rule above - its adverts read bright too) the stretches of
+# programme wrongly cut out had a surround of median 146-189 levels against
+# 59-92 for programme and adverts generally, edges present 18-35% of the
+# time and mask brighter than surround by > 5 levels 80-93%.  Simulated over
+# 32 recordings (dev/scripts/bright-surround-sim.py, 2026-10-16), at margin
+# 10 and surround 140: programme in logo-absent spans -3,855 s, adverts
+# -1,232 s.  Applied only where the surround is brighter than
+# BRIGHT_SURROUND, with the logo at least BRIGHT_SURROUND_K levels above it.
+BRIGHT_SURROUND = 140.0
+BRIGHT_SURROUND_K = 10.0
 # One other project is enough, as in the simulation: More 4 has two corpus
 # recordings, so each is judged on the other alone, and both gained.  The
 # margin is the guard against one project that happens to favour it.
@@ -4865,6 +5049,90 @@ def add_card(existing, card, project=""):
 # Scoring against a hand-corrected project
 # ---------------------------------------------------------------------------
 
+# A leap in the recording's clock longer than this is closed up, as smartcut
+# closes it when cutting (smartcut.smart_cut.CLOCK_JUMP_MIN_SECONDS).
+CLOCK_LEAP_MIN = 60.0
+
+
+def clock_leaps(video):
+    """Forward leaps in the recording's video clock: [(analysis, source, amount)].
+
+    Chalkline's own timeline has no leaps in it - its frames are counted
+    (np.arange(n) / FPS) and ffmpeg closes a transport stream's timestamp
+    jumps in the black, scene and silence events too.  Snipwright's timeline
+    keeps them: a frame's seconds are its own timestamp, so a project's cut
+    times and the times the editor turns back into frames are on the
+    recording's clock.  A Tvheadend recording of ITV2 leapt 50,663 s at
+    4:37; learning from it compared the corrected cuts, 14 hours out after
+    the leap, with what it had measured, and reported a logo that "does not
+    fit at all" (2026-10-21).  `analysis` and `source` are where each leap
+    happens on the two timelines, in seconds from the first picture; `amount`
+    is the gap less one ordinary frame step.  Empty for an ordinary
+    recording, which then converts to exactly itself.
+    """
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-select_streams", "v:0",
+             "-show_entries", "packet=pts_time", "-of", "csv=p=0", video],
+            capture_output=True, text=True, timeout=300,
+        ).stdout
+    except Exception:
+        return []
+    pts = []
+    for line in out.split():
+        try:
+            pts.append(float(line.strip(",")))
+        except ValueError:
+            continue
+    if len(pts) < 3:
+        return []
+    pts = np.sort(np.asarray(pts))
+    steps = np.diff(pts)
+    big = np.nonzero(steps > CLOCK_LEAP_MIN)[0]
+    if not len(big):
+        return []
+    usual = float(np.median(steps))
+    leaps, closed = [], 0.0
+    for i in big:
+        source = float(pts[i] - pts[0])
+        amount = float(steps[i]) - usual
+        leaps.append((source - closed, source, amount))
+        closed += amount
+    return leaps
+
+
+def to_source_time(t, leaps):
+    """A time on Chalkline's timeline, on the recording's own clock."""
+    return t + sum(a for ap, _sp, a in leaps if t > ap)
+
+
+def to_analysis_time(t, leaps):
+    """A time on the recording's own clock, on Chalkline's timeline.  A time
+    inside a leap's gap - where nothing is shown - lands on the leap."""
+    closed = 0.0
+    for ap, sp, a in leaps:
+        if t >= sp + a:
+            closed += a
+        elif t > sp:
+            return ap
+    return t - closed
+
+
+def project_cuts(path, video=None):
+    """parse_vprj(), on Chalkline's timeline: a recording whose clock leaps
+    has its cuts and duration moved across the leaps (see clock_leaps).
+    Without `video`, or with no leaps, exactly parse_vprj()."""
+    cuts, duration = parse_vprj(path)
+    if video is None:
+        return cuts, duration
+    leaps = clock_leaps(video)
+    if not leaps:
+        return cuts, duration
+    cuts = [(to_analysis_time(a, leaps), to_analysis_time(b, leaps))
+            for a, b in cuts]
+    return cuts, to_analysis_time(duration, leaps)
+
+
 def parse_vprj(path):
     """Cuts in seconds, and the recording's duration, from a project.
 
@@ -5010,8 +5278,8 @@ def _padding_edges(found, padding, duration):
     return errors, missed, unswept
 
 
-def score(found, vprj):
-    truth, duration = parse_vprj(vprj)
+def score(found, vprj, video=None):
+    truth, duration = project_cuts(vprj, video)
     adverts, padding = split_truth(truth, duration)
     real = [d for d in found
             if not any(p[0] - PADDING_TOLERANCE <= d[0]
@@ -5171,6 +5439,14 @@ def run_chalkline(source_path, out_dir, progress_cb=None, cancel_cb=None,
         # traceback.
         raise ChalklineError(f"Advert detection failed:\n{exc}")
 
+    # Back onto the recording's own clock, which is the one the editor
+    # turns these times into frames with - see clock_leaps().
+    leaps = clock_leaps(source_path)
+    if leaps:
+        breaks = [(to_source_time(a, leaps), to_source_time(b, leaps))
+                  for a, b in breaks]
+        info["clock_leaps"] = len(leaps)
+
     base = os.path.splitext(os.path.basename(source_path))[0]
     edl_path = os.path.join(out_dir, base + ".edl")
     try:
@@ -5321,7 +5597,7 @@ def learn_from_project(video, vprj_path, store_path=LOGO_STORE, channel=None,
         raise ChalklineError("The saved project could not be found.")
 
     try:
-        cuts, duration = parse_vprj(vprj_path)
+        cuts, duration = project_cuts(vprj_path, video)
     except OSError as exc:
         raise ChalklineError(f"The saved project could not be read:\n{exc}")
 
@@ -5550,7 +5826,7 @@ def main():
 
     learn = None
     if args.learn_logo:
-        cuts, vdur = parse_vprj(args.learn_logo)
+        cuts, vdur = project_cuts(args.learn_logo, args.video)
         adverts, padding = split_truth(cuts, vdur)
         # A programme segment starts where the head padding ends and where
         # each break ends - those are the moments the logo appears.
@@ -5601,19 +5877,25 @@ def main():
     for a, b in breaks:
         print(f"  break {a:8.2f} - {b:8.2f}  ({b - a:6.1f}s)")
 
+    # Written out on the recording's own clock - see clock_leaps().  The
+    # printout and the score above stay on Chalkline's.
+    leaps = clock_leaps(args.video) if (args.edl or args.vprj) else []
+    written = [(to_source_time(a, leaps), to_source_time(b, leaps))
+               for a, b in breaks] if leaps else breaks
+
     if args.edl:
-        write_edl(breaks, args.edl)
+        write_edl(written, args.edl)
 
     if args.vprj:
         try:
-            _write_vprj(args.vprj, args.video, breaks,
+            _write_vprj(args.vprj, args.video, written,
                         info.get("duration", 0.0), info.get("fps", 25.0))
             print(f"wrote project: {args.vprj}")
         except Exception as e:
             print(f"could not write .vprj: {e}", file=sys.stderr)
 
     def _report_score(found, label=None):
-        r = score(found, args.score)
+        r = score(found, args.score, args.video)
         tag = f"[{label}] " if label else ""
         print(f"  {tag}found {r['found']}/{r['breaks']}, "
               f"false {r['false']}, "

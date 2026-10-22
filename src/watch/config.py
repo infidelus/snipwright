@@ -78,7 +78,8 @@ DEFAULTS = {
     # skipping programmes that stopped airing long ago.  Off by default - an
     # upgrade should never quietly start deleting someone's settings.
     # How ignore entries are compared with a recording's file name: "start"
-    # (the name must begin with the entry) or "anywhere".  See watch/engine.py.
+    # (the name must begin with the entry), "anywhere", or "title" (the
+    # programme title must be the entry).  See watch/engine.py.
     "ignore_match_mode": "start",
     "ignore_prune_enabled": False,
     # How long an entry may go unmatched before it's considered stale, in
@@ -258,12 +259,12 @@ class WatchConfig:
     @property
     def ignore_match_mode(self):
         mode = self._data.get("ignore_match_mode", "start")
-        return mode if mode in ("start", "anywhere") else "start"
+        return mode if mode in ("start", "anywhere", "title") else "start"
 
     @ignore_match_mode.setter
     def ignore_match_mode(self, value):
         self._data["ignore_match_mode"] = (
-            "anywhere" if value == "anywhere" else "start")
+            value if value in ("anywhere", "title") else "start")
 
     @property
     def ignore_prune_enabled(self):

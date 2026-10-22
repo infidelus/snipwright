@@ -45,6 +45,26 @@ class CutSegment:
                 total += amount
         return total
 
+    def in_gap(self, source_time: Fraction, margin: Fraction = Fraction(10)) -> bool:
+        """True for a time well inside a clock leap's gap - more than
+        `margin` seconds from both sides.
+
+        Nothing real happens there: the pictures go straight from one side
+        to the other.  A packet stamped in the gap is a straggler on some
+        other clock, and has no true place in the output.  A Tvheadend
+        recording of ITV2 had its audio-description track start with one
+        such packet, 1,144 s before the gap's far side; timed as if it were
+        after the leap, it landed 26 hours into the .mkv, which then
+        reported that length (2026-10-21).  The split is halfway across the
+        gap and `amount` is the gap less one frame, so the gap runs about
+        amount / 2 either side of it; audio and subtitles that run a few
+        seconds ahead or behind the pictures stay outside the margin.
+        """
+        for split, amount in self.clock_jumps:
+            if abs(source_time - split) < amount / 2 - margin:
+                return True
+        return False
+
     @property
     def jump_total(self) -> Fraction:
         """All the clock jump this segment contains, in seconds."""

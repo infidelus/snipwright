@@ -116,6 +116,19 @@ def source_codec(path):
     return vals[0].strip().lower() if vals else ""
 
 
+def _video_streams(path):
+    """How many video streams ``path`` has, a cover picture included."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v",
+             "-show_entries", "stream=index", "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=60,
+        ).stdout
+    except Exception:
+        return 1
+    return max(1, len([l for l in out.splitlines() if l.strip()]))
+
+
 def source_field_order(path):
     """Scan type of the first video stream.
 
@@ -366,22 +379,33 @@ def crop_reencode(in_path, out_path, rect=None, *, cap_kbps, fps, sar=None,
         "ffmpeg", "-hide_banner", "-nostats", "-y",
         "-i", in_path, "-map", "0",
     ]
+    if out_path.lower().endswith((".mp4", ".m4v", ".mov")):
+        # An .mp4's chapters arrive as a data stream as well as chapters.
+        # Copy both and the muxer writes a second chapter track beside the
+        # one it makes from the chapters, so the data stream is left out.
+        cmd += ["-map", "-0:d?"]
+    # The video options name the programme's own stream, v:0.  An .mp4 can
+    # carry a cover picture as a second video stream, and "-c:v" would
+    # encode it as a one-frame HEVC video instead of copying it.  With only
+    # the one video stream, v:0 and v mean the same.
     if filters:
-        cmd += ["-vf", ",".join(filters)]
+        cmd += ["-filter:v:0", ",".join(filters)]
+    for n in range(1, _video_streams(in_path)):
+        cmd += ["-c:v:%d" % n, "copy"]
     cmd += [
-        "-c:v", codec, "-preset", preset,
+        "-c:v:0", codec, "-preset", preset,
         "-crf", str(crf),
         "-maxrate", "%dk" % cap_kbps,
         "-bufsize", "%dk" % (cap_kbps * 2),
         "-g", str(keyint), "-keyint_min", str(fps_i),
         # Keep whatever bit depth the source had; hard-coding yuv420p here
         # silently flattened 10-bit sources to 8-bit.
-        "-pix_fmt", pixfmt_for_output(in_path, codec),
+        "-pix_fmt:v:0", pixfmt_for_output(in_path, codec),
     ]
     if hevc:
         # hvc1 tagging keeps HEVC-in-MP4 playable in Apple/QuickTime; harmless
         # in other containers.
-        cmd += ["-tag:v", "hvc1"]
+        cmd += ["-tag:v:0", "hvc1"]
     elif field_order in ("tt", "bb"):
         # H.264: keep interlaced sources interlaced, with the original order.
         cmd += ["-flags", "+ilme+ildct",

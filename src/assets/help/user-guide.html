@@ -144,7 +144,7 @@ editor window has four main areas:</p>
   <li><strong>Transport controls</strong> &mdash; play, step and seek, with the current
   scene's start, end and duration shown alongside.</li>
 </ul>
-<p align="center" class="figrow"><img class="gimg m800" src="img/editor-overview.png" width="800" height="533" alt="The Snipwright editor window"></p>
+<p align="center" class="figrow"><img class="gimg m800" src="img/editor-overview.png" width="800" height="519" alt="The Snipwright editor window"></p>
 <p align="center" class="cap">The editor window: &#9312; preview &middot; &#9313; scene list &middot;
 &#9314; thumbnail bar and timeline (green&nbsp;=&nbsp;keep, red&nbsp;=&nbsp;cut) &middot;
 &#9315; transport controls.</p>
@@ -524,7 +524,10 @@ a little help, as its players do not read the flag directly, so the track is add
 named &ldquo;visual impaired&rdquo;. Carrying the flag into MKV needs MKVToolNix&nbsp;52 or
 newer; with an older version the track is still exported, just without the marking. <strong>DVB subtitle tracks are carried through too</strong>, cut to
 match the video, when saving to <code>.ts</code> or <code>.mkv</code> &mdash; MP4 cannot
-carry DVB subtitles, so they are dropped in that format only.</div>
+carry DVB subtitles, so they are dropped in that format only. A <strong>cover
+picture</strong> &mdash; the thumbnail a downloaded video often carries &mdash; is kept in
+<code>.mkv</code> and <code>.mp4</code>; a <code>.ts</code> has nowhere to put one, and the
+summary says so.</div>
 <h3>Favourite folders</h3>
 <p>If you keep different series on different drives, add those folders under
 <strong>Settings &rarr; Files &amp; folders &rarr; Favourite folders</strong>. The Save Video
@@ -785,27 +788,38 @@ of a share that is mounted but not actually readable, where the folder itself lo
 perfectly healthy.</p>
 <h3>Ignoring programmes you do not want</h3>
 <p>Not every recording in the folder is yours to worry about. Right-click the tray icon and
-choose <strong>Edit ignore list</strong>, then add one programme title per line, so a
-housemate's soaps never go near Comskip. Matching is not case-sensitive, and lines beginning
-with <code>#</code> are comments.</p>
-<p>The <strong>Match</strong> setting beside that list decides how an entry is compared with a
-recording's file name:</p>
+choose <strong>Edit ignore list</strong> and add the programmes to skip, one per row, so a
+housemate's soaps never go near Comskip. <strong>Add</strong> starts a new row, and pasting a
+list with one title per line adds them all at once. Matching is not case-sensitive.</p>
+<p>Each row has its own <strong>Match</strong> setting, deciding how that entry is compared
+with a recording:</p>
 <ul>
   <li><strong>Programme name</strong> (the default) &mdash; the file name must <em>begin</em>
   with the entry. Recording file names start with the programme title, so this is what most
   entries mean.</li>
   <li><strong>Keyword</strong> &mdash; the entry may appear anywhere in the file name. This
-  catches more, and correspondingly catches more by accident.</li>
+  catches more, and correspondingly catches more by accident. It suits a film series whose
+  shared name comes second: <code>Hannah Swensen</code> catches <em>Carrot Cake Murder: A
+  Hannah Swensen Mystery</em> and every other film in it.</li>
+  <li><strong>Whole title</strong> &mdash; the programme's title must be exactly the entry.
+  The title is the part of the file name before the first <code> - </code> or an episode
+  number such as <code>S02E18</code>. <code>Doctor Who</code> then ignores Doctor Who and
+  nothing else, where <strong>Programme name</strong> would also catch <em>Doctor Who
+  Confidential</em>.</li>
+  <li><strong>Regex</strong> &mdash; a regular expression, searched for in the programme's
+  title: <code>^(doctor who|torchwood)$</code> ignores both programmes and nothing else. An
+  expression that is not valid is pointed out when you save the list.</li>
 </ul>
 <div class="note">The difference matters more than it looks. With <strong>Keyword</strong>
 matching, an entry of <code>Gone</code> also ignores <em>Star&nbsp;Trek S01E03 Where No Man
 Has Gone Before</em> &mdash; the word appears in the episode title, so the recording is
 skipped and no project appears, with nothing obvious to say why. Matching on the programme
-name avoids that entirely.</div>
-<p>Whichever is chosen, a single entry written with a leading <code>*</code> is always matched
-anywhere &mdash; so <code>*Christmas Special</code> works without changing the setting for the
-whole list. If a recording is skipped and you cannot see why, the Watcher's log names the
-entry that caught it.</p>
+name avoids that entirely, which is why it is the default for a new row.</div>
+<p>The list is kept as a plain text file, <code>watch_ignore.txt</code> in Snipwright's
+settings folder, and can still be edited by hand: a plain line is a programme name, and
+<code>*</code>, <code>=</code> and <code>re:</code> at the start of a line make it a keyword,
+a whole title or a regular expression. If a recording is skipped and you cannot see why, the
+Watcher's log names the entry that caught it.</p>
 <p>Over the years such a list fills up with programmes that finished long ago. Under
 <strong>Housekeeping</strong> you can have the watcher drop entries that no new recording has
 matched for a set period &mdash; twelve months suits most series, which return annually if
@@ -1102,6 +1116,10 @@ already MPEG-2.</div>
 
 <p class="lead">Snipwright is open source &mdash;
 <a href="https://github.com/infidelus/snipwright">github.com/infidelus/snipwright</a>.</p>
+<p class="lead">Questions or problems? Ask in the project's
+<a href="https://github.com/infidelus/snipwright/discussions">Discussions on GitHub</a>,
+or email <a href="mailto:snipwright@outlook.com">snipwright@outlook.com</a> if you would
+rather not use GitHub.</p>
 
 </body>
 </html>

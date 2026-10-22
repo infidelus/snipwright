@@ -1472,6 +1472,7 @@ class MainWindow(QMainWindow):
         from utils.icons import app_icon
 
         url = "https://github.com/infidelus/snipwright"
+        email = "snipwright@outlook.com"
 
         dialog = QDialog(self)
         dialog.setWindowTitle(self.tr("About %s") % APP_NAME)
@@ -1488,6 +1489,10 @@ class MainWindow(QMainWindow):
             "An open-source, Linux-native, frame-accurate video cutter, "
             "heavily inspired by VideoReDo."
         )
+        # For people who would rather not use GitHub Discussions.  Outside
+        # the f-string below, so lupdate can see the tr() call.
+        email_line = self.tr("Questions or problems? Email %s") % (
+            f"<a href='mailto:{email}' style='color:#4ea3ff'>{email}</a>")
         body = QLabel(
             "<div style='text-align:center'>"
             f"<h2 style='margin:6px 0 2px 0'>{APP_NAME}</h2>"
@@ -1495,6 +1500,7 @@ class MainWindow(QMainWindow):
             f"<p style='margin:12px 0 2px 0'>{blurb}</p>"
             f"<p style='margin:10px 0 0 0'>"
             f"<a href='{url}' style='color:#4ea3ff'>{url}</a></p>"
+            f"<p style='margin:6px 0 0 0'>{email_line}</p>"
             "</div>"
         )
         body.setTextFormat(Qt.RichText)
@@ -4471,6 +4477,14 @@ class MainWindow(QMainWindow):
 
         self.audio.clear()
         self._audio_active = False
+
+        # A last sweep for anything still holding the file: an object kept
+        # alive only by a reference cycle stays open until Python's
+        # collector runs, and an idle editor may not run it before the user
+        # tries to delete the file - which on a FUSE share leaves a
+        # .fuse_hidden file until Snipwright exits (reported 2026-10-17).
+        import gc
+        gc.collect()
 
     def _set_controls_enabled(self, on):
         """Enable/disable the playback, mark and action controls below the
