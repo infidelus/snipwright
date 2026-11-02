@@ -19,6 +19,7 @@ Design:
     which case it skips straight to the newer one.
 """
 
+import numpy as np
 from PySide6.QtCore import (
     QMutex,
     QObject,
@@ -81,7 +82,10 @@ def frame_to_qimage(frame, container, width, height, fast=False):
     """
     mode = Qt.FastTransformation if fast else Qt.SmoothTransformation
 
-    array = frame.to_ndarray(format="rgb24")
+    # Contiguous: PyAV pads each row of some widths (a 1366-wide screen
+    # recording has 4128 bytes a row, not 4098) and hands back a strided
+    # array, whose .data QImage refuses with BufferError.  No copy otherwise.
+    array = np.ascontiguousarray(frame.to_ndarray(format="rgb24"))
 
     h, w, _ = array.shape
 

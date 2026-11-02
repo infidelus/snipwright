@@ -21,6 +21,8 @@ import logging
 
 import av
 
+from utils.field_answers import record_user_answer
+
 from PySide6.QtCore import (
     Qt,
     QEvent,
@@ -2911,6 +2913,7 @@ class MainWindow(QMainWindow):
         )
         self._mark_saved()
         self._maybe_learn_logo(path)
+        record_user_answer(self.current_filename, path, "save")
         return True
 
     def _autosave_project_on_export(self):
@@ -2959,6 +2962,7 @@ class MainWindow(QMainWindow):
             # the try, so a fault in learning can never be mistaken for the
             # autosave having failed.
             self._maybe_learn_logo(path)
+            record_user_answer(self.current_filename, path, "export")
 
     def _log_detection_info(self, name, info):
         """Record what the detector actually did, not just what it found.
@@ -4784,6 +4788,8 @@ class MainWindow(QMainWindow):
                 self.tr("The project couldn't be saved for batching:\n\n%s") % exc,
             )
             return None
+        # The edit the batch will cut is the user's answer for this recording.
+        record_user_answer(source, vprj_path, "batch")
         return vprj_path
 
     def queue_to_batch(self):

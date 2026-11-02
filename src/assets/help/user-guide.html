@@ -151,7 +151,8 @@ editor window has four main areas:</p>
 <p>The first time you open a recording, Snipwright builds a frame index so it can seek
 accurately. This is cached, so opening the same file again is instant.</p>
 <div class="note">Snipwright ships with one-step installers in the <code>packaging</code>
-folder &mdash; <code>install-linux.sh</code> for Debian/Ubuntu/Mint and
+folder &mdash; <code>install-linux.sh</code> for Linux (Debian, Ubuntu and Mint, Fedora, Arch and
+openSUSE, and the distributions built on them) and
 <code>install-windows.ps1</code> for Windows &mdash; which set up the dependencies, a
 virtual environment, and menu/desktop shortcuts, so you can start it from your
 applications menu like any other program. On Windows it also offers to exclude
@@ -431,10 +432,12 @@ learned is still used to find its breaks, but saving a corrected project on that
 longer starts a learning pass, which can take a few minutes on a long recording. Tick it
 again if the channel changes its logo or idents.</p>
 <p>Chalkline also does much of this for you. Once a channel's logo has been confirmed by five
-of your corrected projects in a row, the row says <strong>Settled</strong>, and a learning
-pass runs only on every tenth corrected project from that channel rather than on every one
-&mdash; enough to notice if the channel changes its logo or idents. If one of those checks
-does not confirm the logo, the channel goes back to learning from every project. Ticking
+of your corrected projects in a row, the row says <strong>Settled</strong>. From then on, every detection notes how much of the
+recording the remembered logo was seen in, and saving a project starts a learning pass only
+when the logo was seen in clearly less of that recording than usual &mdash; the sign that the
+channel has changed or moved its logo &mdash; plus one on every fiftieth project as a check on
+its idents. If the logo reads poorly twice in ten projects, the channel goes back to learning
+from every project. Ticking
 <strong>Learn</strong> again after unticking it starts the count afresh. Until a channel
 settles, hovering over its <strong>Learn</strong> box shows how far it has got &mdash; for
 example &ldquo;3 of 5 confirmed saves&rdquo;.</p>

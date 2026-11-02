@@ -3,7 +3,7 @@
 Two one-step installers set everything up (dependencies, a virtual environment,
 and menu/desktop shortcuts).  Run the one for your platform.
 
-## Linux (Debian / Ubuntu / Mint)
+## Linux (Debian / Ubuntu / Mint, Fedora, Arch, openSUSE)
 
 ```sh
 cd src/packaging
@@ -11,19 +11,33 @@ chmod +x install-linux.sh          # first time only
 ./install-linux.sh
 ```
 
-It installs the system packages Snipwright needs (Python, `python3-venv`,
-ffmpeg, mkvmerge and the Qt runtime libraries) via apt — asking for sudo only
-if something's missing — creates a virtual environment in the project root
-(`.venv`) on Python 3.12, installs the Python dependencies into it, adds
+It works out which family your distribution belongs to and installs the
+system packages Snipwright needs (Python with venv support, ffmpeg, mkvmerge
+and the Qt runtime libraries) with its own package manager — apt, dnf, pacman
+or zypper — asking for sudo only if something's missing. It then checks the
+ffmpeg it found can decode H.264, HEVC and MPEG-2 and encode H.264, HEVC and
+AAC: Fedora's and openSUSE's own ffmpeg cannot, and the installer says how to
+get the full one (from RPM Fusion or Packman). Next it creates a virtual
+environment in the project root (`.venv`) on Python 3.12, 3.13 or 3.14,
+installs the Python dependencies into it, adds
 **Snipwright** and **Snipwright Watcher** to your applications menu pointing at
-that environment, and finally checks the installation imports cleanly.
+that environment, and finally checks the installation imports cleanly —
+including that every system library Qt links against is present, naming any
+that is not.
 Re-running it is safe (the venv is reused), and re-running it (or just
 `install-desktop-entries.sh`) after moving the project updates the menu
 entries' absolute paths.
 
 The Qt runtime libraries matter on a fresh install: without `libxcb-cursor0`
 (required by Qt 6.5+) the application starts and then dies without a window,
-which is easy to mistake for a broken install.
+which is easy to mistake for a broken install — and on openSUSE Qt also needs
+`libgthread-2_0-0`, which is a package of its own there.
+
+Tested on Linux Mint, Fedora, EndeavourOS (Arch) and openSUSE Tumbleweed. Any
+distribution built on one of those is recognised as that family. On one that
+isn't (Gentoo, Void or Alpine, say), the installer can't fetch the system
+packages: install Python, ffmpeg, mkvtoolnix and the Qt/`xcb` runtime
+libraries with your own package manager first, and it does the rest.
 
 ## Windows 10 / 11
 

@@ -17,7 +17,9 @@ from smartcut.track_cutters import (
     SubtitleCutter,
     create_audio_output_stream,
     create_subtitle_output_stream,
+    teletext_descriptor,
 )
+from smartcut.ts_teletext import restore_descriptors
 from smartcut.video_cutter import (
     VideoCutter,
     VideoSettings,
@@ -290,8 +292,12 @@ def smart_cut(media_container: MediaContainer, positive_segments: list[tuple[Fra
                             keep_ranges=adjusted_segment_times)
                         generators.append(PassthruAudioCutter(media_container, audio_out_stream, track_i))
 
+            teletext = []
             for sub_track_i in range(len(media_container.subtitle_tracks)):
                 subtitle_out_stream = create_subtitle_output_stream(media_container, output_av_container, sub_track_i)
+                desc = teletext_descriptor(media_container, sub_track_i)
+                if desc is not None:
+                    teletext.append(desc)
                 generators.append(SubtitleCutter(media_container, subtitle_out_stream, sub_track_i))
 
             output_av_container.start_encoding()
@@ -337,6 +343,11 @@ def smart_cut(media_container: MediaContainer, positive_segments: list[tuple[Fra
                 output_av_container.mux(_sane_timestamps(packet))
             if progress is not None:
                 progress.emit(previously_done_segments)
+
+        # The muxer wrote teletext's PMT entry with default page details -
+        # see smartcut/ts_teletext.py.  Only a transport stream has a PMT.
+        if teletext and "mpegts" in container_name:
+            restore_descriptors(output_path_segment[0], teletext)
 
         if cancel_object is not None and cancel_object.cancelled:
             last_file_path = output_path_segment[0]

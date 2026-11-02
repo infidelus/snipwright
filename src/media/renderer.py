@@ -1,3 +1,4 @@
+import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtGui import (
     QImage,
@@ -13,9 +14,12 @@ def render_frame(
         fast=False,
 ):
 
-    img = frame.to_ndarray(
+    # Contiguous: PyAV pads each row of some widths (a 1366-wide screen
+    # recording has 4128 bytes a row, not 4098) and hands back a strided
+    # array, whose .data QImage refuses with BufferError.  No copy otherwise.
+    img = np.ascontiguousarray(frame.to_ndarray(
         format="rgb24"
-    )
+    ))
 
     h, w, c = img.shape
 

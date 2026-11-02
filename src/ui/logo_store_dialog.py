@@ -55,7 +55,8 @@ from repair.chalkline import (
     GW,
     LOGO_STORE,
     MASK_HISTORY_MAX,
-    RECHECK_EVERY,
+    BACKSTOP_EVERY,
+    FIT_HISTORY_MIN,
     SETTLE_AFTER,
     active_index,
     is_settled,
@@ -492,18 +493,26 @@ class LogoStoreDialog(QDialog):
             "once the channel detects well: what it has learned is still "
             "used, and saving a correction no longer starts a learning pass."
         )
-        # Settled channels learn only on every 10th corrected project - see
-        # chalkline.SETTLE_AFTER.  Shown here so the quiet is explained.
+        # Settled channels learn only when the logo starts reading worse -
+        # see chalkline.FIT_DROP_RATIO.  Shown here so the quiet is explained.
         streak, since = settle_state(entry)
+        fits = (entry.get("settle") or {}).get("fits") or []
         if on and is_settled(entry):
             item.setText(self.tr("Settled"))
             tip += "\n\n" + self.tr(
                 "Settled: this logo was confirmed by %(n)d corrected projects "
-                "in a row, so a full learning pass now runs only on every "
-                "%(every)dth one (%(left)d to go). A check that does not "
-                "confirm it starts learning on every project again."
-            ) % {"n": streak, "every": RECHECK_EVERY,
-                 "left": max(1, RECHECK_EVERY - since)}
+                "in a row, so saving a project starts a learning pass only "
+                "when the logo was seen in clearly less of that recording "
+                "than usual, and on every %(every)dth project as a check. If "
+                "that happens twice in ten projects, the channel learns on "
+                "every project again."
+            ) % {"n": streak, "every": BACKSTOP_EVERY}
+            if len(fits) >= FIT_HISTORY_MIN:
+                usual = sorted(fits)[len(fits) // 2]
+                tip += "\n\n" + self.tr(
+                    "The logo is usually seen in %(pct)d%% of a recording "
+                    "(the last %(n)d detections)."
+                ) % {"pct": round(100 * usual), "n": len(fits)}
         elif on:
             # On the way there - the count, so it can be watched building
             # (asked for 2026-10-15: with nothing shown until a channel
@@ -511,8 +520,8 @@ class LogoStoreDialog(QDialog):
             tip += "\n\n" + self.tr(
                 "%(n)d of %(need)d confirmed saves: after %(need)d corrected "
                 "projects in a row confirm this logo, the channel is settled "
-                "and learns only on every %(every)dth project."
-            ) % {"n": streak, "need": SETTLE_AFTER, "every": RECHECK_EVERY}
+                "and learns only when its logo starts being seen less."
+            ) % {"n": streak, "need": SETTLE_AFTER}
         item.setToolTip(tip)
         self.table.setItem(row, self.COL_LEARN, item)
 

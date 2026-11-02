@@ -30,6 +30,9 @@ import time
 from project.edl import parse_edl_cuts
 from project.formats import save_project_from_cuts
 from repair.chalkline import run_chalkline, ChalklineError, programme_title
+# The detector's untouched answer is kept for comparison with what the user
+# later corrects - see utils/field_answers.py.
+from utils.field_answers import record_detector_answer
 from repair.comskip import run_comskip, ComskipError, pick_comskip_ini
 
 log = logging.getLogger("snipwright.watch")
@@ -883,13 +886,18 @@ def process_recording(source, comskip_binary, comskip_ini, output_dir,
             from version import VERSION_STRING as made_with
         except Exception:
             made_with = ""
+        duration = probe_duration(source)
         save_project_from_cuts(
             vprj_path, source, cuts,
-            duration_seconds=probe_duration(source),
+            duration_seconds=duration,
             made_by=detector if detector in ("chalkline", "comskip")
             else "unknown",
             made_with=made_with,
         )
+        record_detector_answer(
+            source, vprj_path, cuts, duration, detector,
+            info.get("channel") if detector == DETECTOR_CHALKLINE else None,
+            made_with)
         return ProcessResult(source, vprj_path=vprj_path, cut_count=len(cuts))
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)

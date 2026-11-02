@@ -66,6 +66,7 @@ import av
 import numpy as np
 
 from smartcut.open_options import LEGACY_OPEN_ARGS, SOURCE_OPEN_OPTIONS
+from smartcut.ts_teletext import teletext_streams
 
 # The application's own logger, as every other module uses - a module-named
 # logger never reaches Snipwright's log file.
@@ -433,7 +434,19 @@ def subtitle_kinds(path):
     """The codec of each subtitle stream in a file - [] if it can't be read."""
     try:
         with av.open(path) as c:
-            return [s.codec_context.name for s in c.streams.subtitles]
+            teletext = None
+            kinds = []
+            for s in c.streams.subtitles:
+                if s.codec_context is not None:
+                    kinds.append(s.codec_context.name)
+                    continue
+                # No decoder in PyAV, so no name either - see
+                # smartcut/ts_teletext.py.  Asking for one raised, and the
+                # whole list came back empty.
+                if teletext is None:
+                    teletext = teletext_streams(path)
+                kinds.append("dvb_teletext" if s.id in teletext else "unknown")
+            return kinds
     except Exception:
         return []
 
@@ -445,7 +458,8 @@ def _scene_sets(path, offset, length, writer, copied=False):
     """
     with av.open(path) as c:
         dvb = [s for s in c.streams.subtitles
-               if s.codec_context.name in DVB_CODECS]
+               if s.codec_context is not None
+               and s.codec_context.name in DVB_CODECS]
         if not dvb or not c.streams.video:
             return [], False, ""
         sub, video = dvb[0], c.streams.video[0]
@@ -506,7 +520,8 @@ def _scene_sets_pgs(path, start, offset, length, writer, copied=False):
     """
     with av.open(path) as c:
         pgs = [s for s in c.streams.subtitles
-               if s.codec_context.name in PGS_CODECS]
+               if s.codec_context is not None
+               and s.codec_context.name in PGS_CODECS]
         if not pgs or not c.streams.video:
             return [], ""
         sub, video = pgs[0], c.streams.video[0]
@@ -561,7 +576,8 @@ def _scene_sets_dvd(path, start, offset, length, writer, copied=False):
     """
     with av.open(path) as c:
         dvd = [s for s in c.streams.subtitles
-               if s.codec_context.name in DVD_CODECS]
+               if s.codec_context is not None
+               and s.codec_context.name in DVD_CODECS]
         if not dvd or not c.streams.video:
             return [], ""
         sub, video = dvd[0], c.streams.video[0]

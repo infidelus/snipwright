@@ -1070,6 +1070,7 @@ def _run_smartcut(source_path, out_path, segments, n_audio, keep_ranges, fps,
         output_tracks=_passthru_for_indices(n_audio, usable)
     )
 
+    first_error = None      # a failure the audio retry cannot be about
     try:
         err = _call_smartcut(mc, segments, out_path,
                         audio_export_info=audio_info, log_level="warning",
@@ -1102,9 +1103,17 @@ def _run_smartcut(source_path, out_path, segments, n_audio, keep_ranges, fps,
                 "channels or sample rate. Retrying without it.", message)
         else:
             logger.warning("smartcut: first attempt raised", exc_info=True)
+            first_error = message
 
     # Already down to the primary track only - nothing more to drop.
     if n_written <= 1:
+        # A failure that is not about the audio header is reported as what
+        # it is.  "May need repairing" sent a user with an undamaged
+        # recording carrying teletext - which the cutter could not copy -
+        # off to Quick Stream Fix, which could not have helped (2026-10-27).
+        if first_error:
+            raise ExportError(
+                f"Export failed: {first_error}. See the log for details.")
         if n_audio == 0:
             # A silent export asked for no tracks at all, so "retry with
             # fewer" has nothing to offer and the usual message would send
@@ -4001,6 +4010,42 @@ def _subtitle_codecs(path):
     return [codecs[i] for i in sorted(codecs)]
 
 
+def _drop_empty_audio(ts_path, cancel_cb=None):
+    """Remove from `ts_path` any audio track _unwritable_audio_streams()
+    finds empty, copying everything else exactly.  Returns how many went;
+    on any failure the file is left as it was."""
+    dead = _unwritable_audio_streams(ts_path)
+    if not dead:
+        return 0
+    tmp = ts_path + ".live.ts"
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        *DEEP_PROBE, "-i", ts_path,
+        "-map", "0", "-map", "-0:d", "-ignore_unknown",
+    ]
+    for a in dead:
+        cmd += ["-map", "-0:a:%d" % a]
+    # The same copy as the .ts finishing step uses - see
+    # _finalise_ts_audio_meta() for why -copyts and the interleave window.
+    cmd += ["-c", "copy", "-copyts",
+            "-max_interleave_delta", "60000000",
+            "-muxpreload", "0", "-muxdelay", "0", "-f", "mpegts", tmp]
+    res = _run_cancellable(cmd, cancel_cb=cancel_cb)
+    if res.returncode != 0 or not os.path.exists(tmp) or \
+            os.path.getsize(tmp) == 0:
+        _safe_remove(tmp)
+        logger.warning("Could not leave out %d empty audio track(s) (ffmpeg "
+                       "rc=%s): %s", len(dead), res.returncode,
+                       (res.stderr or "").strip()[-300:])
+        return 0
+    os.replace(tmp, ts_path)
+    logger.info(
+        "Dropping %d empty audio track(s) before building the .mkv: the "
+        "broadcaster registered them but transmitted nothing in the kept "
+        "section.", len(dead))
+    return len(dead)
+
+
 def _unwritable_audio_streams(path):
     """Audio streams in `path` that ffmpeg cannot write out.
 
@@ -4802,6 +4847,20 @@ def _export_ranges(
                 "rebuilds the timestamps and often recovers it: run it on the "
                 "source, then re-open and export."
             )
+
+        # An .mkv is built from the cut in several further steps - the audio
+        # repair, mkvmerge, and ffmpeg if mkvmerge's audio does not decode -
+        # and an audio track that carries nothing in the kept section has no
+        # sample rate, so every one of them refused the file: "sample rate not
+        # set", "Adding MKV chapters failed".  A Channel 4 HD film's
+        # audio-description track was silent for the whole film (2026-10-25).
+        # The .ts and .mp4 paths already leave such tracks out; the same test
+        # is applied here, once, before any of those steps.  The summary
+        # reports it as a silent track not carried over, as it does for them.
+        # (The AD flag is later matched to tracks by position, so an empty
+        # track ahead of a live one would leave a flag off, never misplace it.)
+        if want_mkv and not _is_matroska(cut_target):
+            _drop_empty_audio(cut_target, cancel_cb=cancel_cb)
 
         # Decide whether the cut audio has to be rebuilt from source.
         #

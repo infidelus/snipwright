@@ -533,6 +533,13 @@ MASK_AGREE_EDGE = 60.0
 # exact-tie bug"); the mask had the logo back from 2305.0 to 2435.0, so the
 # extra 120 s were programme and 103 s of it were cut (2026-10-18).
 MASK_TRIM_RUN = 60.0
+# A mid-recording bracket's START moves on less: the mask holding the logo
+# for this long past where the bracket begins is programme still running.
+# On the same LEGEND episode the corner lost the faint logo over sunlit
+# scenes at 2064 while the mask read it until 2114, 50 s in, and the break
+# was cut 37 s early (2026-10-28).  Only the start - the head padding's end
+# keeps MASK_TRIM_RUN, which the 5action and e4 measurements rest on.
+MASK_TRIM_START_RUN = 30.0
 #
 # The trimmed reading is offered BESIDE the original, and replaces it only
 # if build_breaks() admits it as a break in its own right (prefer_trimmed).
@@ -1356,14 +1363,16 @@ def mask_disagreements(brackets, marks, duration, threshold):
     return kept, dropped
 
 
-def mask_trims(brackets, marks, duration, min_run=MASK_TRIM_RUN):
+def mask_trims(brackets, marks, duration, min_run=MASK_TRIM_RUN,
+               min_start_run=MASK_TRIM_START_RUN):
     """Trim brackets whose end (or start) the remembered mask reads as programme.
 
     `marks` are the mask's smoothed "logo present" spans.  A span that starts
     inside a bracket and runs on to its end, `min_run` seconds or more of it
     inside, means the logo came back that long before the bracket says the
     break ended: the bracket's end moves to where the span starts.  The same
-    for a span that covers the bracket's start.  Within MASK_AGREE_EDGE of
+    for a span that covers the bracket's start, `min_start_run` seconds of
+    it inside.  Within MASK_AGREE_EDGE of
     the recording's start only the bracket's end may move, and within it of
     the end not at all, for the reason mask_disagreements() gives.
 
@@ -1396,7 +1405,7 @@ def mask_trims(brackets, marks, duration, min_run=MASK_TRIM_RUN):
                     and hi - a >= min_run):
                 new_hi = min(new_hi, a)
             if (not at_head and not at_tail and lo < b < hi
-                    and a <= lo + slack and b - lo >= min_run):
+                    and a <= lo + slack and b - lo >= min_start_run):
                 new_lo = max(new_lo, b)
         out.append(br)
         if (new_lo, new_hi) != (lo, hi) and new_hi > new_lo:
@@ -1588,6 +1597,7 @@ def build_breaks(brackets, events, analysis_end, short_ok=(), verbose=False,
     """
     scored = []
     admitted = {}       # raw (lo, hi) -> its scored entries
+    start_ev = {}       # raw (lo, hi) -> best evidence at its refined start
     short_ok = {(round(lo, 3), round(hi, 3)) for lo, hi in short_ok}
 
     # Why each bracket did not become a break.  Every `continue` below is a
@@ -1679,14 +1689,33 @@ def build_breaks(brackets, events, analysis_end, short_ok=(), verbose=False,
             print(f"    kept    {lo:8.2f} - {hi:8.2f} -> {a:8.2f} - {b:8.2f} "
                   f"({b - a:6.1f}s, support {support}, "
                   f"evidence {sa:.2f}+{sb:.2f}){edge}", file=sys.stderr)
-        scored.append((support, sa + sb, a, b))
+        # Ranked by support, then evidence, then - on an exact tie - the
+        # SHORTER reading.  The tie used to fall through to the start and end
+        # times, so the later-ending candidate won purely by sort order: on
+        # more4-2 that cut 20 s and 31 s more programme than its tied twin
+        # (2026-10-24; CHALKLINE.md "an exact-tie bug").  A miss is the lesser
+        # failure, so a tie goes to the reading that cuts less.
+        scored.append((support, sa + sb, -(b - a), a, b))
         admitted.setdefault((round(lo, 3), round(hi, 3)), []).append(
             scored[-1])
+        key = (round(lo, 3), round(hi, 3))
+        start_ev[key] = max(start_ev.get(key, 0.0), sa)
     # A bracket whose mask-trimmed reading was itself admitted gives way to
     # it - see mask_trims().  Only then: a trimmed reading too short to be a
     # break leaves its original standing.
+    #
+    # A moved START must also land on evidence.  Inside a real break an
+    # advert's corner artwork can read as the logo for the break's first
+    # 50 s: on a Burn Notice episode (Great! Action) the start trim took
+    # 1830 to 1880.5, where nothing marks an edge, and with the original
+    # gone the break came out in two pieces with 30 s of adverts between.
+    # Every start trim that helped - LEGEND's Hazzard, e4, 5action - landed
+    # on black or silence (evidence 1.0-2.0); that one on 0.00 (2026-10-28).
     for lo, hi, nlo, nhi in prefer_trimmed:
-        if (round(nlo, 3), round(nhi, 3)) in admitted:
+        nkey = (round(nlo, 3), round(nhi, 3))
+        if nlo != lo and start_ev.get(nkey, 0.0) <= 0.0:
+            continue
+        if nkey in admitted:
             for item in admitted.get((round(lo, 3), round(hi, 3)), []):
                 if item in scored:
                     scored.remove(item)
@@ -1696,7 +1725,7 @@ def build_breaks(brackets, events, analysis_end, short_ok=(), verbose=False,
                               file=sys.stderr)
     scored.sort(reverse=True)
     chosen = []
-    for support, evidence, a, b in scored:
+    for support, evidence, _neg_len, a, b in scored:
         clash = next(((c, d) for c, d in chosen
                       if min(b, d) - max(a, c) > 0), None)
         if clash is not None:
@@ -2388,6 +2417,7 @@ def detect(video, verbose=False, keep=None, learn=None,
         # caller to judge.
         box = picture_box(widths, heights)
         marks = []
+        ring_dropped = []
         if learn is not None:
             # An edge card (item 1u), learned from the same corrected cuts.
             # Independent of the logo: Film4 has no logo and a card, and the
@@ -2425,50 +2455,55 @@ def detect(video, verbose=False, keep=None, learn=None,
                     info["markers_learned"] = sum(
                         len(v) for v in learned["places"].values())
                     info["marker_projects"] = len(held)
-            # Built here rather than by the caller: only now is the real
-            # frame count known, and deriving it from duration x FPS is off
-            # by one often enough to matter.
-            programme = np.ones(n, dtype=bool)
-            for a, b in learn["cuts"]:
-                programme &= ~((times >= a) & (times < b))
-            breaks_mask = np.zeros(n, dtype=bool)
-            for a, b in learn["breaks"]:
-                breaks_mask |= (times >= a) & (times < b)
-            if not breaks_mask.any():
-                breaks_mask = junction_mask(programme, times)
-            # Score the masks this channel already has against the project
-            # first, while the frames are still here.  Each was learned from
-            # a DIFFERENT recording, so this is a fair test of it - unlike
-            # the candidate about to be learned below, which is fitted to
-            # this one.  See item 1p and pick_active().
-            if channel:
-                stored = store_get(load_store(store_path), channel)
-                if stored:
-                    info["mask_trials"] = trial_masks(
-                        frames, box, times, mask_history(stored),
-                        learn["cuts"], duration)
+            # A project whose only cuts are the padding teaches the edge
+            # card and the markers above, never a logo: with no break,
+            # the logo's absence is measured at two junctions only, which
+            # is not enough to learn one from - see check_learnable().
+            if not learn.get("markers_only"):
+                # Built here rather than by the caller: only now is the real
+                # frame count known, and deriving it from duration x FPS is off
+                # by one often enough to matter.
+                programme = np.ones(n, dtype=bool)
+                for a, b in learn["cuts"]:
+                    programme &= ~((times >= a) & (times < b))
+                breaks_mask = np.zeros(n, dtype=bool)
+                for a, b in learn["breaks"]:
+                    breaks_mask |= (times >= a) & (times < b)
+                if not breaks_mask.any():
+                    breaks_mask = junction_mask(programme, times)
+                # Score the masks this channel already has against the project
+                # first, while the frames are still here.  Each was learned from
+                # a DIFFERENT recording, so this is a fair test of it - unlike
+                # the candidate about to be learned below, which is fitted to
+                # this one.  See item 1p and pick_active().
+                if channel:
+                    stored = store_get(load_store(store_path), channel)
+                    if stored:
+                        info["mask_trials"] = trial_masks(
+                            frames, box, times, mask_history(stored),
+                            learn["cuts"], duration)
 
-            report = []
-            entry = learn_mask(frames, times, learn["starts"], programme,
-                               breaks_mask, box, report)
-            info["learn_report"] = report
-            if entry and channel:
-                store = load_store(store_path)
-                # Added to the channel's history rather than replacing what
-                # is there: a mask learned from THIS recording is fitted to
-                # it, so it only becomes the active mask once it has done
-                # well on a later project, or when the channel has nothing
-                # else (see MASK_HISTORY_MAX and mask_tier()).
-                merged = add_mask(store_get(store, channel) or {}, entry)
-                store_set(store, channel, merged)
-                save_store(store, store_path)
-                info["learned"] = entry["count"]
-                info["learned_kind"] = entry["kind"]
-                info["learned_contrast"] = entry["contrast"]
-                info["learned_active"] = same_mask(merged, entry)
-                info["learned_history"] = len(mask_history(merged))
-            elif entry:
-                info["learned_but_unkeyed"] = entry["count"]
+                report = []
+                entry = learn_mask(frames, times, learn["starts"], programme,
+                                   breaks_mask, box, report)
+                info["learn_report"] = report
+                if entry and channel:
+                    store = load_store(store_path)
+                    # Added to the channel's history rather than replacing what
+                    # is there: a mask learned from THIS recording is fitted to
+                    # it, so it only becomes the active mask once it has done
+                    # well on a later project, or when the channel has nothing
+                    # else (see MASK_HISTORY_MAX and mask_tier()).
+                    merged = add_mask(store_get(store, channel) or {}, entry)
+                    store_set(store, channel, merged)
+                    save_store(store, store_path)
+                    info["learned"] = entry["count"]
+                    info["learned_kind"] = entry["kind"]
+                    info["learned_contrast"] = entry["contrast"]
+                    info["learned_active"] = same_mask(merged, entry)
+                    info["learned_history"] = len(mask_history(merged))
+                elif entry:
+                    info["learned_but_unkeyed"] = entry["count"]
         elif channel:
             entry = store_get(load_store(store_path), channel)
             if entry:
@@ -2655,6 +2690,8 @@ def detect(video, verbose=False, keep=None, learn=None,
                     # with a skipped one.
                     fit = (sum(b - a for a, b in marks) / duration
                            if duration else 0.0)
+                    # Kept for settling - see FIT_DROP_RATIO.
+                    info["mask_fit"] = round(fit, 3)
                     if fit < MASK_FIT_MIN:
                         info["mask_unfit"] = round(fit, 3)
                         if verbose:
@@ -2892,9 +2929,38 @@ def detect(video, verbose=False, keep=None, learn=None,
             # 29% - so the threshold here sits well clear of that effect.
             # Run after the corner and anchor filters, so it only judges
             # brackets that would otherwise have been added.
+            #
+            # First, the mask's own brackets are trimmed by its own marks,
+            # exactly as the corner's are above.  A bracket is built from
+            # absence that recurs every 8 s, so a faint logo flickering out
+            # over bright programme can open it minutes early while the
+            # marks still hold the logo: on a Burn Notice episode (Great!
+            # Action) 2456.5-2867 against marks to 2593.5 and a break that
+            # began at 2595.  Untrimmed it either cut 139 s of programme or,
+            # once the ring-gate runs counted against it, was dropped and the
+            # whole break left in (2026-10-28).
+            if arm_marks_track and uncovered:
+                uncovered, own_trims = mask_trims(
+                    uncovered, arm_marks_track, duration)
+                arm_trims = arm_trims + own_trims
+                if arm_verbose:
+                    for lo, hi, nlo, nhi in own_trims:
+                        print(f"    trimmed {lo:8.2f} - {hi:8.2f} to "
+                              f"{nlo:8.2f} - {nhi:8.2f} as well: its own "
+                              f"marks have the logo there for the rest",
+                              file=sys.stderr)
+            # The runs the ring gate set aside count as present HERE.  The
+            # gate exists so an advert's own artwork cannot split a real
+            # break - not to make a break out of programme.  On a LEGEND
+            # Dukes of Hazzard episode it set aside 3480-3500 (the logo over
+            # a sunlit, busy scene), which left 3456-3507 reading 37%
+            # present, under the threshold, and 36 s of programme were cut;
+            # with the run counted it reads 76% (2026-10-28).
             if arm_marks_track and uncovered:
                 uncovered, dropped_own = mask_disagreements(
-                    uncovered, arm_marks_track, duration, MASK_SELF_AGREE_ON)
+                    uncovered, list(arm_marks_track) + [
+                        (a, b) for a, b, _r in ring_dropped],
+                    duration, MASK_SELF_AGREE_ON)
                 if arm_verbose:
                     for lo, hi, frac in dropped_own:
                         print(f"    dropped {lo:8.2f} - {hi:8.2f}: the "
@@ -3955,6 +4021,104 @@ def record_result(entry, mask, prog, false_count, fitted, project="",
 # settle = {"streak": n, "since": m}; absent means never confirmed.
 SETTLE_AFTER = 5
 RECHECK_EVERY = 10
+#
+# Since 2026-10-28 (his idea) a settled channel no longer re-learns on a
+# schedule while its logo keeps reading normally: every detection records
+# how much of the recording the remembered logo was seen in (its fit,
+# record_logo_fit()), and a save is only worth a learning pass when that
+# fit has DROPPED - the channel moved or changed its logo, or a series runs
+# without it.  Judging by whether the detection was right was tried on the
+# field data first and is useless: only 6 of 53 corrected recordings had
+# every break right, mostly for reasons a learning pass cannot fix (splits
+# by advert artwork), so it would have re-learned on almost every save.
+#
+# "Dropped" is under FIT_DROP_RATIO of the channel's median over its last
+# FIT_HISTORY normal fits, or under MASK_FIT_MIN.  Half, because a fit
+# varies with how much of a recording is adverts and padding: More 4 read
+# 0.54 and 0.85 on two corpus recordings, Channel 4 0.68 and 0.85 - while a
+# changed logo reads near nothing.  One drop learns from that save; two in
+# the last FIT_DROPS_WINDOW un-settle the channel.  A save with no recorded
+# fit (a project cut by hand) falls back to RECHECK_EVERY, and BACKSTOP_EVERY
+# still forces a pass now and then, because the same pass refreshes the
+# break idents and programme markers, which can change under a steady logo.
+FIT_HISTORY = 20
+FIT_HISTORY_MIN = 5
+FIT_DROP_RATIO = 0.5
+FIT_DROPS_WINDOW = 10
+FIT_DROPS_UNSETTLE = 2
+BACKSTOP_EVERY = 50
+FIT_LOG_KEEP = 500
+
+
+def fit_log_path(logo_store_path=LOGO_STORE):
+    """The fit log beside a logo store, named as card_store_path()."""
+    folder, name = os.path.split(logo_store_path)
+    if "logos" in name:
+        name = name.replace("logos", "fits")
+    else:
+        root, ext = os.path.splitext(name)
+        name = root + "-fits" + (ext or ".json")
+    return os.path.join(folder, name)
+
+
+def record_logo_fit(source, fit, store_path=LOGO_STORE):
+    """Remember the remembered logo's fit on `source` - see FIT_DROP_RATIO.
+
+    Never raises: losing a fit only means the next save of this recording
+    falls back to the scheduled re-check.
+    """
+    try:
+        path = fit_log_path(store_path)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                log = json.load(fh)
+        except (OSError, ValueError):
+            log = {}
+        key = os.path.abspath(source)
+        log.pop(key, None)
+        log[key] = {"fit": round(float(fit), 3), "when": time.time(),
+                    "size": os.path.getsize(source)}
+        while len(log) > FIT_LOG_KEEP:
+            del log[next(iter(log))]
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(log, fh, indent=1)
+        os.replace(tmp, path)
+    except Exception:
+        pass
+
+
+def recorded_fit(source, store_path=LOGO_STORE):
+    """The fit last recorded for `source`, or None.
+
+    By path, and failing that by size: the Watcher detects a recording where
+    it lands, and the renamer may have moved it by the time the project is
+    saved - a move keeps every byte, so an exact size match that only one
+    entry has is the same recording.
+    """
+    try:
+        with open(fit_log_path(store_path), encoding="utf-8") as fh:
+            log = json.load(fh)
+        rec = log.get(os.path.abspath(source))
+        if rec is None:
+            size = os.path.getsize(source)
+            same = [r for r in log.values() if r.get("size") == size]
+            rec = same[0] if len(same) == 1 else None
+        return float(rec["fit"]) if rec else None
+    except Exception:
+        return None
+
+
+def fit_dropped(fit, fits):
+    """Whether `fit` is a drop against a channel's normal `fits`, or None
+    when there is not yet enough history to say."""
+    if fit is None:
+        return None
+    if fit < MASK_FIT_MIN:
+        return True
+    if len(fits) < FIT_HISTORY_MIN:
+        return None
+    return fit < FIT_DROP_RATIO * float(np.median(fits))
 
 
 def settle_state(entry):
@@ -4424,6 +4588,16 @@ MARKER_EDGE_NEAR = 5.0     # a CORRECTED cut this near the file's end is padding
 MARKER_HEAD_REACH = 360.0
 MARKER_HEAD_MARGIN = 60.0
 MARKER_TAIL_REACH = 60.0
+# Where nothing else placed a lead-in or a tail, the markers may place one
+# themselves - a channel with no adverts (BBC Three) has no logo learned and
+# no break to refine, and its recordings carry no EPG, so before this the
+# padding at both ends was never trimmed (2026-10-28).  The lead-in is looked
+# for up to the channel's learned programme starts plus MARKER_HEAD_MARGIN,
+# as above; the tail within this of the end.  Placed from the sighting that
+# cuts LEAST - the earliest start,
+# the latest end - since end markers recur in the continuity after a
+# programme and a doubtful placement should keep programme, not cut it.
+MARKER_TAIL_PLACE = 1200.0
 # Every frame of the 6 s window, as the measurement used.  The first version
 # kept the first six ONSETS - the end of the window FURTHEST from the cut -
 # and so threw away markers sitting 1.5-4.6 s from it: U&Dave's end marker at
@@ -4615,7 +4789,7 @@ def place_programme_markers(breaks, cards, times, projects, events, duration,
     Returns (breaks, number of edges moved).
     """
     projects = [p for p in projects if p.get("project") != exclude]
-    if not breaks or not projects or cards is None or not len(times):
+    if not projects or cards is None or not len(times):
         return breaks, 0
     cards = np.asarray(cards, dtype=np.float32)
     breaks = sorted(tuple(b) for b in breaks)
@@ -4629,7 +4803,15 @@ def place_programme_markers(breaks, cards, times, projects, events, duration,
     heads = [i for i, b in enumerate(breaks) if b[0] <= reach]
     head_i = max(heads, key=lambda i: breaks[i][1]) if heads else None
     tail_i = (len(breaks) - 1
-              if end - breaks[-1][1] <= MARKER_TAIL_REACH else None)
+              if breaks and end - breaks[-1][1] <= MARKER_TAIL_REACH else None)
+    # A side nothing placed: the markers may place it - MARKER_TAIL_PLACE.
+    # A lead-in only where projects say where this channel's programmes
+    # start, which a user who never pads never teaches.
+    place_new = {}
+    if head_i is None and starts:
+        place_new["start"] = (0.0, reach)
+    if tail_i is None:
+        place_new["end"] = (max(0.0, end - MARKER_TAIL_PLACE), end)
     if head_i is not None and head_i == tail_i:
         # One break from the start to the end: no programme between them.
         report.append("programme edges: one break covers the recording - "
@@ -4638,12 +4820,16 @@ def place_programme_markers(breaks, cards, times, projects, events, duration,
     moved = 0
     for side in ("start", "end"):
         index = head_i if side == "start" else tail_i
-        if index is None:
+        if index is None and side not in place_new:
             report.append(f"programme {side}: no "
                           f"{'lead-in' if side == 'start' else 'tail'} "
                           f"placed - unchanged")
             continue
-        today = breaks[index][1] if side == "start" else breaks[index][0]
+        if index is None:
+            win_lo, win_hi = place_new[side]
+            today = (win_lo + win_hi) / 2
+        else:
+            today = breaks[index][1] if side == "start" else breaks[index][0]
         # One list of (fingerprint, offset) per stored project.
         sources = []
         for project in projects:
@@ -4656,8 +4842,12 @@ def place_programme_markers(breaks, cards, times, projects, events, duration,
         if not sources:
             continue
         every = np.stack([fp.reshape(-1) for src in sources for fp, _ in src])
-        reach = max(MARKER_SEARCH, MARKER_SEARCH_KEEP) + MARKER_WINDOW
-        idx = np.where(np.abs(times - today) <= reach)[0]
+        if index is None:
+            idx = np.where((times >= win_lo - MARKER_WINDOW)
+                           & (times <= win_hi + MARKER_WINDOW))[0]
+        else:
+            reach = max(MARKER_SEARCH, MARKER_SEARCH_KEEP) + MARKER_WINDOW
+            idx = np.where(np.abs(times - today) <= reach)[0]
         hit = [i for i in idx
                if float(np.abs(every - cards[i].reshape(-1)).mean(axis=1).min())
                < CARD_MATCH]
@@ -4678,6 +4868,11 @@ def place_programme_markers(breaks, cards, times, projects, events, duration,
                     onsets.append(min(offs))
             if onsets:
                 predictions.append(float(times[run[0]] - np.median(onsets)))
+        if index is None:
+            moved += _place_new_edge(breaks, side, predictions, events,
+                                     place_new[side], end, len(sources),
+                                     report)
+            continue
         def keeps(p):
             # Heads only - see MARKER_SEARCH_KEEP.
             return side == "start" and p < today
@@ -4715,6 +4910,47 @@ def place_programme_markers(breaks, cards, times, projects, events, duration,
                       f"(marker predicted {predicted:.1f}s, "
                       f"{len(sources)} project(s))")
     return breaks, moved
+
+
+def _place_new_edge(breaks, side, predictions, events, window, end,
+                    n_projects, report):
+    """Add a lead-in or tail the markers found where nothing else had one.
+
+    See MARKER_TAIL_PLACE.  Edits `breaks` in place; returns 1 if it did.
+    """
+    win_lo, win_hi = window
+    inside = [p for p in predictions if win_lo < p < win_hi]
+    if not inside:
+        report.append(f"programme {side}: nothing placed, and no marker "
+                      f"sighting to place one - unchanged")
+        return 0
+    # The reading that cuts least.
+    predicted = min(inside) if side == "start" else max(inside)
+    # Snapped to black or silence where there is one, as a refined edge
+    # is; otherwise the prediction itself.  Requiring one was tried first and
+    # threw away five good readings of ten on BBC Three - its programmes
+    # often start straight out of the continuity - every one within 6 s of
+    # the real edge and on the side that keeps programme (leave-one-out,
+    # 2026-10-28, dev/logs/bbc3-loo).
+    snaps = [(m, sc) for m, sc in events if abs(m - predicted) <= MARKER_SNAP]
+    edge = (max(snaps, key=lambda ms: ms[1] - EDGE_DISTANCE_COST
+                * abs(ms[0] - predicted))[0] if snaps else predicted)
+    if side == "start":
+        if breaks and edge >= breaks[0][0]:
+            report.append(f"programme start: {edge:.1f}s would cross a "
+                          f"break - not placed")
+            return 0
+        breaks.insert(0, (0.0, edge))
+    else:
+        if breaks and edge <= breaks[-1][1]:
+            report.append(f"programme end: {edge:.1f}s would cross a "
+                          f"break - not placed")
+            return 0
+        breaks.append((edge, end))
+    report.append(f"programme {side}: placed at {edge:.1f}s where nothing "
+                  f"else had (marker predicted {predicted:.1f}s, "
+                  f"{n_projects} project(s))")
+    return 1
 
 
 def cards_set(store, key, cards):
@@ -5439,6 +5675,9 @@ def run_chalkline(source_path, out_dir, progress_cb=None, cancel_cb=None,
         # traceback.
         raise ChalklineError(f"Advert detection failed:\n{exc}")
 
+    if info.get("mask_fit") is not None:
+        record_logo_fit(source_path, info["mask_fit"], store_path)
+
     # Back onto the recording's own clock, which is the one the editor
     # turns these times into frames with - see clock_leaps().
     leaps = clock_leaps(source_path)
@@ -5602,9 +5841,18 @@ def learn_from_project(video, vprj_path, store_path=LOGO_STORE, channel=None,
         raise ChalklineError(f"The saved project could not be read:\n{exc}")
 
     adverts, reason = check_learnable(cuts, duration)
+    # Padding alone still teaches the edge card and the programme markers -
+    # a channel with no adverts (BBC Three) has nothing else to learn from,
+    # and skipping it left both ends of every recording untrimmed
+    # (2026-10-28).  No logo is learned from it: see detect().
+    markers_only = False
     if adverts is None:
-        info["skipped"] = reason
-        return info
+        _adv, pad = split_truth(cuts, duration)
+        if cuts and not _adv and pad:
+            adverts, markers_only = [], True
+        else:
+            info["skipped"] = reason
+            return info
 
     key = channel or channel_key(video)
     if not key:
@@ -5631,22 +5879,57 @@ def learn_from_project(video, vprj_path, store_path=LOGO_STORE, channel=None,
     # Settled (see SETTLE_AFTER): skip the decode, except on every
     # RECHECK_EVERY-th corrected project.  Counted here, before the decode,
     # because skipping it is the point.
+    # Whether to skip is decided by the logo's fit on this recording where
+    # detection recorded one - see FIT_DROP_RATIO - and by the old schedule
+    # where it did not.
     lstore = load_store(store_path)
     lentry = store_get(lstore, key)
+    fit = recorded_fit(video, store_path)
+    settle = dict((lentry or {}).get("settle") or {})
+    fits = list(settle.get("fits", []))
+    drops = list(settle.get("drops", []))
+    dropped = fit_dropped(fit, fits)
+    info["logo_fit"] = fit
     if lentry is not None and is_settled(lentry):
         streak, since = settle_state(lentry)
         since += 1
-        if since < RECHECK_EVERY:
-            lentry = dict(lentry, settle={"streak": streak, "since": since})
-            store_set(lstore, key, lentry)
-            save_store(lstore, store_path)
-            info["skipped"] = (
-                f"{label}'s logo is settled - confirmed by {streak} corrected "
-                f"projects in a row - so it is re-checked on every "
-                f"{RECHECK_EVERY}th; {RECHECK_EVERY - since} to go")
+        if dropped is not None:
+            drops = (drops + [bool(dropped)])[-FIT_DROPS_WINDOW:]
+        # A fit joins the normal ones unless it is a drop - including while
+        # the history is still too short to judge, or a channel settled
+        # before fits were recorded would never build one.
+        if fit is not None and not dropped:
+            fits = (fits + [fit])[-FIT_HISTORY:]
+        skip = (since < BACKSTOP_EVERY if dropped is False
+                else since < RECHECK_EVERY if dropped is None
+                else False)
+        if dropped and sum(drops) >= FIT_DROPS_UNSETTLE:
+            # The logo is failing more than once: learn on every save again
+            # until it earns settled afresh.
+            streak = 0
+            info["unsettled"] = True
+        settle.update(streak=streak, since=since, fits=fits, drops=drops)
+        store_set(lstore, key, dict(lentry, settle=settle))
+        save_store(lstore, store_path)
+        if skip:
+            if dropped is False:
+                info["skipped"] = (
+                    f"{label}'s logo is settled and read normally on this "
+                    f"recording ({100 * fit:.0f}% of it, usually "
+                    f"{100 * float(np.median(fits)):.0f}%) - nothing to learn")
+            else:
+                info["skipped"] = (
+                    f"{label}'s logo is settled - confirmed by {streak} "
+                    f"corrected projects in a row - so it is re-checked on "
+                    f"every {RECHECK_EVERY}th; {RECHECK_EVERY - since} to go")
             info["settled"] = True
             return info
         info["recheck"] = True
+        if dropped:
+            info["fit_dropped"] = True
+        # This recording's fit is accounted for above (a drop is never
+        # added to the normal ones); the pass below must not add it again.
+        fit = None
 
     # A channel that already has a logo used to stop here, so one poor edit
     # could not quietly undo a good mask.  It cannot now either: the masks
@@ -5674,7 +5957,8 @@ def learn_from_project(video, vprj_path, store_path=LOGO_STORE, channel=None,
     _adverts, padding = split_truth(cuts, duration)
     starts = [b for _a, b in adverts]
     starts += [b for a, b in padding if a <= PADDING_TOLERANCE]
-    learn = {"starts": sorted(starts), "cuts": cuts, "breaks": adverts}
+    learn = {"starts": sorted(starts), "cuts": cuts, "breaks": adverts,
+             "markers_only": markers_only}
 
     # Past every cheap check now, so this is about to be the expensive part.
     if on_start is not None:
@@ -5742,7 +6026,16 @@ def learn_from_project(video, vprj_path, store_path=LOGO_STORE, channel=None,
             streak, _since = settle_state(entry)
             streak = streak + 1 if (active_fit and not info["active_changed"]) \
                 else 0
-            entry = dict(entry, settle={"streak": streak, "since": 0})
+            # The fit history and drops ride along - see FIT_DROP_RATIO.
+            # Reread, since the settled check above may have just saved
+            # them; this recording's fit joins the normal ones unless it
+            # was a drop.
+            settle = dict(entry.get("settle") or {})
+            fits = list(settle.get("fits", []))
+            if fit is not None and fit_dropped(fit, fits) is not True:
+                fits = (fits + [fit])[-FIT_HISTORY:]
+            settle.update(streak=streak, since=0, fits=fits)
+            entry = dict(entry, settle=settle)
             store_set(store, key, entry)
             save_store(store, store_path)
             info["settle_streak"] = streak
@@ -5833,7 +6126,7 @@ def main():
         starts = [b for _a, b in adverts]
         starts += [b for a, b in padding if a <= PADDING_TOLERANCE]
         learn = {"starts": sorted(starts), "cuts": cuts,
-                 "breaks": adverts}
+                 "breaks": adverts, "markers_only": not adverts}
 
     breaks, info = detect(args.video, args.verbose, args.keep, learn,
                           args.logo_store, args.channel,

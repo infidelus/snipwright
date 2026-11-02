@@ -16,6 +16,7 @@ from smartcut.media_container import (
 from smartcut.misc_data import CutSegment
 from smartcut.video_cutter import copy_packet
 from smartcut.rational import q
+from smartcut.ts_teletext import teletext_streams
 
 
 def create_audio_output_stream(
@@ -196,10 +197,31 @@ def create_subtitle_output_stream(
     Separated from SubtitleCutter to allow reuse in joining operations.
     """
     in_stream = media_container.av_container.streams.subtitles[track_index]
-    out_stream = output_av_container.add_stream_from_template(in_stream)
+    if in_stream.codec_context is None:
+        # No decoder in PyAV's FFmpeg, so nothing to copy a template from -
+        # DVB teletext, see smartcut/ts_teletext.py.  The packets need none:
+        # a bare muxing stream carries them, and the caller puts the page
+        # details back once the file is closed (teletext_descriptor below).
+        if teletext_descriptor(media_container, track_index) is None:
+            raise ValueError(
+                f"subtitle stream {in_stream.index} is of a kind that cannot "
+                f"be copied (no codec context, and not DVB teletext)")
+        out_stream = output_av_container.add_mux_stream("dvb_teletext")
+        out_stream.time_base = in_stream.time_base
+    else:
+        out_stream = output_av_container.add_stream_from_template(in_stream)
     out_stream.metadata.update(in_stream.metadata)
     out_stream.disposition = cast(Disposition, in_stream.disposition.value)
     return out_stream
+
+
+def teletext_descriptor(media_container: MediaContainer,
+                        track_index: int) -> bytes | None:
+    """The source's teletext descriptor for a subtitle track, if it is one."""
+    in_stream = media_container.av_container.streams.subtitles[track_index]
+    if in_stream.codec_context is not None:
+        return None
+    return teletext_streams(media_container.path).get(in_stream.id)
 
 
 class SubtitleCutter:

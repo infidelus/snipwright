@@ -6,6 +6,111 @@ All notable changes to Snipwright are documented here. Releases before
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [2.15.0] - 2026-11-02
+
+### Changed
+
+- **A settled channel stops making you wait for learning passes it does
+  not need.** Once a channel's logo was settled, a learning pass - minutes
+  on a long recording - still ran on every tenth saved project, however
+  well the logo was working. Now every detection notes how much of the
+  recording the remembered logo was seen in, and a settled channel only
+  learns when that drops clearly below its usual figure, which is what a
+  changed or moved logo looks like, plus one check every fiftieth project
+  for its idents. Two poor readings in ten projects send the channel back
+  to learning from every project. Hovering over a settled channel in
+  Remembered logos shows how much of a recording its logo is usually seen
+  in.
+- **When two readings of a break are equally good, the one that cuts less
+  wins.** Detection often has two candidates for a break that score
+  exactly the same, one ending later than the other, and the longer used
+  to win simply by coming first in a sorted list - cutting on into the
+  programme. The shorter now wins a tie. On the advert-detection test set
+  that cut 158 seconds less programme in total (72 s on one recording and
+  an invented break gone) for 70 seconds more padding left in, mostly at
+  the start of two recordings - the better side to be wrong on.
+- **Less programme cut on channels with a faint logo.** Two ways the
+  remembered logo could see the logo on screen and still lose the
+  argument. Where the first logo search lost a see-through logo over a
+  bright scene, a break could start early even though the remembered logo
+  plainly showed the programme still running - 37 seconds early on one
+  LEGEND episode. And a short stretch of logo over a busy picture, set
+  aside in case it was an advert's own artwork, could leave a gap long
+  enough to count as a break - inventing a 36-second one in the middle of
+  the same episode. The remembered logo now moves a break's start when it
+  has the logo there for 30 seconds or more and the new start falls on a
+  real edge (black or silence), and a stretch set aside for a busy
+  background still counts against a break being invented there; every edge
+  of that episode now lands within half a second. Where the logo flickered
+  out over bright programme just before a break, the break could begin
+  minutes early - 139 seconds of one Great! Action episode were cut - and
+  it now begins where the remembered logo last saw the logo, within a
+  second of the real start. On the advert-detection test set programme
+  cut fell by 33 seconds and advert left in by 21, with nothing worse.
+
+### Added
+
+- **The padding at either end of a recording is trimmed on channels with
+  no adverts.** A channel such as BBC Three has no adverts, so no logo is
+  ever learned for it, and nothing was proposed at the start of a
+  recording - nor at the end, where the recording carries no programme
+  guide to say when the next programme began (Jellyfin's recordings, for
+  instance, do not keep one). A corrected project whose only cuts are that
+  padding now teaches how the channel's programmes begin and end, and that
+  is enough to place both ends on later recordings, choosing the reading
+  that keeps programme when in doubt. Tested on five BBC Three
+  recordings, each against what the other four taught: nine of the ten
+  ends placed, most within a second.
+  The same lets other channels' recordings with a missed end be trimmed:
+  on the advert-detection test set two recordings lost over nine minutes
+  of padding each.
+- **The Linux installer works on Fedora, Arch and openSUSE.** It used to
+  know only apt, and on any other distribution it printed a list of
+  Debian package names and left the rest to you. It now recognises the
+  distribution family and installs Python, ffmpeg, mkvtoolnix and the Qt
+  libraries with dnf, pacman or zypper. It also checks that the ffmpeg it
+  finds can decode H.264, HEVC and MPEG-2 and encode H.264, HEVC and AAC:
+  Fedora's and openSUSE's own ffmpeg cannot, and recordings would then fail
+  to open or save, so it says how to get the full one (RPM Fusion or
+  Packman) instead. Its final check now loads Qt itself and names any
+  system library Qt is missing, rather than passing an installation that
+  then fails to start from the menu - as one on openSUSE did until the
+  installer learned that Qt needs libgthread there. Tested on Linux Mint,
+  Fedora, EndeavourOS and openSUSE Tumbleweed.
+
+### Fixed
+
+- **Recordings with DVB teletext subtitles can be saved.** Saving one
+  failed outright - "template stream of type subtitle has no codec
+  context", followed by advice to repair a recording that was not
+  damaged - because the library Snipwright cuts with cannot read
+  teletext and so could not copy it. The teletext is now copied as it is
+  into a .ts save, with its page details (which page holds the subtitles)
+  kept, and the Program Info and join checks no longer trip over it.
+  Program Info shows a teletext stream's subtitle page, and a save that
+  fails for a reason other than its audio now says what went wrong
+  rather than suggesting the recording needs repairing. **This is untested
+  on real teletext:** UK Freeview carries none, so it was checked on a
+  recording whose subtitle track had been relabelled as teletext, which
+  reproduced the failure and shows the save now works, but says nothing
+  about how real teletext plays afterwards. An .mp4 save leaves teletext
+  out and says so; an .mkv save hands it to mkvmerge, which makes text
+  subtitles of it, and whether real ones come out is unknown. A sample
+  recording would settle both. (Reported by floodx88 on Reddit.)
+- **Videos of some widths can be viewed.** A video 1366 pixels wide - a
+  common screen size, so usually a screen recording - failed to display
+  with "memoryview: underlying buffer is not C-contiguous", because the
+  decoder pads each row of the picture at some widths and the display
+  could not take that. (Found in testing.)
+- **A recording whose audio-description track is silent throughout can be
+  saved as .mkv.** Broadcasters register an audio-description track on
+  many channels and send nothing on it during most programmes. A cut where
+  it carried nothing at all left a track with no sample rate, and every
+  step that builds the .mkv refused it - the save failed with "Adding MKV
+  chapters failed" on a Channel 4 film. Such a track is now left out
+  before the .mkv is built, as .ts and .mp4 saves already did, and the
+  summary says so.
+
 ## [2.14.0] - 2026-10-22
 
 ### Added

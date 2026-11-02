@@ -112,12 +112,20 @@ chmod +x install-linux.sh
 ./install-linux.sh
 ```
 
-The installer uses `apt` to fetch anything missing, so on Debian-based
-distributions (Mint, Ubuntu, Pop!\_OS and so on) it's fully automatic. On other
-families — Fedora/RHEL (`dnf`), Arch (`pacman`), openSUSE (`zypper`) — install
-the handful of system dependencies with your own package manager first
-(`python3`, `ffmpeg`, `mkvtoolnix`, and the Qt/`xcb` runtime libraries), then
-run the installer to set up the Python side and the menu shortcuts.
+The installer fetches anything missing with your distribution's own package
+manager — `apt` on Debian, Ubuntu, Mint and Pop!\_OS, `dnf` on Fedora and RHEL,
+`pacman` on Arch, EndeavourOS and Manjaro, `zypper` on openSUSE — so it's fully
+automatic on all of them. One thing it can't do for you: Fedora's and
+openSUSE's own ffmpeg can't decode H.264 or HEVC, which most broadcast
+recordings use, so on those it tells you how to switch to the full ffmpeg from
+RPM Fusion (Fedora) or Packman (openSUSE).
+
+A distribution that isn't one of these families or built on one (Gentoo, Void
+or Alpine, say) uses a package manager the installer doesn't know, so it can't
+fetch the system packages there. Install `python3`, `ffmpeg`, `mkvtoolnix` and
+the Qt/`xcb` runtime libraries with your own package manager first; the
+installer then does the rest — the Python environment, the menu shortcuts and
+the checks.
 
 **Windows 10 / 11:** clone or download the repository, then run the installer.
 The simplest way is to double-click `src/packaging/install-windows.bat` (or run

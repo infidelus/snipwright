@@ -261,6 +261,32 @@ _SUBTITLE_TYPES = {
 }
 
 
+def _teletext_pages(path):
+    """{PID: "888"} for every teletext stream, its subtitle pages first.
+
+    Read from the PMT's teletext descriptor (see smartcut/ts_teletext.py):
+    PyAV cannot describe a teletext stream, so FFmpeg's copy of it is out of
+    reach.  Each entry is a language, a type (2 and 5 are subtitles) with
+    the magazine, and the page in hex - magazine 0 meaning 8.
+    """
+    try:
+        from smartcut.ts_teletext import teletext_streams
+        found = teletext_streams(path)
+    except Exception:
+        return {}
+    pages = {}
+    for pid, desc in found.items():
+        body = desc[2:]
+        subs, other = [], []
+        for k in range(0, len(body) - 4, 5):
+            kind, mag, page = body[k + 3] >> 3, body[k + 3] & 7, body[k + 4]
+            text = "%d%02X" % (mag or 8, page)
+            (subs if kind in (2, 5) else other).append(text)
+        if subs or other:
+            pages[pid] = ", ".join(dict.fromkeys(subs or other))
+    return pages
+
+
 def _dvb_subtitle_pages(path):
     """{stream index: composition page} for every DVB subtitle stream.
 
@@ -277,7 +303,10 @@ def _dvb_subtitle_pages(path):
             for stream in container.streams.subtitles:
                 # PyAV names the decoder "dvbsub"; ffprobe calls the same
                 # codec "dvb_subtitle".
-                if stream.codec_context.name not in ("dvbsub", "dvb_subtitle"):
+                # A teletext stream has no codec context in PyAV at all, and
+                # reading its name raised - losing every page after it.
+                if stream.codec_context is None or \
+                        stream.codec_context.name not in ("dvbsub", "dvb_subtitle"):
                     continue
                 data = stream.codec_context.extradata
                 if data and len(data) >= 2:
@@ -480,11 +509,18 @@ def gather_program_info(path, frame_count=None, fps=None):
     subtitles = [s for s in streams if s.get("codec_type") == "subtitle"]
     pages = _dvb_subtitle_pages(path) if any(
         s.get("codec_name") == "dvb_subtitle" for s in subtitles) else {}
+    teletext = _teletext_pages(path) if any(
+        s.get("codec_name") == "dvb_teletext" for s in subtitles) else {}
     for i, sub in enumerate(subtitles, start=1):
         codec_name = sub.get("codec_name", "")
         kind = _SUBTITLE_TYPES.get(codec_name, (codec_name or _NA).upper())
         lang = (sub.get("tags", {}) or {}).get("language", _NA)
         page = pages.get(sub.get("index"))
+        if codec_name == "dvb_teletext":
+            try:
+                page = teletext.get(int(str(sub.get("id", "")), 16))
+            except ValueError:
+                page = None
         title = QT_TRANSLATE_NOOP("ProgramInfo", "Subtitle Stream: %d") % i
         sections.append((title, [
             (QT_TRANSLATE_NOOP("ProgramInfo", "Type"), kind),
