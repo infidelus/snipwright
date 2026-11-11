@@ -28,6 +28,8 @@ recording's service are CRC-checked and parsed, which is what keeps it quick
 all - 650,000 of them in a 700 MB file).
 """
 
+import os
+
 import numpy as np
 
 _CHUNK = 188 * 400_000
@@ -67,7 +69,18 @@ def _sync_offset(fh):
 
 
 def _programme_ids(path, off):
-    """(service_id, video_pid) from the first PAT and its PMT, or Nones.
+    """(service_id, video_pid) from the first PAT and its PMT, or Nones."""
+    service, vpid, _scte = _programme_pids(path, off)
+    return service, vpid
+
+
+# SCTE-35 splice information, stream type 0x86 in a PMT.
+_SCTE35_TYPE = 0x86
+
+
+def _programme_pids(path, off):
+    """(service_id, video_pid, scte35_pid) from the first PAT and its PMT,
+    or Nones.
 
     Read BEFORE the main pass on purpose: learning them during it meant the
     first block of the file - about ten minutes of a recording - took no
@@ -102,41 +115,122 @@ def _programme_ids(path, off):
                 elif pmt_pid is not None and pid == pmt_pid:
                     end = 3 + (((s[1] & 0xF) << 8) | s[2]) - 4
                     j = 12 + (((s[10] & 0xF) << 8) | s[11])
+                    vpid = scte = None
                     while j + 4 < min(end, len(s)):
                         ep = ((s[j + 1] & 0x1F) << 8) | s[j + 2]
-                        if s[j] in _VIDEO_TYPES:
-                            return service, ep
+                        if s[j] in _VIDEO_TYPES and vpid is None:
+                            vpid = ep
+                        elif s[j] == _SCTE35_TYPE and scte is None:
+                            scte = ep
                         j += 5 + (((s[j + 3] & 0xF) << 8) | s[j + 4])
-    return service, None
+                    if vpid is not None:
+                        return service, vpid, scte
+    return service, None, None
 
 
 def present_events(path, cancel_cb=None):
-    """Each change of the EPG's "now" event, as (seconds, event_id, duration).
+    """Each change of the EPG's "now" event - see broadcast_cues()."""
+    return broadcast_cues(path, cancel_cb)[0]
 
-    Seconds are from the recording's FIRST VIDEO FRAME, read from the video's
-    own timestamps.  Empty when the recording carries no EIT, no PAT/PMT the
-    reader understands, or no video timestamps - in every such case the
-    caller simply has nothing to go on.
+
+def has_present_following(path, limit=64 * 1024 * 1024):
+    """Whether the recording carries an EIT "now" table at all - read from
+    its first `limit` bytes, which hold many repeats of it if it is there.
+
+    For learning (see chalkline.TAIL_MIN_SEEN), which only wants to know
+    whether this recording's end padding is one the EPG could have trimmed;
+    reading the whole file for that would cost every save seconds.
     """
     try:
         with open(path, "rb") as fh:
             off = _sync_offset(fh)
-        service, vpid = _programme_ids(path, off)
+            fh.seek(off)
+            raw = fh.read(limit)
     except OSError:
-        return []
+        return False
+    n = len(raw) // 188
+    if n == 0:
+        return False
+    a = np.frombuffer(raw[:n * 188], dtype=np.uint8).reshape(n, 188)
+    a = a[a[:, 0] == 0x47]
+    pid = ((a[:, 1].astype(np.int32) & 0x1F) << 8) | a[:, 2]
+    for i in np.where((pid == 0x12) & ((a[:, 1] & 0x40) != 0))[0]:
+        pl = _payload(a[i])
+        if pl and 1 + pl[0] < len(pl) and pl[1 + pl[0]] == 0x4E:
+            return True
+    return False
+
+
+def scte35_cues(path, cancel_cb=None):
+    """The advert slots a recording's SCTE-35 stream announces - see
+    broadcast_cues()."""
+    return broadcast_cues(path, cancel_cb)[1]
+
+
+_CUE_CACHE = {}
+
+
+def broadcast_cues(path, cancel_cb=None):
+    """(EPG changes, SCTE-35 slots) from one pass over the file.
+
+    EPG changes: each change of the EPG's "now" event, as (seconds,
+    event_id, duration).
+
+    SCTE-35 slots (2.16.0): the advert slots the broadcaster announces for
+    replacement - each splice_insert "out of network" with a duration, as
+    (start, end) seconds.  Found in the Jellyfin recordings of Channel 4 HD
+    and ITV2 (2026-11-09) and in five corpus recordings; Tvheadend drops the
+    stream (it is not among the streams it recognises).  A slot is always
+    inside a break, but a break is wider than its slots: the channel's own
+    idents and trailers at either end are not sold.
+
+    Both are computed together because reading the file is the cost, and
+    cached for the last few files so a second caller pays nothing.
+
+    Seconds are from the recording's FIRST VIDEO FRAME, read from the video's
+    own timestamps.  Empty when the recording carries no EIT (or no SCTE-35),
+    no PAT/PMT the reader understands, or no video timestamps - in every such
+    case the caller simply has nothing to go on.
+    """
+    try:
+        st = os.stat(path)
+        ckey = (path, st.st_size, st.st_mtime_ns)
+    except OSError:
+        return [], []
+    if ckey in _CUE_CACHE:
+        return _CUE_CACHE[ckey]
+    result = _read_cues(path, cancel_cb)
+    if result is not None:
+        if len(_CUE_CACHE) > 4:
+            _CUE_CACHE.clear()
+        _CUE_CACHE[ckey] = result
+        return result
+    return [], []
+
+
+def _read_cues(path, cancel_cb):
+    """broadcast_cues() without the cache; None when cancelled."""
+    try:
+        with open(path, "rb") as fh:
+            off = _sync_offset(fh)
+        service, vpid, scte_pid = _programme_pids(path, off)
+    except OSError:
+        return [], []
     if vpid is None:
-        return []
+        return [], []
 
     marks_i, marks_pts = [], []
     sections = []                      # (packet index, section bytes)
     buf = None                         # EIT section being reassembled
     buf_at = 0
+    splices = []                       # SCTE-35 sections
+    sbuf = None
     idx0 = 0
     with open(path, "rb") as fh:
         fh.seek(off)
         while True:
             if cancel_cb is not None and cancel_cb():
-                return []
+                return None
             at = fh.tell()
             raw = fh.read(_CHUNK)
             if len(raw) < 188:
@@ -187,9 +281,23 @@ def present_events(path, cancel_cb=None):
                         buf_at = idx0 + int(i)
                 elif buf is not None:
                     buf += pl
+            if scte_pid is not None:
+                for i in np.where(pid == scte_pid)[0]:
+                    pl = _payload(a[i])
+                    if not pl:
+                        continue
+                    if pusi[i]:
+                        if sbuf is not None:
+                            splices.append(bytes(sbuf))
+                        rest = pl[1 + pl[0]:]
+                        sbuf = bytearray(rest) if rest[:1] == b"\xfc" else None
+                    elif sbuf is not None:
+                        sbuf += pl
             idx0 += n
+    if sbuf is not None:
+        splices.append(bytes(sbuf))
     if len(marks_i) < 2:
-        return []
+        return [], []
 
     pts = np.unwrap(np.array(marks_pts, dtype=np.float64), period=2 ** 33)
     secs = (pts - pts.min()) / 90000.0
@@ -217,7 +325,55 @@ def present_events(path, cancel_cb=None):
             t = float(np.interp(i, pos, secs))
             changes.append((t, eid, dur))
             last = key
-    return changes
+    return changes, _splice_slots(splices, float(pts.min()))
+
+
+def _splice_slots(sections, first_pts):
+    """(start, end) seconds of each announced advert slot.
+
+    Only splice_insert (command 5), "out of network", with a splice time and
+    a duration - the shape every cue found so far has.  A repeated message
+    for the same event counts once; a cancel removes it.  Anything the
+    parser cannot account for is skipped rather than guessed at.
+    """
+    events = {}
+    for sec in sections:
+        if len(sec) < 15 or sec[0] != 0xFC:
+            continue
+        ln = (((sec[1] & 0x0F) << 8) | sec[2]) + 3
+        sec = sec[:ln]
+        if len(sec) < ln or _crc32_mpeg(sec) != 0:
+            continue
+        if sec[3] & 0x80:            # encrypted: unreadable
+            continue
+        adj = ((sec[4] & 1) << 32) | int.from_bytes(sec[5:9], "big")
+        if sec[13] != 5:
+            continue
+        j = 14
+        eid = int.from_bytes(sec[j:j + 4], "big")
+        j += 4
+        if sec[j] & 0x80:            # splice_event_cancel_indicator
+            events.pop(eid, None)
+            continue
+        j += 1
+        flags = sec[j]
+        j += 1
+        out_net = flags >> 7 & 1
+        program = flags >> 6 & 1
+        has_dur = flags >> 5 & 1
+        immediate = flags >> 4 & 1
+        if not (out_net and program and has_dur) or immediate:
+            continue
+        if not sec[j] & 0x80:        # no splice time given
+            continue
+        at = ((sec[j] & 1) << 32) | int.from_bytes(sec[j + 1:j + 5], "big")
+        j += 5
+        dur = (((sec[j] & 1) << 32) | int.from_bytes(sec[j + 1:j + 5],
+                                                     "big")) / 90000.0
+        start = (((at + adj) - first_pts) % 2 ** 33) / 90000.0
+        if 0 < dur <= 600:
+            events[eid] = (round(start, 3), round(start + dur, 3))
+    return sorted(set(events.values()))
 
 
 def programme_switch_out(changes, duration):
@@ -237,6 +393,52 @@ def programme_switch_out(changes, duration):
     k = max(spans)[1]
     eid = changes[k][1]
     return next((c[0] for c in changes[k + 1:] if c[1] != eid), None)
+
+
+def programme_switch_in(changes, duration):
+    """When the recording's programme became "now", or None.
+
+    The same programme as programme_switch_out() picks.  None when it was
+    already "now" as the recording began, which leaves no lead-in to find.
+    """
+    spans = []
+    for k, (t, eid, _d) in enumerate(changes):
+        nxt = next((c[0] for c in changes[k + 1:] if c[1] != eid), duration)
+        spans.append((nxt - t, k))
+    if not spans:
+        return None
+    k = max(spans)[1]
+    return changes[k][0] if k > 0 else None
+
+
+# The EPG's switch into the programme against the corrected start, on the 25
+# recordings carrying one (dev/scripts/epg-start.py, dev/logs/epg-start.txt):
+# median 18 s early, as much as 40 s early, and on six late - e4 by 11.4 s,
+# More 4 and Film4 by 6-9 s.  So a lead-in stops
+# EPG_HEAD_MARGIN short of the switch, which cuts no programme on any of them
+# at the cost of keeping up to 52 s of padding.  Only where nothing else
+# placed a lead-in: the techniques that found one are far closer than this.
+EPG_HEAD_MARGIN = 12.0
+# A lead-in shorter than this is not worth a cut.
+EPG_HEAD_MIN = 20.0
+# A break starting this early is already the lead-in - MARKER_HEAD_REACH.
+EPG_HEAD_REACH = 360.0
+
+
+def epg_head(breaks, switch_in):
+    """Add a lead-in up to the EPG's switch into the programme, if none.
+
+    Returns (breaks, end of the lead-in or None).  Never touches a break,
+    and adds nothing that would reach one.
+    """
+    if switch_in is None:
+        return breaks, None
+    edge = switch_in - EPG_HEAD_MARGIN
+    if edge < EPG_HEAD_MIN:
+        return breaks, None
+    if any(a <= EPG_HEAD_REACH or a <= edge for a, _b in breaks):
+        return breaks, None
+    return sorted(list(breaks) + [(0.0, edge)]), edge
 
 
 # How close a detected break must come to the trim before it is joined to

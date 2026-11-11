@@ -23,18 +23,22 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 from addons.output_profiles import (
@@ -55,6 +59,10 @@ from addons.output_profiles import (
     LEVEL_TARGET_DEFAULT,
     LEVEL_GAIN_MIN,
     LEVEL_GAIN_MAX,
+    RESIZE_MAX,
+    RESIZE_MIN,
+    RESIZE_PRESETS,
+    RESIZE_SOURCE,
 )
 
 _CONTAINERS = [
@@ -322,32 +330,72 @@ class CropPreviewDialog(QDialog):
 class ProfileEditDialog(QDialog):
     """Edit a single profile."""
 
-    # Keeps the dialog (and its dropdowns) a sensible width; the wrapped
-    # explanatory note grows downwards rather than sideways.
-    _BODY_WIDTH = 430
-
     def __init__(self, profile, parent=None, sample_source=""):
         super().__init__(parent)
         self.setWindowTitle(self.tr("Output Profile"))
-        self.setMinimumWidth(440)
         self._result = None
         self._sample_source = sample_source
 
         layout = QVBoxLayout(self)
 
+        # Two columns of grouped settings - video and picture on the left,
+        # audio and saving on the right.  A single column of twenty rows had
+        # grown taller than a laptop screen, and stretching every dropdown to
+        # the dialog's width made each about twice as wide as its longest
+        # entry; here each dropdown is as wide as its contents and no wider.
+        name_row = QHBoxLayout()
+        name_row.addWidget(QLabel(self.tr("Profile name:")))
+        self.name_edit = QLineEdit(profile.name)
+        name_row.addWidget(self.name_edit, 1)
+        layout.addLayout(name_row)
+
+        def group(title, grow=False):
+            box = QGroupBox(title)
+            form = QFormLayout(box)
+            # Fields keep their own width unless the group is told to grow
+            # them - only the Saving group does, for the folder box.
+            form.setFieldGrowthPolicy(
+                QFormLayout.AllNonFixedFieldsGrow if grow
+                else QFormLayout.FieldsStayAtSizeHint)
+            form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            return box, form
+
+        video_box, video_form = group(self.tr("Video"))
+        picture_box, picture_form = group(self.tr("Picture"))
+        audio_box, audio_form = group(self.tr("Audio"))
+        saving_box, saving_form = group(self.tr("Saving"), grow=True)
+        columns = QHBoxLayout()
+        for boxes in ((video_box, picture_box), (audio_box, saving_box)):
+            column = QVBoxLayout()
+            for box in boxes:
+                column.addWidget(box)
+            column.addStretch(1)
+            columns.addLayout(column)
+        layout.addLayout(columns)
+
+        # The group that row() adds to; set before each run of rows.
+        target = [video_form]
+
         def row(label, widget):
-            r = QHBoxLayout()
-            lab = QLabel(label)
-            lab.setMinimumWidth(140)
-            r.addWidget(lab)
-            r.addWidget(widget, 1)
-            layout.addLayout(r)
+            if isinstance(widget, QComboBox):
+                widget.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+                widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            target[0].addRow(label, widget)
             return widget
 
-        self.name_edit = row(self.tr("Profile name:"), QLineEdit(profile.name))
+        def row_layout(label, inner):
+            """A row whose field is a layout of several widgets."""
+            holder = QWidget()
+            inner.setContentsMargins(0, 0, 0, 0)
+            holder.setLayout(inner)
+            target[0].addRow(label, holder)
+            return holder
 
+        target[0] = saving_form
         self.container_combo = row(self.tr("Container:"), _combo(_CONTAINERS))
         _select_data(self.container_combo, profile.container)
+
+        target[0] = video_form
 
         self.video_combo = row(self.tr("Video:"), _combo(_VIDEO))
         _select_data(self.video_combo, getattr(profile, "video", "copy"))
@@ -358,11 +406,23 @@ class ProfileEditDialog(QDialog):
         # re-encoded (HEVC output, or a crop), so they're greyed out otherwise.
         self.preset_combo = row(self.tr("Encoder speed:"), _combo(_PRESETS))
         _select_data(self.preset_combo, getattr(profile, "preset", DEFAULT_PRESET))
+        # The explanations below lived in a long note at the foot of the
+        # dialog; they are tooltips now, beside the setting they explain.
+        self.preset_combo.setToolTip(self.tr(
+            "Used only when the video is re-encoded (HEVC, cropping or "
+            "resizing). Slower presets give better quality for the same size, "
+            "at the cost of time."
+        ))
 
         self.crf_spin = row(self.tr("Quality (CRF):"), QSpinBox())
         self.crf_spin.setRange(CRF_AUTO, CRF_MAX)
         self.crf_spin.setSpecialValueText(self.tr("Automatic"))
         self.crf_spin.setValue(getattr(profile, "crf", CRF_AUTO))
+        self.crf_spin.setToolTip(self.tr(
+            "Used only when the video is re-encoded. A lower CRF means better "
+            "quality and a bigger file; Automatic picks a sensible value for "
+            "the codec, which is what Snipwright has always used."
+        ))
 
         self.gop_spin = row(self.tr("Keyframes every:"), QSpinBox())
         self.gop_spin.setRange(GOP_AUTO, GOP_MAX)  # 0 shows as "Automatic"
@@ -377,6 +437,7 @@ class ProfileEditDialog(QDialog):
             "cropping."
         ))
 
+        target[0] = audio_form
         self.audio_combo = row(self.tr("Audio:"), _combo(_AUDIO))
         _select_data(self.audio_combo, profile.audio)
         self.audio_combo.currentIndexChanged.connect(self._on_audio_changed)
@@ -448,11 +509,22 @@ class ProfileEditDialog(QDialog):
             "losslessly - only its timing changes."
         ))
 
+        target[0] = picture_form
         self.aspect_combo = row(self.tr("Display aspect:"), _combo(_ASPECT))
         _select_data(self.aspect_combo, profile.aspect)
+        self.aspect_combo.setToolTip(self.tr(
+            "Applied losslessly: 4:3 or 16:9 is stamped into the video's "
+            "aspect signalling without re-encoding, so a wrongly-flagged "
+            "recording plays at the right shape. Source leaves it untouched."
+        ))
 
         self.crop_combo = row(self.tr("Cropping:"), _combo(_CROP))
         _select_data(self.crop_combo, getattr(profile, "crop_mode", "none"))
+        self.crop_combo.setToolTip(self.tr(
+            "Removes black bars, but re-encodes the video (slower, not "
+            "lossless). Auto-detect finds the bars per file; Fixed pixels "
+            "uses the amounts below."
+        ))
         self.crop_combo.currentIndexChanged.connect(self._on_crop_changed)
 
         # Edge amounts for "Fixed pixels"; greyed out unless that mode is chosen.
@@ -460,10 +532,6 @@ class ProfileEditDialog(QDialog):
         # stays narrow.  The grid lines up with the dropdowns above, and the
         # Preview button sits to the right of the four boxes.
         crop_row = QHBoxLayout()
-        clab = QLabel(self.tr("Crop pixels:"))
-        clab.setMinimumWidth(140)
-        clab.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        crop_row.addWidget(clab)
 
         self.crop_spins = {}
         cur_crop = getattr(profile, "crop", (0, 0, 0, 0))
@@ -497,15 +565,55 @@ class ProfileEditDialog(QDialog):
         self.crop_preview_btn = QPushButton(self.tr("Preview…"))
         self.crop_preview_btn.clicked.connect(self._open_crop_preview)
         crop_row.addWidget(self.crop_preview_btn, 0, Qt.AlignVCenter)
-        layout.addLayout(crop_row)
+        row_layout(self.tr("Crop pixels:"), crop_row)
+
+        # Picture size.  "Same as source" keeps the lossless copy; a size
+        # re-encodes and fits the picture inside it (after any crop), keeping
+        # its displayed shape.  "Custom" opens the two boxes below.
+        self.resize_combo = row(self.tr("Resolution:"), QComboBox())
+        self.resize_combo.addItem(self.tr("Same as source"), "source")
+        for rw, rh in RESIZE_PRESETS:
+            self.resize_combo.addItem("%dx%d" % (rw, rh), "%dx%d" % (rw, rh))
+        self.resize_combo.addItem(self.tr("Custom"), "custom")
+        self.resize_combo.setToolTip(self.tr(
+            "Scales the picture to fit inside this size, up or down, keeping "
+            "its shape - a widescreen film asked for 1280x720 comes out "
+            "1280x720 or a little shorter, never stretched.<br><br>"
+            "Resizing re-encodes the video (slower, not lossless). An "
+            "interlaced recording is deinterlaced at the same time, because "
+            "scaling would blend its fields together. Enlarging cannot add "
+            "detail that was never there."
+        ))
+        cur_resize = tuple(getattr(profile, "resize", RESIZE_SOURCE))
+        if cur_resize == RESIZE_SOURCE:
+            _select_data(self.resize_combo, "source")
+        elif cur_resize in RESIZE_PRESETS:
+            _select_data(self.resize_combo, "%dx%d" % cur_resize)
+        else:
+            _select_data(self.resize_combo, "custom")
+        self.resize_combo.currentIndexChanged.connect(self._on_resize_changed)
+
+        size_row = QHBoxLayout()
+        self.resize_w_spin = QSpinBox()
+        self.resize_h_spin = QSpinBox()
+        for sp, val in ((self.resize_w_spin, cur_resize[0] or 1280),
+                        (self.resize_h_spin, cur_resize[1] or 720)):
+            sp.setRange(RESIZE_MIN, RESIZE_MAX)
+            sp.setSingleStep(2)
+            sp.setValue(int(val))
+        size_row.addWidget(self.resize_w_spin, 1)
+        size_row.addWidget(QLabel("x"))
+        size_row.addWidget(self.resize_h_spin, 1)
+        row_layout(self.tr("Custom size:"), size_row)
 
         # Default output directory (read-only field + Choose/Clear).
         dir_row = QHBoxLayout()
-        lab = QLabel(self.tr("Default directory:"))
-        lab.setMinimumWidth(140)
-        dir_row.addWidget(lab)
         self.dir_edit = QLineEdit(profile.output_dir)
         self.dir_edit.setReadOnly(True)
+        # Room for the placeholder, which is longer in German.
+        self.dir_edit.setMinimumWidth(
+            self.dir_edit.fontMetrics().horizontalAdvance(
+                self.tr("(use the export folder)")) + 16)
         if not profile.output_dir:
             self.dir_edit.setPlaceholderText(self.tr("(use the export folder)"))
         dir_row.addWidget(self.dir_edit, 1)
@@ -515,32 +623,16 @@ class ProfileEditDialog(QDialog):
         clear.clicked.connect(lambda: self.dir_edit.setText(""))
         dir_row.addWidget(choose)
         dir_row.addWidget(clear)
-        layout.addLayout(dir_row)
+        target[0] = saving_form
+        row_layout(self.tr("Default directory:"), dir_row)
 
-        note = QLabel(
-            self.tr("Display aspect is applied losslessly on export: 4:3 or 16:9 is "
-            "stamped into the video's aspect signalling without re-encoding, so "
-            "a wrongly-flagged recording plays at the right shape.  'Source' "
-            "leaves it untouched.\n\n"
-            "Cropping removes black bars, but unlike everything else it "
-            "re-encodes the video (slower, not lossless).  'Auto-detect' finds "
-            "the bars per file; 'Fixed pixels' uses the amounts above.\n\n"
-            "Encoder speed and Quality apply only when the video is re-encoded "
-            "(HEVC, or cropping).  Slower presets give better quality for the "
-            "same size, at the cost of time.  A lower CRF means better quality "
-            "and a bigger file; 'Automatic' picks a sensible value for the "
-            "codec, which is what Snipwright has always used.")
-        )
+        # One line; the detail is in each setting's tooltip.
+        note = QLabel(self.tr(
+            "Anything that re-encodes the video (HEVC, cropping or resizing) "
+            "is slower and not lossless. Hover over a setting for details."
+        ))
         note.setWordWrap(True)
         note.setStyleSheet("color: gray;")
-        # Without a width limit this wrapped paragraph asks to be very wide,
-        # which stretches the whole dialog - and every dropdown in it.  Cap it
-        # so the text wraps downwards instead, keeping the dialog narrow.
-        note.setMaximumWidth(self._BODY_WIDTH)
-        # A word-wrapped QLabel doesn't report its wrapped height through
-        # sizeHint(), so the dialog would size itself too short and clip the
-        # last lines.  Ask the label how tall it needs to be at that width.
-        note.setMinimumHeight(note.heightForWidth(self._BODY_WIDTH))
         layout.addWidget(note)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -552,13 +644,12 @@ class ProfileEditDialog(QDialog):
         self._on_audio_changed()
         self._sync_encoder_rows()
         self._on_crop_changed()
+        self._on_resize_changed()
 
-        # Open narrow-and-tall: at this slim width the help text wraps to a
-        # couple more lines, so size the height to suit rather than opening wide.
-        # Size to what the layout actually needs rather than a fixed height:
-        # the dialog has grown (encoder speed, quality, and a longer note), and
-        # a hardcoded height clipped the first and last rows.  The minimum stops
-        # it being dragged back down into clipping.
+        # Size to what the layout actually needs rather than a fixed size:
+        # a hardcoded height once clipped the first and last rows, and the
+        # German labels are wider than the English.  The minimum stops it
+        # being dragged back down into clipping.
         self.adjustSize()
         hint = self.sizeHint()
         self.resize(hint.width(), hint.height())
@@ -569,15 +660,37 @@ class ProfileEditDialog(QDialog):
 
     def _sync_encoder_rows(self):
         """Encoder speed and CRF matter only when the video is re-encoded, which
-        happens for HEVC output or when cropping.  A lossless copy ignores both,
-        so grey them out rather than imply they do something."""
+        happens for HEVC output, when cropping or when resizing.  A lossless
+        copy ignores both, so grey them out rather than imply they do
+        something.
+
+        The resize combo is looked up with getattr: the crop combo's handler
+        runs this before the resize row has been built."""
+        resize = getattr(self, "resize_combo", None)
         reencodes = (
             self.video_combo.currentData() == "hevc"
             or self.crop_combo.currentData() != "none"
+            or (resize is not None and resize.currentData() != "source")
         )
         self.preset_combo.setEnabled(reencodes)
         self.crf_spin.setEnabled(reencodes)
         self.gop_spin.setEnabled(reencodes)
+
+    def _on_resize_changed(self):
+        self._sync_encoder_rows()
+        custom = self.resize_combo.currentData() == "custom"
+        self.resize_w_spin.setEnabled(custom)
+        self.resize_h_spin.setEnabled(custom)
+
+    def _resize_value(self):
+        """The chosen picture size as (width, height), (0, 0) for the source."""
+        data = self.resize_combo.currentData()
+        if data == "custom":
+            return (self.resize_w_spin.value(), self.resize_h_spin.value())
+        if data and data != "source":
+            w, h = data.split("x")
+            return (int(w), int(h))
+        return RESIZE_SOURCE
 
     def _on_crop_changed(self):
         self._sync_encoder_rows()
@@ -756,6 +869,7 @@ class ProfileEditDialog(QDialog):
                 self.crop_spins["left"].value(),
                 self.crop_spins["right"].value(),
             ),
+            resize=self._resize_value(),
             output_dir=self.dir_edit.text().strip(),
             builtin=self._keep_builtin,
         )

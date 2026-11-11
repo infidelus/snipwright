@@ -619,6 +619,13 @@ class MainWindow(QMainWindow):
 
         right = QVBoxLayout()
 
+        # Where the Reference Frame panel docks (Edit -> Set Reference
+        # Frame): the top of this column, so the scene list gets shorter
+        # while it is open and the preview loses nothing.
+        self._reference_slot = QVBoxLayout()
+        self._reference_slot.setContentsMargins(0, 0, 0, 0)
+        right.addLayout(self._reference_slot)
+
         right.addWidget(
             self.scene_list,
             stretch=1,
@@ -688,9 +695,7 @@ class MainWindow(QMainWindow):
 
         def _sync_scene_list_height(event):
             self._preview_default_resize(event)
-            self.scene_list.setMaximumHeight(
-                self.preview.height()
-            )
+            self._fit_scene_list()
             # While playing, the background worker pre-scales each frame to a
             # fixed size, so a resize/maximise wouldn't otherwise take effect
             # until the next pause re-rendered.  Two steps keep it smooth:
@@ -1028,6 +1033,13 @@ class MainWindow(QMainWindow):
             self._menu_label(self.tr("Capture Frame\u2026"), "capture_frame")
         )
         capture_action.triggered.connect(self.capture_frame)
+        # A picture to match against - for finding where a programme picks
+        # up again after the bit some channels repeat after an advert break.
+        reference_action = edit_menu.addAction(
+            self._menu_label(self.tr("Set Reference Frame"),
+                             "set_reference_frame")
+        )
+        reference_action.triggered.connect(self.set_reference_frame)
         edit_menu.addSeparator()
 
         mark_in_action = edit_menu.addAction(
@@ -1669,12 +1681,13 @@ class MainWindow(QMainWindow):
         if frame is None:
             return
 
-        from utils.timecode import seconds_to_timecode
         from ui.capture_dialog import CaptureFrameDialog
         from media.renderer import capture_image
         stem = os.path.splitext(os.path.basename(self.current_filename))[0]
-        stamp = seconds_to_timecode(
-            self._content_seconds(self.current_frame)).replace(":", ".")
+        # The timecode the editor shows for this frame, so the file name
+        # agrees with the Cursor box.  The frame's broadcast timestamp drifts
+        # from it on field-coded HD - a couple of frames by 16 minutes.
+        stamp = frame_to_timecode(self.current_frame).replace(":", ".")
         folder = (self._start_dir("capture")
                   or os.path.dirname(self.current_filename))
         settings = self.config.setdefault("settings", {})
@@ -1729,6 +1742,71 @@ class MainWindow(QMainWindow):
                  where)
         self.statusBar().showMessage(done, 5000)
         self._status_hold_until = time.monotonic() + 5.0
+
+    def set_reference_frame(self):
+        """Hold the frame on screen in the Reference Frame panel (Edit ->
+        Set Reference Frame) - see ui/reference_frame.py."""
+        if not self.frames or not getattr(self, "current_filename", None):
+            return
+        frame = self.frames[self.current_frame]
+        if frame is None:
+            return
+        from media.renderer import capture_image
+        from ui.reference_frame import ReferenceFramePanel
+        try:
+            image = capture_image(frame, self.container, True)
+        except Exception:
+            log.exception("Set Reference Frame: could not render the frame")
+            image = None
+        if image is None or image.isNull():
+            return
+        panel = getattr(self, "_reference_panel", None)
+        if panel is None:
+            panel = ReferenceFramePanel(self, self._reference_slot)
+            self._reference_panel = panel
+        # The editor's own timecode for the frame, so the label reads what
+        # the Cursor box showed - not the broadcast timestamp, which drifts
+        # from it on field-coded HD.
+        panel.set_reference(
+            self.current_frame, image,
+            frame_to_timecode(self.current_frame),
+            frame)
+        if not panel.is_open():
+            docked = self.config.get("settings", {}).get(
+                "reference_docked", True)
+            panel.open_panel(docked)
+        log_verbose("Reference frame set to %d", self.current_frame)
+
+    def reference_compare_frame(self):
+        """The decoded frame at the cursor, for the Reference Frame panel to
+        compare - from the cache of recent frames when it is there, which
+        after a step it always is; a cold jump decodes it once."""
+        if not self.frames:
+            return None
+        try:
+            return self.frames[self.current_frame]
+        except Exception:
+            return None
+
+    def remember_reference_docked(self, docked):
+        """Keep the Reference Frame panel docked or floating next time."""
+        self.config.setdefault("settings", {})["reference_docked"] = bool(
+            docked)
+        save_config(self.config)
+
+    def reference_panel_changed(self):
+        """The Reference Frame panel opened, closed, docked or floated."""
+        self._fit_scene_list()
+
+    def _fit_scene_list(self):
+        """Keep the scene list's bottom edge level with the preview's, less
+        the Reference Frame panel when it is docked above the list."""
+        height = self.preview.height()
+        panel = getattr(self, "_reference_panel", None)
+        if panel is not None and panel.is_docked() and panel.isVisible():
+            # The panel's own height plus the layout's gap below it.
+            height -= panel.sizeHint().height() + 6
+        self.scene_list.setMaximumHeight(max(60, height))
 
     def _stream_label(self, track):
         """One track as the Select Stream menu shows it, in VideoReDo's
@@ -3225,6 +3303,21 @@ class MainWindow(QMainWindow):
         log only.
         """
         self._log_learn_detail(info)
+        # Advert-free channels (chalkline.NO_ADVERTS_AFTER): said once, when
+        # it changes, because it changes how the channel is detected.
+        adfree_label = info.get("label") or info.get("channel") or ""
+        if info.get("adfree_now"):
+            log.info("Chalkline: no adverts in %d corrected recordings from "
+                     "%s - only their start and end will be looked for",
+                     info.get("adfree_clean", 0), adfree_label)
+            self.statusBar().showMessage(
+                self.tr("Chalkline: %s has had no adverts in your last %d "
+                        "corrections - from now on only the start and end "
+                        "of its recordings will be trimmed.")
+                % (adfree_label, info.get("adfree_clean", 0)), 15000)
+        elif info.get("adfree_cleared"):
+            log.info("Chalkline: %s has a cut mid-programme - breaks will be "
+                     "looked for in its recordings again", adfree_label)
         if info.get("error"):
             log.warning("Chalkline could not learn from this project: %s",
                         info["error"])
@@ -4708,6 +4801,7 @@ class MainWindow(QMainWindow):
             aspect=profile.aspect,
             crop_mode=getattr(profile, "crop_mode", "none"),
             crop=getattr(profile, "crop", (0, 0, 0, 0)),
+            resize=getattr(profile, "resize", (0, 0)),
             video_mode=getattr(profile, "video", "copy"),
             encoder_preset=getattr(profile, "preset", "faster"),
             encoder_crf=(profile.effective_crf()
@@ -5185,6 +5279,7 @@ class MainWindow(QMainWindow):
             aspect="source",
             crop_mode="none",
             crop=(0, 0, 0, 0),
+            resize=(0, 0),
             video_mode="copy",
             encoder_preset="faster",
             encoder_crf=None,
@@ -5215,6 +5310,7 @@ class MainWindow(QMainWindow):
             aspect=aspect,
             crop_mode=crop_mode,
             crop=crop,
+            resize=resize,
             video_mode=video_mode,
             encoder_preset=encoder_preset,
             encoder_crf=encoder_crf,
@@ -5887,6 +5983,11 @@ class MainWindow(QMainWindow):
 
     def _reset_media_state(self):
         """Clear all per-file state when opening a new (or no) video."""
+
+        # A reference frame belongs to the recording it came from.
+        if getattr(self, "_reference_panel", None) is not None:
+            self._reference_panel.discard()
+            self._reference_panel = None
 
         #
         # Cancel an in-flight index build.
@@ -7079,6 +7180,10 @@ class MainWindow(QMainWindow):
 
         if self.keys.match(event, "capture_frame"):
             self.capture_frame()
+            return
+
+        if self.keys.match(event, "set_reference_frame"):
+            self.set_reference_frame()
             return
 
         if self.keys.match(event, "open_video"):

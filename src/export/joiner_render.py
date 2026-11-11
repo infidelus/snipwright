@@ -334,7 +334,7 @@ class JoinerRenderWorker(QThread):
         change - so the proven lossless join + finalize path can be used and
         the output stays byte-for-byte the source video.
 
-        Any of HEVC, crop, an aspect override, or AAC re-encode means the
+        Any of HEVC, crop, a resize, an aspect override, or AAC re-encode means the
         joined stream has to be processed, which we do in one whole-file pass
         (below), identical to how Save Video handles the same profile."""
         p = self._profile
@@ -343,6 +343,7 @@ class JoinerRenderWorker(QThread):
         return (
             getattr(p, "video", "copy") == "copy"
             and getattr(p, "crop_mode", "none") == "none"
+            and tuple(getattr(p, "resize", (0, 0)) or (0, 0)) == (0, 0)
             and getattr(p, "aspect", "source") == "source"
             and getattr(p, "audio", "copy") == "copy"
         )
@@ -1241,6 +1242,7 @@ class JoinerRenderWorker(QThread):
             aspect=getattr(p, "aspect", "source"),
             crop_mode=getattr(p, "crop_mode", "none"),
             crop=getattr(p, "crop", (0, 0, 0, 0)),
+            resize=getattr(p, "resize", (0, 0)),
             video_mode=getattr(p, "video", "copy"),
             encoder_preset=getattr(p, "preset", "faster"),
             encoder_crf=(p.effective_crf()

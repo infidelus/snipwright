@@ -2279,6 +2279,15 @@ def detect(video, verbose=False, keep=None, learn=None,
               f"  channel {channel or 'unknown'}{origin}", file=sys.stderr)
 
     info = {}
+    # A channel the user's corrections say carries no adverts (see
+    # NO_ADVERTS_AFTER): only its start and end padding is looked for.
+    # Not while learning - that pass measures the recording.
+    adfree, adfree_clean = (no_adverts(channel, store_path)
+                            if learn is None else (False, 0))
+    if adfree and verbose:
+        print(f"  {channel}: no adverts in {adfree_clean} corrected "
+              f"recordings in a row - only the start and end are looked "
+              f"for", file=sys.stderr)
     epg_logo = None      # (present, times) of a persistent mask - EPG tail
     # Audio first and on its own - it must not share an ffmpeg run with the
     # video work, see audio_signals().
@@ -3058,7 +3067,9 @@ def detect(video, verbose=False, keep=None, learn=None,
         ) if brackets else []
 
         arm_coincidence = []
-        if not arm_breaks:
+        # Never on a channel with no adverts: coincidence is the fallback for
+        # finding breaks nothing else could, and there are none to find.
+        if not arm_breaks and not adfree:
             arm_coincidence = coincidence_brackets(events)
             if arm_coincidence:
                 arm_breaks = build_breaks(
@@ -3104,6 +3115,17 @@ def detect(video, verbose=False, keep=None, learn=None,
         }
 
     breaks, arm = _assemble(mask_br, verbose, marks if mask_br else None)
+    adfree_dropped = 0
+    if adfree:
+        kept = keep_padding_only(breaks, duration)
+        adfree_dropped = len(breaks) - len(kept)
+        if adfree_dropped and verbose:
+            for lo, hi in breaks:
+                if (lo, hi) not in kept:
+                    print(f"    no adverts on {channel}: {lo:.2f} - {hi:.2f} "
+                          f"is not start or end padding - left in",
+                          file=sys.stderr)
+        breaks = kept
 
     # Edge cards (item 1u, stage 3): with a card learned for this channel,
     # its sightings place the edges of the breaks already found - Film4's
@@ -3164,6 +3186,8 @@ def detect(video, verbose=False, keep=None, learn=None,
     # only lengthen the tail the other techniques settled on - and not while
     # learning, which measures the recording rather than reporting breaks.
     epg_switch = None
+    epg_in = None
+    cue_slots = []       # SCTE-35 advert slots, on this function's clock
     shift = 0.0
     if learn is None:
         try:
@@ -3172,21 +3196,46 @@ def detect(video, verbose=False, keep=None, learn=None,
             src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             if src_dir not in sys.path:
                 sys.path.insert(0, src_dir)
-            from repair.epg import present_events, programme_switch_out
+            from repair.epg import (broadcast_cues, programme_switch_in,
+                                    programme_switch_out)
             if progress_cb is not None:
                 progress_cb(60.0, "working out the breaks")
-            changes = present_events(video, cancel_cb=cancel_cb)
+            # One pass reads both the EPG and any SCTE-35 cues.
+            changes, cue_slots = broadcast_cues(video, cancel_cb=cancel_cb)
             if progress_cb is not None:
                 progress_cb(95.0, "working out the breaks")
             epg_switch = programme_switch_out(changes, duration)
-            if epg_switch is not None:
+            epg_in = programme_switch_in(changes, duration)
+            # No EPG at all: the channel's own corrected end padding stands
+            # in for its switch (TAIL_MIN_SEEN).  Already on this clock, so
+            # it is taken back to the EPG's before the shift below.
+            learned = None
+            if not changes and epg_switch is None:
+                learned, held = learned_switch(channel, duration, store_path)
+                if learned is not None and learned < duration - 1.0:
+                    info["tail_learned"] = (round(learned, 2), held)
+                    if verbose:
+                        print(f"  no EPG: the end of the programme from "
+                              f"{held} corrected recordings of {channel} - "
+                              f"nothing after {learned:.2f} is programme",
+                              file=sys.stderr)
+                else:
+                    learned = None
+            if (epg_switch is not None or epg_in is not None or cue_slots
+                    or learned is not None):
                 # The EPG reader counts from the first video frame; these
                 # times count from the container's start, which is the
                 # earlier of the video's and the audio's.
                 v0, a0 = stream_starts(video)
                 if v0 is not None:
                     shift = v0 - min(v0, a0 if a0 is not None else v0)
-                    epg_switch += shift
+                    if epg_switch is not None:
+                        epg_switch += shift
+                    if epg_in is not None:
+                        epg_in += shift
+                    cue_slots = [(a + shift, b + shift) for a, b in cue_slots]
+                if learned is not None:
+                    epg_switch = learned
                 # A programme that overran its slot: wait for the logo to go.
                 if epg_logo is not None and epg_switch is not None:
                     from repair.epg import logo_confirmed_switch
@@ -3203,6 +3252,8 @@ def detect(video, verbose=False, keep=None, learn=None,
                         epg_switch = moved
         except Exception as exc:          # never let it cost a detection
             epg_switch = None
+            epg_in = None
+            cue_slots = []
             if verbose:
                 print(f"  EPG: could not be read ({exc})", file=sys.stderr)
         if verbose:
@@ -3224,6 +3275,44 @@ def detect(video, verbose=False, keep=None, learn=None,
                     print(f"  EPG: the next programme starts at "
                           f"{epg_switch:.2f}; the tail already reaches it",
                           file=sys.stderr)
+        # The lead-in, where nothing else placed one - see epg.EPG_HEAD_MARGIN.
+        if epg_in is not None:
+            from repair.epg import epg_head
+            breaks, head_edge = epg_head(breaks, epg_in)
+            if head_edge is not None:
+                info["epg_head"] = round(head_edge, 2)
+                if verbose:
+                    print(f"  EPG: the programme became \"now\" at "
+                          f"{epg_in:.2f}; lead-in placed to {head_edge:.2f}",
+                          file=sys.stderr)
+
+    # Again at the end: an edge card can add a break of its own (see
+    # propose_card_breaks), and on a channel with no adverts that can only
+    # be wrong unless it is padding.
+    if adfree:
+        kept = keep_padding_only(breaks, duration)
+        adfree_dropped += len(breaks) - len(kept)
+        breaks = kept
+        info["no_adverts"] = adfree_clean
+        info["adfree_dropped"] = adfree_dropped
+
+    # SCTE-35 cues, last of all: an announced advert slot is cut whatever
+    # else was decided - even on a channel learned to carry no adverts,
+    # since the cue is the broadcaster saying it does.
+    if cue_slots:
+        info["pre_cue_breaks"] = [(round(a, 2), round(b, 2))
+                                  for a, b in breaks]
+        breaks, cue_changes = apply_cues(breaks, cue_slots, duration)
+        info["scte35_slots"] = len(cue_slots)
+        info["cue_changes"] = cue_changes
+        if verbose:
+            spans = cue_spans(cue_slots)
+            print(f"  SCTE-35: {len(cue_slots)} advert slot(s) in "
+                  f"{len(spans)} stretch(es): "
+                  + ", ".join(f"{a:.2f}-{b:.2f}" for a, b in spans),
+                  file=sys.stderr)
+            for c in cue_changes or ["every slot was already inside a break"]:
+                print(f"    cues: {c}", file=sys.stderr)
 
     info.update({
         "channel": channel,
@@ -3259,6 +3348,9 @@ def detect(video, verbose=False, keep=None, learn=None,
         if epg_switch is not None:
             from repair.epg import epg_tail
             alt_breaks, _alt_swept = epg_tail(alt_breaks, epg_switch, duration)
+        if epg_in is not None:
+            from repair.epg import epg_head
+            alt_breaks, _alt_head = epg_head(alt_breaks, epg_in)
         info["polarity_alt"] = alt_breaks
         info["polarity_alt_reason"] = alt_arm["reason"]
         info["polarity_gate_live"] = bool(MASK_POLARITY_GATE)
@@ -4394,6 +4486,310 @@ CARD_EDGE_MARGIN = 1.0    # seconds either side of a cut kept out of "programme"
 CARD_OFFSET_REACH = 2.0   # seconds outside an edge the card may start or end
 CARD_SPREAD_MAX = 0.5     # an offset steadier than this can PLACE an edge
 CARD_HISTORY_MAX = 4      # cards a channel keeps; the oldest goes first
+# -- Channels that carry no adverts (2.16.0) ---------------------------------
+#
+# Learned from the user's corrections, never written into the code.  BBC One
+# invented 8-9 breaks on three recordings in two weeks (October-November 2026)
+# from something in a corner that came and went - most likely the Remembrance
+# poppy or a charity appeal graphic - and a coincidence bracket cut half of a
+# BBC Three programme.  A hard-coded list of advert-free channels was rejected
+# at the user's say-so: it would be wrong abroad (ARD and ZDF are public but
+# carry adverts before 8pm) and wrong for good if a channel ever changed.
+#
+# So: every corrected project says whether the user cut anything mid-
+# programme.  NO_ADVERTS_AFTER distinct recordings in a row with only start and
+# end cuts mark the channel; the first project with a mid-programme cut clears
+# the mark at once.  A marked channel keeps only breaks at the recording's
+# start and end - its padding - which is all the user ever cuts from it.
+# -- SCTE-35 advert cues (2.16.0) ---------------------------------------------
+#
+# Some recordings carry the broadcaster's SCTE-35 splice messages: each
+# advert slot sold for replacement, frame-exact, with its length (read by
+# repair/epg.broadcast_cues).  Jellyfin keeps them (Channel 4 HD, ITV2);
+# Tvheadend does not.  Measured before use on the five corpus recordings
+# that carry them (film4, itv1-2/3/4, itv4): 229 slots, 0.0 s of them outside
+# the hand-corrected breaks.  A break is wider than its slots - on ITV it
+# starts about 14 s before the first and ends about 34 s after the last (the
+# channel's own idents and trailers are not sold) - so cues never set an
+# edge outward of what the other techniques found; they only guarantee the
+# slots themselves are cut.
+#
+# Slots closer than this are one stretch of advertising: Film4 leaves a 30 s
+# unsold gap between slots inside a break, and the programme between two
+# breaks is always minutes long.
+CUE_MERGE_GAP = 60.0
+
+
+def cue_spans(slots, gap=CUE_MERGE_GAP):
+    """Advert slots merged into the stretches of advertising they make."""
+    spans = []
+    for a, b in sorted(slots):
+        if spans and a - spans[-1][1] <= gap:
+            spans[-1] = (spans[-1][0], max(spans[-1][1], b))
+        else:
+            spans.append((a, b))
+    return spans
+
+
+def apply_cues(breaks, slots, duration, gap=CUE_MERGE_GAP):
+    """Make sure every announced advert slot is cut.
+
+    A break that overlaps a stretch of slots is widened to cover it (and
+    joins any other break the stretch reaches - the split a promo inside a
+    break causes); a stretch no break overlaps becomes a break of its own.
+    Nothing is ever narrowed or removed.  Returns (breaks, changes), each
+    change a short description for the log.
+    """
+    out = sorted((float(a), float(b)) for a, b in breaks)
+    changes = []
+    for a, b in cue_spans(slots, gap):
+        a, b = max(0.0, a), min(float(duration), b)
+        if b <= a:
+            continue
+        hits = [br for br in out if min(br[1], b) - max(br[0], a) > 0]
+        if not hits:
+            out.append((a, b))
+            changes.append(f"added {a:.2f}-{b:.2f} from cues")
+            continue
+        new = (min([a] + [h[0] for h in hits]),
+               max([b] + [h[1] for h in hits]))
+        if len(hits) > 1:
+            changes.append(f"joined {len(hits)} breaks into "
+                           f"{new[0]:.2f}-{new[1]:.2f}")
+        elif new != hits[0]:
+            changes.append(f"widened {hits[0][0]:.2f}-{hits[0][1]:.2f} to "
+                           f"{new[0]:.2f}-{new[1]:.2f}")
+        out = [br for br in out if br not in hits] + [new]
+    out.sort()
+    merged = []
+    for a, b in out:
+        if merged and a <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+        else:
+            merged.append((a, b))
+    return merged, changes
+
+
+# -- The end of a recording with no EPG (2.16.0) ------------------------------
+#
+# A recording without the EPG's "now and next" (every Jellyfin one) left its
+# end padding uncut: 470-990 s on every recording of some channels.  But a
+# recorder pads every recording the same way, and a channel's programmes end
+# at a steady distance into it, so the user's own corrections say where the
+# programme ends: measured 2026-11-09 on 68 corrected Jellyfin recordings,
+# Great! Action's end cuts ran 877-993 s, Sky Mix 690-744, LEGEND 470-553.
+# The SHORTEST end cut a channel has had - plus TAIL_MARGIN - stands in for
+# the EPG's switch to the next programme, and goes through the same
+# epg_tail() and logo check as a real one.
+#
+# Simulated on those 68 before building (dev: scratchpad tailsim.py, the
+# detector's saved answers, oldest first, a channel's own earlier
+# corrections only): advert left 30351 s -> 17060 s, programme cut 2471 ->
+# 2489 s - about 1 s per recording, where the trim runs to the file's last
+# frame and the user's to a second before it; nothing worse than 2 s.  A
+# margin of 0 cut 17 s of one Burn Notice that ended later than any before.
+TAIL_MIN_SEEN = 5
+TAIL_MARGIN = 30.0
+TAIL_KEEP = 20
+# The end padding is the recorder's setting as much as the channel's habit,
+# and a user can change the setting.  Broadcast slots run in five-minute
+# steps, so a recording's length modulo five minutes is its padding modulo
+# five minutes: 181 s on every recording of the user's (3 + 10 minutes,
+# told 2026-11-09).  Figures are filed under that, rounded to TAIL_PAD_STEP,
+# so a recorder set up differently - a change of padding, or a second
+# recorder - starts its own count instead of borrowing the wrong one.
+TAIL_SLOT = 300.0
+TAIL_PAD_STEP = 10.0
+
+
+def padding_regime(duration):
+    """The recording's padding, as far as its length can tell it."""
+    if not duration:
+        return None
+    rem = float(duration) % TAIL_SLOT
+    step = int(round(rem / TAIL_PAD_STEP)) % int(TAIL_SLOT / TAIL_PAD_STEP)
+    return str(int(step * TAIL_PAD_STEP))
+
+
+def tail_store_path(logo_store_path=LOGO_STORE):
+    """The learned-end store beside a logo store ("chalkline-tails.json")."""
+    folder, name = os.path.split(logo_store_path)
+    if "logos" in name:
+        name = name.replace("logos", "tails")
+    else:
+        root, ext = os.path.splitext(name)
+        name = root + "-tails" + (ext or ".json")
+    return os.path.join(folder, name)
+
+
+def note_end_padding(key, video, cuts, duration, store_path=LOGO_STORE):
+    """Remember how much end padding the user cut from a recording that has
+    no EPG.  Returns the number held for the channel, or None if this edit
+    said nothing (no cut reaching the end)."""
+    if not cuts or not duration:
+        return None
+    last = max(cuts, key=lambda c: c[1])
+    if last[1] < duration - PADDING_TOLERANCE:
+        return None
+    path = tail_store_path(store_path)
+    store = load_adfree(path)            # same shape: {"channels": {...}}
+    entry = dict(store["channels"].get(key) or {})
+    regimes = dict(entry.get("padding") or {})
+    regime = padding_regime(duration)
+    held = dict(regimes.get(regime) or {})
+    rec = _adfree_recording_id(video)
+    held.pop(rec, None)
+    held[rec] = round(duration - last[0], 2)
+    # Most recent last; an edit saved again replaces its own figure.
+    items = list(held.items())[-TAIL_KEEP:]
+    regimes[regime] = dict(items)
+    entry["padding"] = regimes
+    entry["updated"] = round(time.time())
+    store["channels"][key] = entry
+    save_adfree(store, path)
+    return len(items)
+
+
+def learned_switch(key, duration, store_path=LOGO_STORE):
+    """Where a recording's programme has certainly ended, from the channel's
+    corrected end padding - or None until TAIL_MIN_SEEN are held."""
+    if not key or not duration:
+        return None, 0
+    entry = load_adfree(tail_store_path(store_path))["channels"].get(key)
+    regimes = (entry or {}).get("padding") or {}
+    tails = list((regimes.get(padding_regime(duration)) or {}).values())
+    if len(tails) < TAIL_MIN_SEEN:
+        return None, len(tails)
+    return duration - min(tails) + TAIL_MARGIN, len(tails)
+
+
+ADFREE_STORE_VERSION = 1
+NO_ADVERTS_AFTER = 5
+# How long a start or end break may be on a marked channel.  Measured on the
+# field data (43 corrected BBC One/Two/Three recordings, 2026-11-09): the
+# longest start cut 393 s, the longest end cut 784 s.  The wrong BBC Three
+# bracket these exist to stop ran 1335 s to the end.
+ADFREE_HEAD_MAX = 600.0
+ADFREE_TAIL_MAX = 1200.0
+# How close to the recording's first or last second a break must reach to
+# count as its start or end padding.
+ADFREE_EDGE = 10.0
+# Recordings remembered per channel, so saving one edit three times (save,
+# export autosave, queue) counts it once.
+ADFREE_KEEP = 20
+
+
+def adfree_store_path(logo_store_path=LOGO_STORE):
+    """The no-adverts store beside a logo store, named the way the card
+    store is: "chalkline-logos.json" gives "chalkline-adfree.json"."""
+    folder, name = os.path.split(logo_store_path)
+    if "logos" in name:
+        name = name.replace("logos", "adfree")
+    else:
+        root, ext = os.path.splitext(name)
+        name = root + "-adfree" + (ext or ".json")
+    return os.path.join(folder, name)
+
+
+def load_adfree(path):
+    """The no-adverts store; a missing or unreadable file is an empty one."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            raw = json.load(fh)
+        if isinstance(raw, dict) and isinstance(raw.get("channels"), dict):
+            return raw
+    except (OSError, ValueError):
+        pass
+    return {"version": ADFREE_STORE_VERSION, "channels": {}}
+
+
+def save_adfree(store, path):
+    folder = os.path.dirname(path)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(store, fh, indent=1)
+    os.replace(tmp, path)
+
+
+def _adfree_recording_id(video):
+    """One recording, however it is saved - by name and size, so a copy the
+    renamer has moved is still the same recording."""
+    try:
+        size = os.path.getsize(video)
+    except OSError:
+        size = 0
+    return f"{os.path.basename(video)}|{size}"
+
+
+def note_adverts_seen(key, video, mid_programme_cut, store_path=LOGO_STORE):
+    """Record what one corrected project says about its channel.
+
+    `mid_programme_cut` is whether the user cut anything other than the
+    recording's start and end.  Returns (marked, clean) - whether the channel
+    now counts as carrying no adverts, and how many recordings in a row say
+    so."""
+    path = adfree_store_path(store_path)
+    store = load_adfree(path)
+    entry = dict(store["channels"].get(key) or {})
+    clean = list(entry.get("clean", []))
+    rec = _adfree_recording_id(video)
+    if mid_programme_cut:
+        # One real break is enough: a channel that ever shows adverts is
+        # never treated as having none, until the run starts again.
+        clean = []
+        entry["adverts"] = rec
+    elif rec not in clean:
+        clean = (clean + [rec])[-ADFREE_KEEP:]
+    entry["clean"] = clean
+    entry["updated"] = round(time.time())
+    store["channels"][key] = entry
+    save_adfree(store, path)
+    return len(clean) >= NO_ADVERTS_AFTER, len(clean)
+
+
+def no_adverts(key, store_path=LOGO_STORE):
+    """(marked, clean) for a channel - see note_adverts_seen()."""
+    if not key:
+        return False, 0
+    entry = load_adfree(adfree_store_path(store_path))["channels"].get(key)
+    clean = len((entry or {}).get("clean", []))
+    return clean >= NO_ADVERTS_AFTER, clean
+
+
+def forget_no_adverts(key, store_path=LOGO_STORE):
+    """Clear what has been learned about a channel's adverts."""
+    path = adfree_store_path(store_path)
+    store = load_adfree(path)
+    if store["channels"].pop(key, None) is not None:
+        save_adfree(store, path)
+
+
+def adfree_channels(store_path=LOGO_STORE):
+    """{key: clean} for every channel currently marked as advert-free."""
+    out = {}
+    for key, entry in load_adfree(
+            adfree_store_path(store_path))["channels"].items():
+        clean = len(entry.get("clean", []))
+        if clean >= NO_ADVERTS_AFTER:
+            out[key] = clean
+    return out
+
+
+def keep_padding_only(breaks, end):
+    """Of `breaks`, the ones that are a marked channel's start or end
+    padding: reaching the recording's first or last second, and no longer
+    than ADFREE_HEAD_MAX / ADFREE_TAIL_MAX."""
+    kept = []
+    for lo, hi in breaks:
+        if lo <= ADFREE_EDGE and hi - lo <= ADFREE_HEAD_MAX:
+            kept.append((lo, hi))
+        elif hi >= end - ADFREE_EDGE and hi - lo <= ADFREE_TAIL_MAX:
+            kept.append((lo, hi))
+    return kept
+
+
 CARD_STORE_VERSION = 1
 
 
@@ -5840,6 +6236,37 @@ def learn_from_project(video, vprj_path, store_path=LOGO_STORE, channel=None,
     except OSError as exc:
         raise ChalklineError(f"The saved project could not be read:\n{exc}")
 
+    # What this edit says about the channel's adverts (see NO_ADVERTS_AFTER),
+    # before any of the guards below can return: a project that teaches no
+    # logo - every BBC one - is exactly the evidence wanted.  An edit with no
+    # cuts at all says nothing either way.
+    # Not for a channel the user has switched learning off for.
+    early_key = channel or channel_key(video)
+    if early_key and cuts and learning_enabled(early_key, store_path):
+        _mid, _pad = split_truth(cuts, duration)
+        was, _n = no_adverts(early_key, store_path)
+        marked, clean = note_adverts_seen(early_key, video, bool(_mid),
+                                          store_path)
+        info["no_adverts"] = marked
+        info["adfree_clean"] = clean
+        info["channel"] = early_key
+        # The end padding, from a recording the EPG could not have trimmed.
+        try:
+            src_dir = os.path.dirname(os.path.dirname(os.path.abspath(
+                __file__)))
+            if src_dir not in sys.path:
+                sys.path.insert(0, src_dir)
+            from repair.epg import has_present_following
+            if not has_present_following(video):
+                info["tails_held"] = note_end_padding(
+                    early_key, video, cuts, duration, store_path)
+        except Exception:
+            pass
+        if marked and not was:
+            info["adfree_now"] = True
+        elif was and not marked:
+            info["adfree_cleared"] = True
+
     adverts, reason = check_learnable(cuts, duration)
     # Padding alone still teaches the edge card and the programme markers -
     # a channel with no adverts (BBC Three) has nothing else to learn from,
@@ -5854,7 +6281,7 @@ def learn_from_project(video, vprj_path, store_path=LOGO_STORE, channel=None,
             info["skipped"] = reason
             return info
 
-    key = channel or channel_key(video)
+    key = early_key
     if not key:
         # A file that has been through an encoder carries neither an SDT nor
         # a usable service id, so there is nothing to file the mask under.

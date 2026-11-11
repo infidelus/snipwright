@@ -844,6 +844,35 @@ def process_recording(source, comskip_binary, comskip_ini, output_dir,
                     info.get("anchor_brackets", 0),
                     info.get("coincidence_brackets", 0),
                 )
+                if info.get("tail_learned"):
+                    # No EPG: the end came from the channel's corrected end
+                    # padding - see chalkline.TAIL_MIN_SEEN.
+                    log.info(
+                        "  Chalkline: no EPG - end trimmed from %.0f s, "
+                        "learned from %d corrected recording(s)",
+                        info["tail_learned"][0], info["tail_learned"][1],
+                    )
+                if info.get("scte35_slots"):
+                    # The broadcaster's own advert cues - see
+                    # chalkline.apply_cues.
+                    log.info(
+                        "  Chalkline: %d SCTE-35 advert slot(s) in the "
+                        "recording; %s",
+                        info["scte35_slots"],
+                        "; ".join(info.get("cue_changes") or [])
+                        or "every slot was already inside a break",
+                    )
+                if info.get("no_adverts"):
+                    # Learned from the user's corrections - see
+                    # chalkline.NO_ADVERTS_AFTER.  Logged so a recording
+                    # that came back with only its padding can be told
+                    # from one where nothing was found.
+                    log.info(
+                        "  Chalkline: no adverts on this channel in %d "
+                        "corrected recordings - only the start and end were "
+                        "looked for (%d other break(s) left in)",
+                        info["no_adverts"], info.get("adfree_dropped", 0),
+                    )
                 if info.get("mask_unfit") is not None:
                     log.info(
                         "  Chalkline: remembered %spx %s logo for %s not "

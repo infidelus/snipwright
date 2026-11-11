@@ -6,6 +6,109 @@ All notable changes to Snipwright are documented here. Releases before
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [2.16.0] - 2026-11-11
+
+### Added
+
+- **Output profiles can change the picture size.** A new Resolution
+  setting scales the video up or down on export - for a download fetched
+  at a higher resolution than you wanted, or an SD recording you would
+  rather have at 720p. Choose from the list of sizes VideoReDo offered, or
+  type your own. The picture is fitted inside the chosen size and keeps
+  its shape, so a widescreen film asked for 1280x720 comes out 1280x534
+  rather than stretched, and an SD widescreen recording is sized by the
+  shape it is shown at. Like cropping, resizing re-encodes the video;
+  "Same as source" (the default, and what every existing profile keeps)
+  leaves the lossless copy alone, and so does a size the recording
+  already has. A profile that crops and resizes removes the bars first.
+  An interlaced recording is deinterlaced when resized, since scaling
+  would blend its fields, and an enlarged picture is given a
+  proportionally higher bitrate ceiling. It applies to Save Video, batch
+  exports and the Joiner alike.
+- **Reference Frame, for finding where a programme picks up after an
+  advert break.** Some channels repeat the last few seconds before the
+  break, and the cut has to start on the frame that matches. Edit -> Set
+  Reference Frame (Ctrl+E) keeps the frame on screen in a panel above the
+  scene list and shows how closely the frame in the editor matches it;
+  stepping through the repeat, the figure turns green at 100% on the
+  matching frame. The panel can also float in a window of its own, and the
+  arrow keys keep stepping frames either way. Requested from a forum
+  suggestion.
+- **Chalkline learns which channels carry no adverts.** Some BBC One
+  programmes came back with eight or nine invented breaks, costing up to
+  twenty minutes of programme - something in a corner of the picture came
+  and went the way a channel's logo does around adverts - and one BBC
+  Three recording lost half its programme to a break that was not there.
+  Now, when five recordings in a row that you correct from a channel have
+  only their start and end cut, the channel is marked as carrying no
+  adverts and only the start and end of its recordings are trimmed. The
+  first project you save with a cut in the middle of the programme clears
+  the mark at once. Nothing about any channel is built in: it is learned
+  from your corrections, and shown (and can be cleared) in Remembered
+  logos.
+- **Recordings without a programme guide get their end trimmed.** A
+  recorder that keeps no guide (Jellyfin, for one) left all the padding
+  after the programme in place - ten to fifteen minutes on some channels,
+  on every recording. A recorder pads every recording the same way and a
+  channel's programmes end at a steady point in that padding, so after
+  five recordings you have corrected from a channel, Chalkline trims
+  everything after the latest point any of them ended, with half a minute
+  to spare and only once the channel's logo has gone. Learned separately
+  for each padding setting, so changing yours does not carry the old
+  figures over. Recordings that keep the guide are trimmed by it as
+  before.
+- **Chalkline reads the broadcaster's own advert cues.** Some recordings
+  carry SCTE-35 messages - one for each advert slot, to the frame - which
+  Channel 4 and ITV channels send and recorders that keep every stream
+  (Jellyfin, for one) keep; Tvheadend drops them. Where they are present,
+  every announced slot is now cut: a break a promotion had split in two is
+  joined, and the start of a break the logo noticed late is brought
+  forward - by about a minute on two ITV2 breaks, and 70 seconds less
+  advert left in one Channel 4 break. The cues never cut programme: over
+  229 slots in five hand-checked recordings, none fell outside a real
+  break.
+
+### Changed
+
+- **The output profile editor fits on a smaller screen.** Its twenty
+  settings were one long column, taller than a laptop display, with every
+  dropdown stretched to twice the width it needed. They are now in two
+  columns of groups - Video and Picture on the left, Audio and Saving on
+  the right - with each dropdown only as wide as its longest choice. The
+  long explanation at the foot of the window is down to one line; the
+  detail it held is in the tooltip of the setting it describes.
+
+- **The programme guide also trims the start of a recording.** A recording
+  that keeps the broadcaster's guide says when the programme became "now",
+  and that was only used for the end. Where nothing else placed a start,
+  the padding is now trimmed up to 12 seconds before that moment. The
+  guide's moment is usually early, but on some channels it is several
+  seconds late, so the margin means no programme is lost, at the cost of
+  sometimes leaving up to a minute of padding. On the advert-detection
+  test set that removed 753 seconds of padding from three recordings and
+  cut no more programme.
+
+### Fixed
+
+- **Teletext subtitles from a Blu-ray recorder's recordings are kept.** A
+  recording from a Panasonic Blu-ray recorder (a German Kabel 1 film,
+  reported on the Linux Mint forum) would not export at all: "subtitle
+  stream 0 is of a kind that cannot be copied". Its transport stream uses
+  192-byte packets rather than the usual 188, and the part of Snipwright
+  that recognises teletext only knew the usual size. It now reads both
+  (and the 204-byte kind), so the teletext is kept in a .ts and turned
+  into text subtitles in an .mkv.
+- **A subtitle track that cannot be copied no longer stops the export.**
+  It is left out, the rest of the recording is saved, and the summary
+  says which track was left out and why - rather than the whole export
+  failing over one subtitle stream.
+- **A frame captured with Capture Frame is named with the time the editor
+  shows.** The file name used the frame's broadcast timestamp, which on a
+  field-coded HD recording drifts from the editor's timecode - two frames
+  by sixteen minutes into one recording - so a capture could be named a
+  few frames away from the frame it holds.
+
+
 ## [2.15.0] - 2026-11-02
 
 ### Changed

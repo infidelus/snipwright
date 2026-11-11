@@ -194,6 +194,7 @@ def _index_and_export(
         aspect=profile.aspect,
         crop_mode=getattr(profile, "crop_mode", "none"),
         crop=getattr(profile, "crop", (0, 0, 0, 0)),
+        resize=getattr(profile, "resize", (0, 0)),
         video_mode=getattr(profile, "video", "copy"),
         encoder_preset=getattr(profile, "preset", "faster"),
         encoder_crf=(profile.effective_crf()

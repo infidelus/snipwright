@@ -96,6 +96,21 @@ def _pmt_pids(p, at):
     return pids
 
 
+# Packet sizes a .ts may use: plain DVB, BDAV (.m2ts style, from Blu-ray
+# recorders) and 204 with Reed-Solomon bytes.
+_PACKET_SIZES = (TS_PACKET, 192, 204)
+
+
+def _packet_grid(data, runs=8):
+    """(offset of the first sync byte, packet size), or None."""
+    for size in _PACKET_SIZES:
+        for o in range(min(size, len(data))):
+            if all(data[o + k * size:o + k * size + 1] == b"\x47"
+                   for k in range(runs)):
+                return o, size
+    return None
+
+
 def teletext_streams(path):
     """{pid: whole teletext descriptor} for every teletext stream in a .ts.
 
@@ -106,14 +121,19 @@ def teletext_streams(path):
             data = f.read(_SCAN_BYTES)
     except OSError:
         return {}
-    # Find the packet grid: a sync byte that repeats every 188 bytes.
-    start = next((o for o in range(min(TS_PACKET, len(data)))
-                  if all(data[o + k * TS_PACKET:o + k * TS_PACKET + 1] == b"\x47"
-                         for k in range(5))), None)
-    if start is None:
+    # Find the packet grid: a sync byte that repeats every packet.  Not
+    # always 188 bytes: a Panasonic Blu-ray recorder writes 192 (a 4-byte
+    # timestamp before each packet), and some capture cards 204 (16 bytes of
+    # error correction after it).  A German Kabel 1 recording from the
+    # first had its teletext refused as "not DVB teletext" (2026-11-10)
+    # because this only looked for 188.  Each 188-byte packet is read from
+    # its sync byte whichever the grid is.
+    grid = _packet_grid(data)
+    if grid is None:
         return {}
+    start, step = grid
     pmt_pids = set()
-    for off in range(start, len(data) - TS_PACKET + 1, TS_PACKET):
+    for off in range(start, len(data) - TS_PACKET + 1, step):
         p = data[off:off + TS_PACKET]
         at = _section_start(p)
         if at is None:

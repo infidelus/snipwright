@@ -32,6 +32,7 @@ _PHASE_LABELS = {
     "copy": QT_TRANSLATE_NOOP("ExportProgressDialog", "Fast Frame Copy"),
     "encode": QT_TRANSLATE_NOOP("ExportProgressDialog", "Encoding Frames"),
     "crop": QT_TRANSLATE_NOOP("ExportProgressDialog", "Cropping (re-encoding)…"),
+    "resize": QT_TRANSLATE_NOOP("ExportProgressDialog", "Resizing (re-encoding)…"),
     "verify": QT_TRANSLATE_NOOP("ExportProgressDialog", "Verifying output"),
     "finalise_mkv": QT_TRANSLATE_NOOP("ExportProgressDialog", "Finalising MKV…"),
     "recode_audio": QT_TRANSLATE_NOOP("ExportProgressDialog", "Recoding…"),

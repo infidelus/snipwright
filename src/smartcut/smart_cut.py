@@ -1,3 +1,4 @@
+import logging
 import os
 from collections.abc import Callable
 from fractions import Fraction
@@ -293,8 +294,27 @@ def smart_cut(media_container: MediaContainer, positive_segments: list[tuple[Fra
                         generators.append(PassthruAudioCutter(media_container, audio_out_stream, track_i))
 
             teletext = []
+            # A subtitle stream that cannot be copied is left out, not
+            # allowed to fail the whole export: a German Kabel 1 recording's
+            # teletext did exactly that (2026-11-10), because the reader
+            # behind it only knew 188-byte packets and the recording had 192.
+            # What was dropped, and why, goes on the container for the
+            # exporter's summary - "keep every stream unless there is a real
+            # reason, and then SAY so".
+            dropped = getattr(media_container, "dropped_subtitles", None)
+            if dropped is None:
+                dropped = media_container.dropped_subtitles = []
             for sub_track_i in range(len(media_container.subtitle_tracks)):
-                subtitle_out_stream = create_subtitle_output_stream(media_container, output_av_container, sub_track_i)
+                try:
+                    subtitle_out_stream = create_subtitle_output_stream(
+                        media_container, output_av_container, sub_track_i)
+                except ValueError as exc:
+                    if not any(i == sub_track_i for i, _r in dropped):
+                        dropped.append((sub_track_i, str(exc)))
+                        logging.getLogger("snipwright").warning(
+                            "Subtitle track %d left out of the export: %s",
+                            sub_track_i + 1, exc)
+                    continue
                 desc = teletext_descriptor(media_container, sub_track_i)
                 if desc is not None:
                     teletext.append(desc)

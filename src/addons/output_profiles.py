@@ -6,6 +6,7 @@ A profile currently carries:
   * output_dir               - per-profile default destination (Save dialog)
   * audio, audio_bitrate     - lossless copy, or re-encode to AAC on export
   * aspect                   - display aspect, stamped losslessly on export
+  * resize                   - picture size to fit, re-encoding (0, 0 = source)
   * favourite, enabled, order - manager/list behaviour
 
 All video is smart-cut (copied), so the codec column always reads
@@ -61,6 +62,18 @@ DEFAULT_GOP_SECONDS = {"hevc": 5, "copy": 1}
 
 ASPECT_MODES = ("source", "4:3", "16:9")
 CROP_MODES = ("none", "auto", "fixed")  # off | auto-detect bars | fixed pixels
+
+# Output picture size.  (0, 0) keeps the source's size and leaves the lossless
+# path alone; anything else re-encodes the video, fitting the picture inside
+# that width x height with its displayed shape kept.  The list is the one
+# VideoReDo offered, so a size its users relied on is a single click away.
+RESIZE_SOURCE = (0, 0)
+RESIZE_PRESETS = (
+    (320, 240), (320, 288), (352, 240), (352, 480), (352, 576), (480, 272),
+    (480, 480), (640, 480), (720, 480), (720, 576), (1280, 720),
+    (1440, 1080), (1920, 1080), (3840, 2160), (4096, 2160),
+)
+RESIZE_MIN, RESIZE_MAX = 16, 8192       # pixels, either dimension
 AAC_AUTO = 0                            # 0 == let the bitrate follow the source
 # Spread wider than the old 128-384: a 5.1 Blu-ray track folded to stereo
 # wants headroom at the top, and speech-only material is fine well below
@@ -107,7 +120,7 @@ class OutputProfile:
 
     def __init__(self, name, container, *, audio="copy", audio_bitrate=AAC_AUTO,
                  aspect="source", crop_mode="none", crop=(0, 0, 0, 0),
-                 video="copy", preset=DEFAULT_PRESET, crf=CRF_AUTO,
+                 resize=RESIZE_SOURCE, video="copy", preset=DEFAULT_PRESET, crf=CRF_AUTO,
                  gop_seconds=GOP_AUTO,
                  audio_sync_ms=AUDIO_SYNC_NONE, downmix="keep",
                  level_mode="none", level_value=LEVEL_TARGET_DEFAULT,
@@ -136,6 +149,8 @@ class OutputProfile:
         self.crop = tuple(int(x) for x in crop)[:4] if crop else (0, 0, 0, 0)
         if len(self.crop) != 4:
             self.crop = (0, 0, 0, 0)
+        # Resizing re-encodes, like cropping.  (0, 0) keeps the source size.
+        self.resize = self._clean_resize(resize)
         # Audio delay in milliseconds, and whether to fold surround to stereo.
         # Both apply however the audio is handled - a delay is a timestamp
         # change, so it works even on a straight copy; a downmix necessarily
@@ -164,6 +179,21 @@ class OutputProfile:
         if mode == "gain":
             return max(LEVEL_GAIN_MIN, min(LEVEL_GAIN_MAX, v))
         return v
+
+    @staticmethod
+    def _clean_resize(value):
+        """A (width, height) to fit the picture inside, both even and within
+        range - or RESIZE_SOURCE when unset or unreadable.  Even, because 4:2:0
+        video cannot have an odd dimension."""
+        try:
+            w, h = (int(x) for x in tuple(value)[:2])
+        except (TypeError, ValueError):
+            return RESIZE_SOURCE
+        if w <= 0 or h <= 0:
+            return RESIZE_SOURCE
+        w = max(RESIZE_MIN, min(RESIZE_MAX, w))
+        h = max(RESIZE_MIN, min(RESIZE_MAX, h))
+        return (w - w % 2, h - h % 2)
 
     @staticmethod
     def _clean_sync(value):
@@ -280,6 +310,7 @@ class OutputProfile:
             "aspect": self.aspect,
             "crop_mode": self.crop_mode,
             "crop": list(self.crop),
+            "resize": list(self.resize),
             "video": self.video,
             "preset": self.preset,
             "crf": self.crf,
@@ -304,6 +335,9 @@ class OutputProfile:
             aspect=d.get("aspect", "source"),
             crop_mode=d.get("crop_mode", "none"),
             crop=d.get("crop", (0, 0, 0, 0)),
+            # Absent from profiles written before resizing existed: keep the
+            # source size, which is what they always did.
+            resize=d.get("resize", RESIZE_SOURCE),
             video=d.get("video", "copy"),
             # Older profile files predate these; the defaults reproduce
             # exactly what those profiles used to do.

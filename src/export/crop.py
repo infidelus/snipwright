@@ -230,6 +230,33 @@ def even_rect(src_w, src_h, top, bottom, left, right, interlaced=False):
     return w, h, left, top
 
 
+def fit_size(src_w, src_h, sar, box):
+    """The (width, height) a picture comes out at when fitted inside ``box``.
+
+    ``src_w`` x ``src_h`` is the stored picture (after any crop) and ``sar`` its
+    pixel aspect as a float.  The fit is by the DISPLAYED shape - an anamorphic
+    720x576 16:9 recording is treated as the 1024x576 picture it plays as - and
+    the result has square pixels, so it plays at the same shape however it is
+    scaled.  It is exact rather than a ceiling: a smaller picture is enlarged
+    to fill the box, which is what the user asked for by choosing a size.
+
+    Both dimensions are rounded to even numbers, which 4:2:0 video needs.
+    Returns ``None`` when the size cannot be worked out.
+    """
+    try:
+        box_w, box_h = int(box[0]), int(box[1])
+        sar = float(sar) if sar and float(sar) > 0 else 1.0
+    except (TypeError, ValueError, IndexError):
+        return None
+    if src_w <= 0 or src_h <= 0 or box_w <= 0 or box_h <= 0:
+        return None
+    display_w = src_w * sar
+    factor = min(box_w / display_w, box_h / float(src_h))
+    out_w = max(2, int(round(display_w * factor / 2.0)) * 2)
+    out_h = max(2, int(round(src_h * factor / 2.0)) * 2)
+    return min(out_w, box_w - box_w % 2), min(out_h, box_h - box_h % 2)
+
+
 def detect_crop(path, src_w=0, src_h=0, samples=8):
     """Auto-detect the black-bar crop with ffmpeg's ``cropdetect``.
 
@@ -336,7 +363,7 @@ def _run_progress(cmd, total_seconds, progress_cb, cancel_cb):
 
 
 def crop_reencode(in_path, out_path, rect=None, *, cap_kbps, fps, sar=None,
-                  field_order="", codec="libx264", crf=None,
+                  scale=None, field_order="", codec="libx264", crf=None,
                   preset="faster", gop_seconds=None,
                   total_seconds=0.0, progress_cb=None, cancel_cb=None):
     """Re-encode ``in_path`` to ``out_path``, optionally cropping.
@@ -347,11 +374,15 @@ def crop_reencode(in_path, out_path, rect=None, *, cap_kbps, fps, sar=None,
     HEVC output.  The video is encoded at constant quality (CRF), capped at
     ``cap_kbps`` so it can never exceed the source's budget; audio and subtitles
     are copied.  ``sar`` optionally sets the output sample aspect ratio as
-    ``(num, den)``.
+    ``(num, den)``.  ``scale`` is an output (width, height) from
+    :func:`fit_size`, applied after the crop, or ``None`` to keep the size.
 
     ``field_order`` keeps H.264 output's scan type unchanged ("tt"/"bb" encode
     interlaced with that field order); HEVC output is always deinterlaced, since
-    interlaced HEVC is poorly supported.  ``total_seconds`` and ``progress_cb``
+    interlaced HEVC is poorly supported.  A resized picture is deinterlaced
+    too, whatever the codec: scaling an interlaced frame vertically blends its
+    two fields into each other, which shows as combing that no player can then
+    undo.  ``total_seconds`` and ``progress_cb``
     drive a 0-100% progress report as the encode runs.  Returns True on success.
     """
     hevc = codec == "libx265"
@@ -359,9 +390,19 @@ def crop_reencode(in_path, out_path, rect=None, *, cap_kbps, fps, sar=None,
     if rect:
         w, h, x, y = rect
         filters.append("crop=%d:%d:%d:%d" % (w, h, x, y))
-    if hevc and field_order in ("tt", "bb"):
-        filters.append("yadif")            # HEVC: deinterlace to progressive
-    if sar:
+    interlaced = field_order in ("tt", "bb")
+    deinterlace = interlaced and (hevc or bool(scale))
+    if deinterlace:
+        # One output frame per input frame, so the frame rate - and with it
+        # every timestamp, chapter and subtitle - stays as it was.
+        filters.append("yadif")
+    if scale:
+        # Lanczos is sharper than ffmpeg's default (bicubic) in both
+        # directions, which matters most when enlarging.  Square pixels
+        # afterwards: fit_size() worked the size out from the displayed shape.
+        filters.append("scale=%d:%d:flags=lanczos" % (scale[0], scale[1]))
+        filters.append("setsar=1")
+    elif sar:
         filters.append("setsar=%d/%d" % (sar[0], sar[1]))
     fps_i = max(1, int(round(fps)))
     if crf is None:
@@ -406,7 +447,7 @@ def crop_reencode(in_path, out_path, rect=None, *, cap_kbps, fps, sar=None,
         # hvc1 tagging keeps HEVC-in-MP4 playable in Apple/QuickTime; harmless
         # in other containers.
         cmd += ["-tag:v:0", "hvc1"]
-    elif field_order in ("tt", "bb"):
+    elif interlaced and not deinterlace:
         # H.264: keep interlaced sources interlaced, with the original order.
         cmd += ["-flags", "+ilme+ildct",
                 "-x264-params", "tff=1" if field_order == "tt" else "bff=1"]

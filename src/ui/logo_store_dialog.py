@@ -62,8 +62,11 @@ from repair.chalkline import (
     is_settled,
     settle_state,
     card_distances,
+    NO_ADVERTS_AFTER,
+    adfree_channels,
     card_only_channels,
     card_store_path,
+    forget_no_adverts,
     channel_cards,
     load_cards,
     load_store,
@@ -399,8 +402,14 @@ class LogoStoreDialog(QDialog):
     def _fill_table(self):
         self._filling = True
         channels = self._channels()
+        # Channels learned to carry no adverts (chalkline.NO_ADVERTS_AFTER)
+        # come last.  They have no logo and nothing to edit; Forget clears
+        # what was learned.
+        adfree = [{"keys": [key], "clean": n} for key, n in sorted(
+            adfree_channels(self._store_path).items())]
         self._rows = ([("logo", e) for e in channels]
-                      + [("card", e) for e in self._card_rows()])
+                      + [("card", e) for e in self._card_rows()]
+                      + [("adfree", e) for e in adfree])
         self.table.setRowCount(len(self._rows))
         self.table.verticalHeader().setDefaultSectionSize(_THUMB_H + 6)
         for i, entry in enumerate(channels):
@@ -462,9 +471,12 @@ class LogoStoreDialog(QDialog):
             self._set_idents(i, len(channel_cards(self._cards, self._store,
                                                   first)), lines)
             self._set_learn(i, entry, lines)
-        for i, (_kind, entry) in enumerate(self._rows[len(channels):],
-                                           start=len(channels)):
-            self._fill_card_row(i, entry)
+        for i, (kind, entry) in enumerate(self._rows[len(channels):],
+                                          start=len(channels)):
+            if kind == "adfree":
+                self._fill_adfree_row(i, entry)
+            else:
+                self._fill_card_row(i, entry)
         self._filling = False
         if not self._rows:
             self._status.setText(self.tr(
@@ -524,6 +536,51 @@ class LogoStoreDialog(QDialog):
             ) % {"n": streak, "need": SETTLE_AFTER}
         item.setToolTip(tip)
         self.table.setItem(row, self.COL_LEARN, item)
+
+    def _fill_adfree_row(self, row, entry):
+        """A channel the user's corrections say carries no adverts."""
+        key = entry["keys"][0]
+        tip = self.tr(
+            "No adverts: the last %(n)d recordings you corrected from this "
+            "channel had only their start and end cut, so Chalkline looks "
+            "only for the start and end here. The first project you save "
+            "with a cut in the middle of the programme clears this, and "
+            "Forget clears it now."
+        ) % {"n": int(entry.get("clean", NO_ADVERTS_AFTER))}
+        sid = key if key.startswith(_SID_PREFIX) else ""
+        for col, text in ((self.COL_MASK, ""),
+                          (self.COL_NAME, "" if sid else key),
+                          (self.COL_SID, sid),
+                          (self.COL_LOGO, self.tr("No adverts")),
+                          (self.COL_CONTRAST, ""), (self.COL_IDENTS, ""),
+                          (self.COL_LEARN, "")):
+            item = QTableWidgetItem(text)
+            # Nothing here to edit or switch.
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            item.setToolTip(tip)
+            self.table.setItem(row, col, item)
+
+    def _forget_adfree(self, entry):
+        """Clear what was learned about a channel carrying no adverts."""
+        key = entry["keys"][0]
+        if QMessageBox.question(
+            self,
+            self.tr("Forget"),
+            self.tr(
+                "Stop treating \u201c%s\u201d as a channel with no "
+                "adverts?\n\nChalkline will look for breaks in its "
+                "recordings again, and will learn this afresh from the "
+                "projects you correct."
+            ) % key,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+        # Written at once: this file has no unsaved edits for the dialog's
+        # Save to merge.
+        forget_no_adverts(key, self._store_path)
+        self._fill_table()
+        self._status.setText(self.tr("Forgotten: %s") % key)
 
     def _fill_card_row(self, row, entry):
         """A channel known only by a break ident - Film4 is the reason."""
@@ -634,6 +691,9 @@ class LogoStoreDialog(QDialog):
 
     def _apply_edit(self, row, col, typed):
         channels = self._channels()
+        if (0 <= row < len(self._rows)
+                and self._rows[row][0] == "adfree"):
+            return
         if len(channels) <= row < len(self._rows):
             self._apply_card_edit(self._rows[row][1], col, typed)
             return
@@ -879,6 +939,10 @@ class LogoStoreDialog(QDialog):
     def _forget(self):
         row = self.table.currentRow()
         channels = self._channels()
+        if (0 <= row < len(self._rows)
+                and self._rows[row][0] == "adfree"):
+            self._forget_adfree(self._rows[row][1])
+            return
         if len(channels) <= row < len(self._rows):
             self._forget_card(self._rows[row][1])
             return

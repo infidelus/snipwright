@@ -34,6 +34,9 @@ DEFAULT_CONFIG = {
         # "clipboard") and whether interlaced frames are deinterlaced.
         "capture_to": "file",
         "capture_deinterlace": True,
+        # Edit > Set Reference Frame: docked above the scene list (True) or
+        # in a floating window of its own.
+        "reference_docked": True,
 
         "qsf_on_open": False,
 
@@ -299,6 +302,11 @@ DEFAULT_CONFIG = {
         # Save the frame on screen as a picture (Edit > Capture Frame),
         # VideoReDo's key for it.
         "capture_frame": "Ctrl+C",
+
+        # Hold the frame on screen to match against (Edit > Set Reference
+        # Frame) - Avidemux's key for saving a still, which is how its users
+        # do the same job.
+        "set_reference_frame": "Ctrl+E",
 
     }
 

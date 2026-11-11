@@ -260,6 +260,22 @@ comb-like lines that movement shows in a still from an interlaced broadcast; a f
 not interlaced is saved as it is either way. The folder is set like the others, under
 <strong>Settings &rarr; Files &amp; folders &rarr; Frame captures</strong>, and the window remembers your
 other choices.</p>
+<p><strong>Edit &rarr; Set Reference Frame</strong> (<kbd>Ctrl+E</kbd>) keeps the frame on screen in
+a panel above the scene list, for finding the same picture again. Some channels repeat
+the last few seconds of a programme after an advert break: set the reference on the last
+frame before the break, then step through the start of the next part. The window shows how
+closely the frame in the editor matches the reference, and the figure rises to 100% &mdash;
+green &mdash; on the matching frame, which is where the kept part should start. Frames next to
+each other in a slow shot score almost as high, so check the last step by eye.
+<strong>Go to Reference</strong> jumps back to it, <strong>Use Current Frame</strong> replaces
+it, and the panel closes when another recording is opened. The scene list is shorter while
+the panel is open; the picture is untouched. <strong>Float</strong> moves the panel into a
+window of its own that can be placed anywhere and resized &mdash; the picture grows with it, up
+to the recording&rsquo;s full size &mdash; and <strong>Dock</strong> puts it back; it
+opens the way you last left it. The arrow keys and the other shortcuts keep stepping through
+the recording either way, even after a click in the floating window.</p>
+<p align="center" class="figrow"><img class="gimg m800" src="img/reference-frame.png" width="800" height="519" alt="The Reference Frame panel docked above the scene list, showing a 100% match"></p>
+<p align="center" class="cap">The Reference Frame panel above the scene list: the frame in the editor matches the reference.</p>
 <h3>Cutting in Cut Mode</h3>
 <ol>
   <li>Move to where the unwanted section starts and press <strong>Mark In</strong>
@@ -361,6 +377,21 @@ recording; where it does not, the trim stops at the advert break after the progr
 some continuity is left on the end. That is worth a look before you export, and it is a
 quick fix by hand &mdash; mark from the end of the programme to the end of the recording
 and cut.</p>
+<p>A recording that keeps the broadcaster's programme guide (Tvheadend's do) is trimmed at
+the end from where the guide says the next programme begins. One without it (Jellyfin's,
+for example) learns its channel's end instead: a recorder pads every recording the same
+way, and a channel's programmes end at a steady distance into that padding, so after five
+of your corrected recordings from a channel, Chalkline trims everything after the latest
+point any of them ended &mdash; with half a minute to spare, and only once the channel's logo
+has gone, so a programme that runs late is not cut.</p>
+<p>Some recordings also carry the broadcaster's own <strong>advert cues</strong> (SCTE-35):
+a message for each advert slot, to the frame. Channel 4 and ITV channels send them, and a
+recorder that keeps every stream &mdash; Jellyfin, for one &mdash; records them; Tvheadend
+does not keep them. Where they are present, Chalkline makes sure every advert slot they
+announce is cut, which joins a break that a promotion in the middle had split in two and
+catches the start of a break the logo noticed late. The cues cover the adverts themselves,
+not the channel's own idents and trailers either side, so where a break begins and ends is
+still read from the picture.</p>
 <div class="note">Detection takes a little longer than Comskip &mdash; a few per cent over
 a run of several recordings &mdash; because Chalkline decodes the recording rather than
 reading the broadcast's own signalling. On a single full-length programme the difference is
@@ -441,6 +472,15 @@ from every project. Ticking
 <strong>Learn</strong> again after unticking it starts the count afresh. Until a channel
 settles, hovering over its <strong>Learn</strong> box shows how far it has got &mdash; for
 example &ldquo;3 of 5 confirmed saves&rdquo;.</p>
+<p>Chalkline also learns which channels carry <strong>no adverts</strong>. When five recordings
+in a row that you correct from a channel have only their start and end cut &mdash; the
+recording's padding &mdash; that channel is listed with <strong>No adverts</strong> in the Mask
+column, and from then on only the start and end of its recordings are trimmed: nothing in
+the middle of the programme is ever cut, whatever turns up in a corner of the picture. The
+first project you save on that channel with a cut in the middle of the programme clears it
+straight away, so a channel that starts showing adverts is looked at properly again from
+its next recording. <strong>Forget</strong> on that row clears it by hand. Nothing about
+any channel is built in: it is learned from your own corrections, one channel at a time.</p>
 <p align="center" class="figrow"><img class="gimg m780" src="img/chalkline.png" width="780" height="452" alt="The Remembered logos dialog, listing learned channel logos"></p>
 <p align="center" class="cap">Logos Chalkline has learned. Every row carries both a channel name and a service ID, so recordings from either kind of recorder are matched to the same logo. Learning is switched off for Channel 4 HD, and LEGEND has learned a break ident as well as its logo.</p>
 <div class="note">The drawing is not there to let you recognise the brand; it is far too
@@ -515,8 +555,8 @@ one step.</p>
 The only routine exception is a handful of frames at each cut boundary, which are briefly
 re-encoded so the cut can land on exactly the frame you chose rather than the nearest
 keyframe. A <strong>full</strong> re-encode of the whole video &mdash; which is
-significantly slower than a lossless save &mdash; only happens if you crop the video,
-choose a profile that re-encodes to HEVC (see below), or save to a container that the
+significantly slower than a lossless save &mdash; only happens if you crop or resize the
+video, choose a profile that re-encodes to HEVC (see below), or save to a container that the
 source's streams are not compatible with.</p>
 <div class="note">Recordings with more than one audio track keep them all &mdash; including
 the audio-description track some broadcasters transmit (Channel&nbsp;4&nbsp;HD, for
@@ -549,8 +589,8 @@ mounted, say &mdash; still appears in the list, greyed out. It is easier to see 
 is missing than to wonder where the entry went.</div>
 
 <h3>If an export is taking longer than you expected</h3>
-<p>A lossless save is usually over in seconds, but a full re-encode &mdash; HEVC, or a crop
-&mdash; can run for a long time, and the export window keeps the editor locked while it
+<p>A lossless save is usually over in seconds, but a full re-encode &mdash; HEVC, a crop or a
+resize &mdash; can run for a long time, and the export window keeps the editor locked while it
 does. If you would rather get on with something else, press <strong>Send to Batch</strong>
 in the export window.</p>
 <p>Nothing restarts and nothing is lost. The export carries on from exactly where it had
@@ -614,7 +654,7 @@ one of the Container choices, which is worth keeping straight. A profile control
   hardware players refuse; HEVC is the safer choice for 10-bit material. This only applies
   when the video is actually re-encoded &mdash; a lossless copy is untouched either way.</li>
   <li><strong>Encoder speed</strong> and <strong>Quality&nbsp;(CRF)</strong> &mdash; these
-  apply only when the video is actually re-encoded (HEVC output, or cropping); for a
+  apply only when the video is actually re-encoded (HEVC output, cropping or resizing); for a
   lossless copy they're greyed out. A slower preset gives better quality for the same file
   size, at the cost of time. A lower CRF means better quality and a bigger file.
   <strong>Automatic</strong> picks a sensible CRF for the codec, and the defaults are what
@@ -625,14 +665,16 @@ one of the Container choices, which is worth keeping straight. A profile control
   quality; spacing them closer makes seeking finer and makes the result quicker to cut
   again later. <strong>Automatic</strong> uses five seconds for HEVC (broadcast recordings
   use about one, which is wasteful for a file you are going to watch rather than re-edit)
-  and one second when cropping. Like the settings above, it only applies when the video is
+  and one second when cropping or resizing. Like the settings above, it only applies when the video is
   actually re-encoded.</li>
   <li><strong>Display aspect</strong> &mdash; leave as the source, or stamp 4:3 or 16:9.
   This is applied losslessly by correcting the aspect signalling, without re-encoding.</li>
   <li><strong>Cropping</strong> &mdash; remove black bars (see below).</li>
+  <li><strong>Resolution</strong> &mdash; scale the picture to a different size, larger or
+  smaller (see below).</li>
   <li><strong>Default directory</strong> &mdash; a per-profile destination folder.</li>
 </ul>
-<p align="center" class="figrow"><img class="gimg m460" src="img/profile-editor.png" width="460" height="617" alt="The output profile editor"></p>
+<p align="center" class="figrow"><img class="gimg m800" src="img/profile-editor.png" width="906" height="477" alt="The output profile editor"></p>
 <p align="center" class="cap">Editing an output profile.</p>
 <h3>Cropping</h3>
 <p>Cropping removes letterbox or pillarbox black bars. Because the bars are part of the
@@ -646,6 +688,34 @@ file is never larger than the original. The scan type is preserved &mdash; inter
 interlaced, progressive stays progressive.</div>
 <p align="center" class="figrow"><img class="gimg m566" src="img/crop-preview.png" width="566" height="475" alt="The crop preview, showing the crop shaded on a real frame"></p>
 <p align="center" class="cap">The crop preview shades the area to be removed over a real frame.</p>
+<h3>Resizing</h3>
+<p><strong>Resolution</strong> scales the picture to a new size &mdash; down, to make a
+smaller file from something downloaded at a higher resolution than you need, or up. Pick one
+of the listed sizes (the same list VideoReDo offered) or <strong>Custom</strong> to type a
+width and height. <strong>Same as source</strong> leaves the picture alone and keeps the
+lossless copy; any other choice triggers the full re-encode mentioned above.</p>
+<p>The picture is fitted inside the size you choose, keeping its shape, so nothing is ever
+stretched or squashed. A 16:9 recording asked for 1280&times;720 fills it exactly; a
+widescreen film of 1920&times;800 comes out 1280&times;534, because a 720-line height would
+need it wider than 1280. A standard-definition widescreen recording is fitted by the shape it
+is displayed at rather than its stored size, and the result has square pixels, so it plays at
+the right shape anywhere. If the recording is already the chosen size, nothing is
+re-encoded.</p>
+<ul>
+  <li><strong>Cropping comes first.</strong> If a profile crops and resizes, the bars are
+  removed and what is left is then scaled, so &ldquo;take the bars off and make it
+  720p&rdquo; does exactly that.</li>
+  <li><strong>Interlaced recordings are deinterlaced</strong> when resized. Scaling an
+  interlaced picture would blend its two fields together, which shows as combing on movement
+  that no player can then remove; the resized file is progressive at the same frame
+  rate.</li>
+  <li><strong>Enlarging cannot add detail.</strong> An upscaled picture is as sharp as the
+  original and no sharper, and some softening is normal. The bitrate ceiling is raised in
+  step with the larger picture, so an enlargement is not starved of data; a smaller picture
+  keeps the source's own ceiling.</li>
+  <li><strong>Subtitles</strong> are copied as they are. DVB subtitles carry their own
+  display size, so a player scales them to the new picture.</li>
+</ul>
 <h3 id="joiner">Joining recordings</h3>
 <p>The <strong>Joiner</strong> menu combines scenes &mdash; from one recording or several
 &mdash; into a single video. There are two ways to fill the list:</p>
@@ -959,6 +1029,7 @@ rather than the current setting.</p>
   <tr><td>Undo / Redo</td><td><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd></td></tr>
   <tr><td>Full Screen</td><td><kbd>F11</kbd></td></tr>
   <tr><td>Capture Frame</td><td><kbd>Ctrl+C</kbd></td></tr>
+  <tr><td>Set Reference Frame</td><td><kbd>Ctrl+E</kbd></td></tr>
 </table>
 
 <h2 id="tips">10. Tips and troubleshooting</h2>
@@ -1056,9 +1127,11 @@ it is probably here under another name.</p>
   </tr>
   <tr>
     <td>Cropping and Resizing</td>
-    <td>Output profile &rarr; <strong>Cropping</strong></td>
+    <td>Output profile &rarr; <strong>Cropping</strong> and <strong>Resolution</strong></td>
     <td>Automatic black-bar detection or fixed pixel amounts, with a preview against a
-    real frame from the recording.</td>
+    real frame from the recording. <strong>Resolution</strong> takes the place of Max
+    resolution: the picture is scaled to fit the chosen size, up or down, keeping its
+    shape.</td>
   </tr>
   <tr>
     <td>Aspect correction</td>

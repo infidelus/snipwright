@@ -3933,6 +3933,10 @@ _NOTE_SUBS_LOST = (
     QT_TRANSLATE_NOOP("ExportNotes", "%d subtitle track not carried over"),
     QT_TRANSLATE_NOOP("ExportNotes", "%d subtitle tracks not carried over"),
 )
+_NOTE_SUBS_UNCOPYABLE = (
+    QT_TRANSLATE_NOOP("ExportNotes", "%d subtitle track could not be copied"),
+    QT_TRANSLATE_NOOP("ExportNotes", "%d subtitle tracks could not be copied"),
+)
 _NOTE_AUDIO_UNWRITTEN = (
     QT_TRANSLATE_NOOP("ExportNotes", "%d audio track could not be written"),
     QT_TRANSLATE_NOOP("ExportNotes", "%d audio tracks could not be written"),
@@ -4555,6 +4559,7 @@ def _export_ranges(
         aspect="source",
         crop_mode="none",
         crop=(0, 0, 0, 0),
+        resize=(0, 0),
         video_mode="copy",
         encoder_preset="faster",
         encoder_crf=None,
@@ -5108,6 +5113,20 @@ def _export_ranges(
         # either.  Those were left out of this note, so every .mp4 made from
         # a recording lost its subtitles with the summary saying only
         # "Subtitles: None" - the one silent loss left in the exporter.
+        # Subtitle streams the cutter could not copy at all - left out
+        # rather than failing the export (smartcut/smart_cut.py).
+        uncopyable = list(getattr(source, "dropped_subtitles", None) or [])
+        if uncopyable:
+            notes.append((
+                counted(len(uncopyable), *_NOTE_SUBS_UNCOPYABLE),
+                "The recording carries %d subtitle track%s Snipwright could "
+                "not copy, so %s left out and the rest of the export went "
+                "ahead: %s."
+                % (len(uncopyable), "s" if len(uncopyable) > 1 else "",
+                   "they were" if len(uncopyable) > 1 else "it was",
+                   "; ".join(r for _i, r in uncopyable)),
+            ))
+
         lost_subs = list(foreign_subs) if not want_mkv else []
         if want_mp4:
             lost_subs += [c for c in source_subs if c in TS_SUBTITLE_CODECS]
@@ -5266,10 +5285,18 @@ def _export_ranges(
     # crop and HEVC share one encode, so a cropped HEVC output is a single pass.
     # Only when the cut itself succeeded; any failure keeps the previous file.
     reencode_hevc = video_mode == "hevc"
+    # A picture size to fit, from the profile; (0, 0) keeps the source's.
+    # Resizing shares the same single encode as the crop and HEVC, and runs
+    # after the crop, so "take the bars off, then make it 720p" does that.
+    try:
+        want_resize = (int(resize[0]) > 0 and int(resize[1]) > 0)
+    except (TypeError, ValueError, IndexError):
+        want_resize = False
     # Set when a requested re-encode didn't happen, so the caller can say so
     # rather than presenting a source-codec file as the finished article.
     recode_failed = False
-    if success and (crop_mode in ("auto", "fixed") or reencode_hevc):
+    if success and (crop_mode in ("auto", "fixed") or reencode_hevc
+                    or want_resize):
         tmp_re = None
         try:
             from export import crop as _crop
@@ -5288,8 +5315,30 @@ def _export_ranges(
                     )
                     if (candidate[0], candidate[1]) != (cw, ch):
                         rect = candidate
-            # Re-encode when we have a crop to apply, or HEVC was requested.
-            if rect is not None or reencode_hevc:
+            # The size the picture comes out at, worked out from what is left
+            # after the crop.  A size that is already the source's (with square
+            # pixels) needs no scaling - and, with nothing else asked for, no
+            # re-encode either, so the export stays lossless.
+            scale = None
+            if want_resize:
+                in_w, in_h = (rect[0], rect[1]) if rect else (cw, ch)
+                in_sar = _crop.source_sar(out_path)
+                fitted = _crop.fit_size(in_w, in_h, in_sar, resize)
+                if fitted is None:
+                    logger.warning(
+                        "Resize to %sx%s skipped: the picture size of the "
+                        "cut could not be read.", resize[0], resize[1])
+                elif (fitted == (in_w, in_h)
+                        and abs(in_sar - 1.0) < 0.001):
+                    logger.info(
+                        "Resize to fit %dx%d: the picture is already %dx%d, "
+                        "so it was left as it is.",
+                        int(resize[0]), int(resize[1]), in_w, in_h)
+                else:
+                    scale = fitted
+            # Re-encode when we have a crop or a resize to apply, or HEVC was
+            # requested.
+            if rect is not None or scale is not None or reencode_hevc:
                 # When HEVC was asked for, encode HEVC.  Otherwise this is a
                 # crop on a profile set to copy the video: the user did not ask
                 # to change codec, so keep the one the source already used.
@@ -5307,7 +5356,12 @@ def _export_ranges(
                             "Cropping an HEVC recording: re-encoding as HEVC "
                             "rather than H.264, to keep the codec it came in."
                         )
-                phase = "encode" if reencode_hevc else "crop"
+                if reencode_hevc:
+                    phase = "encode"
+                elif rect is not None:
+                    phase = "crop"
+                else:
+                    phase = "resize"
                 n_scenes = len(keep_ranges)
 
                 def _reenc_progress(pct):
@@ -5320,13 +5374,30 @@ def _export_ranges(
                 _reenc_progress(0)
                 ext = os.path.splitext(out_path)[1]
                 tmp_re = out_path + ".reenc.tmp" + ext
+                cap_kbps = _crop.target_cap_kbps(out_path)
+                if scale is not None:
+                    # The bitrate ceiling is the source's own budget, which is
+                    # right for a smaller picture but would starve a larger
+                    # one.  Raise it in step with the pixel count when
+                    # enlarging; never lower it, so a downscale keeps all the
+                    # room it had.
+                    in_w, in_h = (rect[0], rect[1]) if rect else (cw, ch)
+                    if in_w and in_h:
+                        growth = (scale[0] * scale[1]) / float(in_w * in_h)
+                        if growth > 1.0:
+                            cap_kbps = int(cap_kbps * growth)
+                    if interlaced:
+                        logger.info(
+                            "Resizing an interlaced recording: deinterlacing "
+                            "it, since scaling would blend the fields.")
                 ok = _crop.crop_reencode(
                     out_path, tmp_re, rect,
+                    scale=scale,
                     codec=codec,
                     preset=encoder_preset,
                     crf=encoder_crf,
                     gop_seconds=encoder_gop_seconds,
-                    cap_kbps=_crop.target_cap_kbps(out_path),
+                    cap_kbps=cap_kbps,
                     fps=_crop.source_fps(out_path),
                     field_order=field_order,
                     total_seconds=_crop.source_duration(out_path),
@@ -5336,7 +5407,14 @@ def _export_ranges(
                 if (ok and os.path.exists(tmp_re)
                         and os.path.getsize(tmp_re) > 0):
                     os.replace(tmp_re, out_path)
-                    if reencode_hevc and rect is not None:
+                    if scale is not None:
+                        logger.info(
+                            "Resized to %dx%d (re-encoded%s%s).",
+                            scale[0], scale[1],
+                            ", cropped first" if rect is not None else "",
+                            ", HEVC" if reencode_hevc else "",
+                        )
+                    elif reencode_hevc and rect is not None:
                         logger.info(
                             "Cropped to %dx%d and re-encoded to HEVC.",
                             rect[0], rect[1],
@@ -5853,7 +5931,8 @@ class ExportWorker(QThread):
     def __init__(self, source_path, out_path, keep_ranges,
                  frame_index, out_format, parent=None,
                  audio_mode="copy", audio_bitrate=0, aspect="source",
-                 crop_mode="none", crop=(0, 0, 0, 0), video_mode="copy",
+                 crop_mode="none", crop=(0, 0, 0, 0), resize=(0, 0),
+                 video_mode="copy",
                  encoder_preset="faster", encoder_crf=None,
                  encoder_gop_seconds=None,
                  audio_sync_ms=0, downmix="keep",
@@ -5869,6 +5948,7 @@ class ExportWorker(QThread):
         self.aspect = aspect
         self.crop_mode = crop_mode
         self.crop = crop
+        self.resize = resize
         self.video_mode = video_mode
         self.encoder_preset = encoder_preset
         self.encoder_crf = encoder_crf
@@ -5896,6 +5976,7 @@ class ExportWorker(QThread):
                 aspect=self.aspect,
                 crop_mode=self.crop_mode,
                 crop=self.crop,
+                resize=self.resize,
                 video_mode=self.video_mode,
                 encoder_preset=self.encoder_preset,
                 encoder_crf=self.encoder_crf,
