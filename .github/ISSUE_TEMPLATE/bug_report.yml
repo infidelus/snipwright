@@ -83,7 +83,7 @@ body:
       description: |
         Almost every fix so far has come from a sample of the file that broke. A short clip is usually enough, and it keeps every stream as broadcast:
         `ffmpeg -ss <start> -t 60 -i recording.ts -c copy sample.ts`
-        Share a link to it here (Dropbox, Google Drive or similar). Only share material you are happy to make public.
+        Please don't post broadcast material publicly. Upload it wherever you like (WeTransfer, Dropbox, Mega, filebin.net) and send the link privately, by email to snipwright@outlook.com or by Reddit DM to u/infideluss. Just say here that you've sent one, and the timestamp where the problem shows.
 
   - type: checkboxes
     id: checks
