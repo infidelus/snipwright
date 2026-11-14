@@ -1,0 +1,96 @@
+name: Bug report
+description: Something in Snipwright went wrong - a save, a cut, detection, the Watcher or the interface.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Snipwright is a hobby project looked after by one person, so replies can take a while.
+
+        Questions and ideas for new features belong in [Discussions](https://github.com/infidelus/snipwright/discussions) rather than here.
+
+  - type: input
+    id: version
+    attributes:
+      label: Snipwright version
+      description: Shown in the title bar and in Help → About.
+      placeholder: "e.g. 2.17.0"
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: Operating system
+      description: Distribution and version, or Windows version.
+      placeholder: "e.g. Linux Mint 22.2, Ubuntu 24.04, Windows 11"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of Snipwright?
+      options:
+        - Saving a video (Save Video)
+        - Advert detection (Chalkline or Comskip)
+        - Batch Manager
+        - Joiner
+        - Watcher
+        - TV or Film Renamer
+        - Quick Stream Fix
+        - Editing, playback or the timeline
+        - Settings, themes or the interface
+        - Installing
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you got instead.
+      placeholder: |
+        1. Opened a recording from ...
+        2. Marked two scenes and saved as .mkv with the Match Source profile
+        3. Expected ..., but ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: recording
+    attributes:
+      label: About the recording
+      description: Where it came from and what is in it, if the problem involves a recording.
+      placeholder: |
+        Recorder: Tvheadend / Jellyfin / a Blu-ray recorder / a download ...
+        Channel or source: e.g. Channel 4 HD, ITV1 SD
+        Anything unusual: several audio tracks, subtitles, a recording that starts mid-programme ...
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        The log from the day it happened is the single most useful thing you can attach. Its folder is shown under Settings → Logging; the file is named snipwright-YYYY-MM-DD.log (the Watcher's are in the settings folder). Paste the part around the problem, or drag the whole file in here.
+      render: text
+
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample clip
+      description: |
+        Almost every fix so far has come from a sample of the file that broke. A short clip is usually enough, and it keeps every stream as broadcast:
+        `ffmpeg -ss <start> -t 60 -i recording.ts -c copy sample.ts`
+        Share a link to it here (Dropbox, Google Drive or similar). Only share material you are happy to make public.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I am on the latest release, or I have said above which version I tried.
+          required: true
+        - label: I have searched the existing issues for this problem.
+          required: true

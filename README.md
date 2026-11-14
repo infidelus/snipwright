@@ -242,11 +242,12 @@ Watcher's start-on-login checkbox works on Windows as well as Linux — it place
 a small launcher in your Startup folder (and removes it when you untick the
 option), so no manual setup is needed.
 
-It's shared as-is, in the hope that others find it useful.
-[Discussions](https://github.com/infidelus/snipwright/discussions) is the place
-for questions, problems and suggestions — the issue tracker stays off. Bug
-reports are welcome, especially with a sample recording, since almost every fix
-so far has come from someone sending me a file that broke it. Feature requests
+It's shared as-is, in the hope that others find it useful. Bugs go in the
+[issue tracker](https://github.com/infidelus/snipwright/issues), which has a
+short form to fill in; questions and suggestions go in
+[Discussions](https://github.com/infidelus/snipwright/discussions). Bug reports
+are welcome, especially with a sample recording, since almost every fix so far
+has come from someone sending me a file that broke it. Feature requests
 I'll read and consider, but I'm promising nothing: this is a hobby project
 maintained by one person, and it already does what I need it to. Replies may
 take a while. If you want Snipwright to go further than I'm likely to take it,
