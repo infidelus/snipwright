@@ -95,7 +95,8 @@ DEFAULT_CONFIG = {
         # Show picture type (I/P/B) on frames: "none", "thumbnails", "preview"
         # or "both".
         "frame_type_display": "none",
-        "theme": "system",          # "system" | "light" | "dark"
+        "theme": "modern-system",   # "system" | "light" | "dark" | "modern-system" | "modern-light" | "modern-dark"
+                                    # - new installs only; an upgrade keeps "system" (config/loader.py)
         "language": "en",           # UI language code; "en" is the built-in default
 
         # Playback audio volume, 0-100.  Audio plays only during real-time

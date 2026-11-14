@@ -132,7 +132,7 @@ class MaintenancePage(SettingsPage):
         where the temp folder is never cleared automatically, being able to see
         the figure matters.
         """
-        from utils.qsf_temp import temp_dir
+        from utils.qsf_temp import base_dir, temp_dir
 
         # Where they go.  Retention does not solve the problem this does:
         # deleting copies afterwards is no help when one copy needs more room
@@ -141,7 +141,9 @@ class MaintenancePage(SettingsPage):
         self._qsf_dir = PlainFolderRow(
             self.tr("Working copy folder"),
             self._settings().get("qsf_temp_dir", ""),
-            temp_dir(),
+            # The folder the setting names; the copies themselves go in a
+            # folder of their own inside it - see utils/qsf_temp.py.
+            base_dir(),
         )
         self.add(self._qsf_dir)
         self.add(hint(self.tr(
@@ -151,7 +153,8 @@ class MaintenancePage(SettingsPage):
             "of them is worth choosing - on Windows the system folder is on "
             "the system drive, which is usually the smallest. If the folder "
             "set here goes missing or cannot be written to, the system folder "
-            "is used instead."
+            "is used instead. The Joiner works here too while it saves, and "
+            "needs about twice the size of the joined video."
         )))
 
         row = QHBoxLayout()

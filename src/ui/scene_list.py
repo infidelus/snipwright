@@ -296,20 +296,63 @@ class SceneList(
             return
 
         #
+        # Any other key the main window has a shortcut for is the main
+        # window's: A, F5/F6, S/E, F3/F4 and the rest.  The table used to take
+        # them first - a letter went to its type-to-find, so A never toggled a
+        # marker while the list had focus (which it does after a row is
+        # clicked).
+        #
+
+        if self._window_shortcut(event):
+            event.ignore()
+
+            return
+
+        #
         # Default table behaviour
         #
+
+        before = self.currentRow()
 
         super().keyPressEvent(
             event
         )
 
         #
-        # Update info panel after Up/Down
+        # Update info panel after Up/Down - only when the row really moved.
+        # This used to run after EVERY key, so F6 pressed with the list
+        # focused first sent the playhead back to the start of the selected
+        # row and only then went on to the next marker: the same marker every
+        # time, stuck in the first scene.  Found while redoing screenshots.
         #
 
         row = self.currentRow()
 
-        if row >= 0:
+        if row >= 0 and row != before:
             # The same path a click takes, so Up/Down also moves the playhead
             # and loads the row into the IN/OUT markers.
             self.window.select_scene_row(row)
+
+    def _window_shortcut(
+            self,
+            event,
+    ):
+        """True if `event` is one of the main window's shortcuts, other
+        than the keys this list moves through its rows with."""
+
+        if event.key() in (
+                Qt.Key_Up,
+                Qt.Key_Down,
+                Qt.Key_PageUp,
+                Qt.Key_PageDown,
+                Qt.Key_Tab,
+                Qt.Key_Backtab,
+        ):
+            return False
+
+        keys = self.window.keys
+
+        return any(
+            keys.match(event, action)
+            for action in keys.shortcuts
+        )

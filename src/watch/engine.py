@@ -247,8 +247,8 @@ def migrate_ignore_match_mode(cfg, ignore_path, seen_path=None):
                 out.append(line)
         if renamed:
             try:
-                with open(ignore_path, "w", encoding="utf-8") as f:
-                    f.writelines(out)
+                from config.loader import write_text_atomic
+                write_text_atomic(ignore_path, "".join(out))
             except OSError:
                 return 0       # leave the setting alone; try again next time
     if renamed and seen_path is not None:
@@ -343,11 +343,6 @@ def matching_ignore_patterns(filename, patterns, mode=DEFAULT_MATCH_MODE):
     return hits
 
 
-def matches_ignore(filename, patterns, mode=DEFAULT_MATCH_MODE):
-    """True if any ignore entry matches this recording's file name."""
-    return bool(matching_ignore_patterns(filename, patterns, mode))
-
-
 def rewrite_ignore_file(path, drop):
     """Remove the given entries from the ignore file, leaving everything else -
     comments, blank lines, ordering - exactly as it was.
@@ -378,9 +373,8 @@ def rewrite_ignore_file(path, drop):
     if not removed:
         return 0
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.writelines(kept)
+        from config.loader import write_text_atomic
+        write_text_atomic(path, "".join(kept))
     except OSError:
         return 0
     return removed
@@ -469,8 +463,8 @@ class IgnoreSeenLog:
         try:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
             payload = {p: d.isoformat() for p, d in sorted(self._seen.items())}
-            with open(self.path, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2)
+            from config.loader import write_json_atomic
+            write_json_atomic(self.path, payload, indent=2)
         except OSError:
             pass
 
@@ -667,10 +661,13 @@ class ProcessedLog:
 
     def save(self):
         try:
-            os.makedirs(os.path.dirname(self.path), exist_ok=True)
-            with open(self.path, "w", encoding="utf-8") as f:
-                for p in sorted(self._set):
-                    f.write(p + "\n")
+            # Swapped in, never written in place.  It is saved after every
+            # recording, and a write cut short left it empty: the next scan
+            # then took every recording in the folders for new (code scan,
+            # 2026-11-13).
+            from config.loader import write_text_atomic
+            write_text_atomic(self.path,
+                              "".join(p + "\n" for p in sorted(self._set)))
         except OSError:
             pass
         self._save_missing()
@@ -686,8 +683,10 @@ class ProcessedLog:
                 if os.path.exists(self.missing_path):
                     os.remove(self.missing_path)
                 return
-            with open(self.missing_path, "w", encoding="utf-8") as f:
-                json.dump(self._missing_since, f, indent=2, sort_keys=True)
+            from config.loader import write_json_atomic
+            write_json_atomic(self.missing_path,
+                              dict(sorted(self._missing_since.items())),
+                              indent=2)
         except OSError:
             pass
 
@@ -906,6 +905,21 @@ def process_recording(source, comskip_binary, comskip_ini, output_dir,
         base = os.path.splitext(os.path.basename(source))[0]
         ext = ".swproj" if project_format == "swproj" else ".vprj"
         vprj_path = os.path.join(output_dir, base + ext)
+        # Never over a project that is already there.  It is the file the
+        # user opens, corrects and saves back to - and what Chalkline learns
+        # from - so a recording processed again (taken off the processed
+        # list, or a list lost to a crash) put an unattended guess over the
+        # corrections without a word.  Two recordings sharing a file name in
+        # different watched folders collided the same way (code scan,
+        # 2026-11-13).
+        n = 2
+        while os.path.exists(vprj_path):
+            vprj_path = os.path.join(output_dir, "%s (%d)%s" % (base, n, ext))
+            n += 1
+        if n > 2:
+            log.info("  A project for %s was already in %s, and was kept; "
+                     "this one is %s.", os.path.basename(source), output_dir,
+                     os.path.basename(vprj_path))
 
         # An empty cut list is valid: this writes a project that keeps the
         # whole recording (no cuts), which is exactly what we want when the

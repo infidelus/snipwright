@@ -47,6 +47,12 @@ distilling the part many people relied on most into a free, open-source tool.
 - **A translatable interface**, with a German translation included and a
   language picker in Settings. Adding a language needs no code — see
   [`src/translations`](src/translations).
+- **Light, dark and Modern themes** — Snipwright can follow your desktop's
+  own colours, or use a classic Light or Dark look, or the Modern look
+  (rounded controls, more spacing, a blue accent) in light or dark. A new
+  installation starts in **Modern (follow system)**, which is light or dark
+  to match your desktop; upgrading keeps the theme you already had. Change
+  it under Settings → General → Theme.
 
 ## Requirements
 
@@ -184,12 +190,25 @@ python3 src/main.py
 Everything else lives in two places worth a look early on:
 
 - **Settings** — set your working folders, choose your advert detector, point
-  Snipwright at mkvmerge (and Comskip, if you use it), add your TMDB key, and
-  adjust logging.
+  Snipwright at mkvmerge (and Comskip, if you use it), add your TMDB key,
+  pick a theme, and adjust logging.
 - **The Extras menu** — launch the TV/Film renamers and start the background
   Watcher.
 
 ## Screenshots
+
+<details>
+<summary><strong>Watch it in action</strong> (about a minute)</summary>
+
+<br>
+
+Chalkline finds the breaks; check them, then save.
+
+![Detecting the adverts, checking the scenes and saving](docs/screenshots/demo.gif)
+
+</details>
+
+The screenshots show the Modern Dark theme.
 
 **Settings** — set your folders, external tools and preferences.
 

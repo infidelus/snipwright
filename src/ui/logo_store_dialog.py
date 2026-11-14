@@ -63,7 +63,14 @@ from repair.chalkline import (
     settle_state,
     card_distances,
     NO_ADVERTS_AFTER,
-    adfree_channels,
+    TAIL_MIN_SEEN,
+    adfree_store_path,
+    end_padding_held,
+    forget_end_padding,
+    learned_keys,
+    load_adfree,
+    pair_learned,
+    learned_key,
     card_only_channels,
     card_store_path,
     forget_no_adverts,
@@ -232,7 +239,7 @@ class LogoStoreDialog(QDialog):
     """Show and edit the logos Chalkline has learned."""
 
     COL_MASK, COL_NAME, COL_SID, COL_LOGO, COL_CONTRAST, COL_IDENTS, \
-        COL_LEARN = range(7)
+        COL_ADVERTS, COL_LEARN = range(8)
 
     def __init__(self, parent=None, store_path=LOGO_STORE):
         super().__init__(parent)
@@ -278,20 +285,26 @@ class LogoStoreDialog(QDialog):
         layout.addWidget(intro)
 
         body = QHBoxLayout()
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels([
             self.tr("Logo"), self.tr("Channel"), self.tr("Service ID"),
             self.tr("Mask"), self.tr("Contrast"), self.tr("Idents"),
-            self.tr("Learn"),
+            self.tr("Adverts"), self.tr("Learn"),
         ])
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(self.COL_NAME, QHeaderView.Stretch)
-        for c in (self.COL_MASK, self.COL_SID, self.COL_LOGO,
-                  self.COL_CONTRAST, self.COL_IDENTS, self.COL_LEARN):
+        # Every column sized to what it holds, and the window opened wide
+        # enough for all of them (_fit_to_table).  Channel used to stretch
+        # into whatever the others left, which in a window of the minimum
+        # width was a few characters - "C... 4 HD" (reported 2026-11-13).
+        for c in (self.COL_NAME, self.COL_MASK, self.COL_SID, self.COL_LOGO,
+                  self.COL_CONTRAST, self.COL_IDENTS, self.COL_ADVERTS,
+                  self.COL_LEARN):
             header.setSectionResizeMode(c, QHeaderView.ResizeToContents)
+        # Any room left over goes to the last column, not into the middle.
+        header.setStretchLastSection(True)
         self.table.itemChanged.connect(self._on_item_changed)
         body.addWidget(self.table, 1)
 
@@ -315,6 +328,59 @@ class LogoStoreDialog(QDialog):
         layout.addWidget(buttons)
 
         self._fill_table()
+        self._fitted = False
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Measured on first showing: before then Qt has not laid out the
+        # cells, and every column reads narrower than it is.
+        if not self._fitted:
+            self._fitted = True
+            self._fit_to_table()
+
+    def _fit_to_table(self):
+        """Open wide enough to show every column whole, within the screen.
+
+        The table is given a minimum width of its columns' real total - read
+        once it is on screen and laid out - and the layout sizes the window
+        round it, so nothing has to guess at the gaps and frames.
+        """
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
+        header = self.table.horizontalHeader()
+        need = (header.length() + 2 * self.table.frameWidth()
+                + self.table.verticalScrollBar().sizeHint().width())
+        screen = self.screen().availableGeometry() if self.screen() else None
+        if screen is not None:
+            # Leave room for the Forget button and margins on a small screen;
+            # the table scrolls sideways rather than run off the edge.
+            need = min(need, int(screen.width() * 0.95) - 150)
+        self.table.setMinimumWidth(need)
+        # The layout must take the new minimum in before it is asked for the
+        # window's - otherwise the old figure comes back and the table is
+        # squeezed under the Forget button.
+        self.layout().activate()
+        width = max(self.width(), self.minimumSizeHint().width())
+        if screen is not None:
+            width = min(width, int(screen.width() * 0.95))
+        self.resize(width, self.height())
+        # Qt centred the window at its first size; growing it afterwards
+        # keeps the top-left corner, so it ended up off to one side while
+        # every other window opens centred (reported 2026-11-13).  Centre it
+        # again over the window it belongs to, kept on the screen.
+        from PySide6.QtCore import QRect
+        over = self.parentWidget().window() if self.parentWidget() else None
+        centre = (over.frameGeometry().center() if over is not None
+                  else (screen.center() if screen is not None else None))
+        if centre is not None:
+            frame = QRect(self.frameGeometry())
+            frame.moveCenter(centre)
+            if screen is not None:
+                frame.moveLeft(max(screen.left(), min(
+                    frame.left(), screen.right() - frame.width() + 1)))
+                frame.moveTop(max(screen.top(), min(
+                    frame.top(), screen.bottom() - frame.height() + 1)))
+            self.move(frame.topLeft())
 
     # -- the store can change under us -------------------------------------
 
@@ -402,11 +468,21 @@ class LogoStoreDialog(QDialog):
     def _fill_table(self):
         self._filling = True
         channels = self._channels()
-        # Channels learned to carry no adverts (chalkline.NO_ADVERTS_AFTER)
-        # come last.  They have no logo and nothing to edit; Forget clears
-        # what was learned.
-        adfree = [{"keys": [key], "clean": n} for key, n in sorted(
-            adfree_channels(self._store_path).items())]
+        # Every channel the no-adverts count knows about gets a row, marked
+        # or not (asked for 2026-11-11: with only marked channels listed,
+        # the BBC ones in progress were nowhere, which read as a bug).  A
+        # channel already shown by its logo or ident shows its progress in
+        # the Adverts column instead; the rest come last, with nothing to
+        # edit, and Forget clears what was learned about them.
+        self._adfree = load_adfree(
+            adfree_store_path(self._store_path))["channels"]
+        shown = set()
+        for e in channels + self._card_rows():
+            shown |= set(e.get("keys") or [])
+        # A channel paired by hand answers to every key it has been given.
+        adfree = [{"keys": learned_keys(self._adfree, key)}
+                  for key in sorted(self._adfree)
+                  if not shown & set(learned_keys(self._adfree, key))]
         self._rows = ([("logo", e) for e in channels]
                       + [("card", e) for e in self._card_rows()]
                       + [("adfree", e) for e in adfree])
@@ -470,6 +546,7 @@ class LogoStoreDialog(QDialog):
             first = (entry.get("keys") or [""])[0]
             self._set_idents(i, len(channel_cards(self._cards, self._store,
                                                   first)), lines)
+            self._set_adverts(i, entry)
             self._set_learn(i, entry, lines)
         for i, (kind, entry) in enumerate(self._rows[len(channels):],
                                           start=len(channels)):
@@ -537,28 +614,109 @@ class LogoStoreDialog(QDialog):
         item.setToolTip(tip)
         self.table.setItem(row, self.COL_LEARN, item)
 
+    def _adverts_state(self, keys):
+        """(text, tooltip) for the Adverts column of a channel's row."""
+        entry = None
+        for k in keys:
+            primary = learned_key(self._adfree, k, self._store_path)
+            if primary in self._adfree:
+                entry = self._adfree[primary]
+                break
+        clean = len((entry or {}).get("clean") or [])
+        if entry is None:
+            text, tip = "", ""
+        elif clean >= NO_ADVERTS_AFTER:
+            text = self.tr("None")
+            tip = self.tr(
+                "No adverts: the last %(n)d recordings you corrected from "
+                "this channel had only their start and end cut, so "
+                "Chalkline looks only for the start and end here. The first "
+                "project you save with a cut in the middle of the programme "
+                "clears this."
+            ) % {"n": clean}
+        elif clean:
+            text = self.tr("None so far: %(n)d of %(need)d") % {
+                "n": clean, "need": NO_ADVERTS_AFTER}
+            tip = self.tr(
+                "The last %(n)d recordings you corrected from this channel "
+                "had only their start and end cut. After %(need)d in a row, "
+                "Chalkline will look only for the start and end of its "
+                "recordings."
+            ) % {"n": clean, "need": NO_ADVERTS_AFTER}
+        else:
+            text = self.tr("Yes")
+            tip = self.tr(
+                "Your corrections cut adverts from this channel, so its "
+                "breaks are looked for as usual."
+            )
+        held = max((end_padding_held(k, self._store_path) for k in keys),
+                   default=0)
+        if held:
+            line = (self.tr(
+                "End of recordings without a programme guide: learned from "
+                "%(n)d corrected recordings, and used from now on.")
+                if held >= TAIL_MIN_SEEN else self.tr(
+                "End of recordings without a programme guide: %(n)d of "
+                "%(need)d corrected recordings so far."))
+            line = line % {"n": held, "need": TAIL_MIN_SEEN}
+            tip = (tip + "\n\n" + line) if tip else line
+        return text, tip
+
+    def _set_adverts(self, row, entry):
+        text, tip = self._adverts_state(entry.get("keys") or [])
+        item = QTableWidgetItem(text)
+        item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+        item.setTextAlignment(Qt.AlignCenter)
+        if tip:
+            item.setToolTip(tip)
+        self.table.setItem(row, self.COL_ADVERTS, item)
+
     def _fill_adfree_row(self, row, entry):
-        """A channel the user's corrections say carries no adverts."""
-        key = entry["keys"][0]
-        tip = self.tr(
-            "No adverts: the last %(n)d recordings you corrected from this "
-            "channel had only their start and end cut, so Chalkline looks "
-            "only for the start and end here. The first project you save "
-            "with a cut in the middle of the programme clears this, and "
-            "Forget clears it now."
-        ) % {"n": int(entry.get("clean", NO_ADVERTS_AFTER))}
-        sid = key if key.startswith(_SID_PREFIX) else ""
+        """A channel known only by what its corrections say about adverts."""
+        keys = entry["keys"]
+        _text, tip = self._adverts_state(keys)
+        name = next((k for k in keys if not k.startswith(_SID_PREFIX)), "")
+        sid = next((k for k in keys if k.startswith(_SID_PREFIX)), "")
         for col, text in ((self.COL_MASK, ""),
-                          (self.COL_NAME, "" if sid else key),
+                          (self.COL_NAME, name),
                           (self.COL_SID, sid),
-                          (self.COL_LOGO, self.tr("No adverts")),
+                          (self.COL_LOGO, self.tr("No logo")),
                           (self.COL_CONTRAST, ""), (self.COL_IDENTS, ""),
                           (self.COL_LEARN, "")):
             item = QTableWidgetItem(text)
-            # Nothing here to edit or switch.
-            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-            item.setToolTip(tip)
+            # The name and service number can be filled in to pair the
+            # channel's two halves, as on a logo row; nothing else here is
+            # editable.
+            flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+            if col in (self.COL_NAME, self.COL_SID):
+                flags |= Qt.ItemIsEditable
+            item.setFlags(flags)
+            if tip:
+                item.setToolTip(tip)
             self.table.setItem(row, col, item)
+        self._set_adverts(row, entry)
+
+    def _apply_adfree_edit(self, entry, col, typed):
+        """Pair a channel listed only for what was learned about it with the
+        other half of its identity - a name with its service number - so
+        recordings from both recorders count together."""
+        keys = entry["keys"]
+        old = next((k for k in keys if k.startswith(_SID_PREFIX) == (
+            col == self.COL_SID)), "")
+        if col == self.COL_SID and typed and not typed.startswith(_SID_PREFIX):
+            typed = _SID_PREFIX + typed
+        if typed == old:
+            return
+        if not typed:
+            self._warn(self.tr(
+                "A channel's name or service ID cannot be cleared here. "
+                "Forget the row to start it afresh."))
+            self._fill_table()
+            return
+        pair_learned(keys[0], typed, self._store_path)
+        self._fill_table()
+        self._status.setText(self.tr("Paired: %(a)s and %(b)s") % {
+            "a": keys[0], "b": typed})
 
     def _forget_adfree(self, entry):
         """Clear what was learned about a channel carrying no adverts."""
@@ -567,9 +725,8 @@ class LogoStoreDialog(QDialog):
             self,
             self.tr("Forget"),
             self.tr(
-                "Stop treating \u201c%s\u201d as a channel with no "
-                "adverts?\n\nChalkline will look for breaks in its "
-                "recordings again, and will learn this afresh from the "
+                "Forget what Chalkline has learned about adverts on "
+                "\u201c%s\u201d?\n\nIt will learn it afresh from the "
                 "projects you correct."
             ) % key,
             QMessageBox.Yes | QMessageBox.No,
@@ -579,6 +736,7 @@ class LogoStoreDialog(QDialog):
         # Written at once: this file has no unsaved edits for the dialog's
         # Save to merge.
         forget_no_adverts(key, self._store_path)
+        forget_end_padding(key, self._store_path)
         self._fill_table()
         self._status.setText(self.tr("Forgotten: %s") % key)
 
@@ -604,6 +762,7 @@ class LogoStoreDialog(QDialog):
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
             self.table.setItem(row, col, item)
         self._set_idents(row, len(entry.get("cards") or []), tip)
+        self._set_adverts(row, entry)
         self._set_learn(row, entry)
         for col in (self.COL_MASK, self.COL_NAME, self.COL_SID,
                     self.COL_LOGO, self.COL_CONTRAST):
@@ -693,6 +852,7 @@ class LogoStoreDialog(QDialog):
         channels = self._channels()
         if (0 <= row < len(self._rows)
                 and self._rows[row][0] == "adfree"):
+            self._apply_adfree_edit(self._rows[row][1], col, typed)
             return
         if len(channels) <= row < len(self._rows):
             self._apply_card_edit(self._rows[row][1], col, typed)

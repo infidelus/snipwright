@@ -58,7 +58,8 @@ def _flush_to_disk(fout):
             pass
 
 
-def _move_one(src, dst, base_copied, total_bytes, label, progress_cb):
+def _move_one(src, dst, base_copied, total_bytes, label, progress_cb,
+              final=None):
     """Move one file from ``src`` to ``dst``.
 
     Same filesystem -> an instant ``os.rename``.  Different filesystem (e.g. a
@@ -67,13 +68,27 @@ def _move_one(src, dst, base_copied, total_bytes, label, progress_cb):
     real transfer, not the OS write cache), then delete the source.  Returns True
     if the move was cancelled part-way, in which case the partial destination is
     removed and the source left untouched.
+
+    ``final``, when given, is where the file really belongs and something is
+    already there: the file goes to ``dst`` (a working name beside it) and is
+    swapped into ``final`` only once it has fully arrived.  Whatever was at
+    ``final`` survives any failure on the way, and the source is removed only
+    after the swap.  The old order - delete what was there, then move - lost
+    that file whenever the move failed (code scan, 2026-11-13).
     """
     try:
         os.rename(src, dst)
-        return False                                   # instant, same filesystem
     except OSError as exc:
         if exc.errno != errno.EXDEV:
             raise                                      # a real error, not cross-device
+    else:
+        if final is not None:
+            try:
+                os.replace(dst, final)
+            except OSError:
+                os.rename(dst, src)                    # put it back as it was
+                raise
+        return False                                   # instant, same filesystem
 
     committed = 0                                      # bytes confirmed on the destination
     pending = 0                                        # written since the last flush
@@ -110,8 +125,30 @@ def _move_one(src, dst, base_copied, total_bytes, label, progress_cb):
         shutil.copystat(src, dst)                      # best effort; SMB may refuse
     except OSError:
         pass
+    if final is not None:
+        try:
+            os.replace(dst, final)
+        except OSError:
+            _safe_remove(dst)                          # source and old file both kept
+            raise
     os.remove(src)
     return False
+
+
+def _same_file(a, b):
+    """True if `a` and `b` are the same file on disk.
+
+    On a filesystem that ignores case - Windows, and a Samba share mounted
+    on Linux - "show s01e01.ts" and "Show S01E01.ts" are one file, so the
+    target "exists" when it is the source itself.  Treated as an ordinary
+    existing file, overwrite deleted it: the recording.
+    """
+    from utils.same_file import is_same_file
+    return is_same_file(a, b)
+
+
+def _key(path):
+    return os.path.normcase(os.path.abspath(path))
 
 
 def move_jobs(jobs, overwrite, progress_cb, label_for):
@@ -142,6 +179,10 @@ def move_jobs(jobs, overwrite, progress_cb, label_for):
     done = skipped = failed = 0
     copied = 0
     n = len(jobs)
+    # Targets this run has already filled.  Two recordings given one name - an
+    # episode recorded twice, in HD and SD - must not have the second delete
+    # the first, whatever the overwrite setting.
+    placed = set()
 
     for idx, (row, target) in enumerate(jobs):
         count = " (%d of %d)" % (idx + 1, n)
@@ -173,7 +214,19 @@ def move_jobs(jobs, overwrite, progress_cb, label_for):
             copied += sizes[idx]
             continue
 
-        exists = os.path.exists(target)
+        if _key(target) in placed:
+            skipped += 1
+            log.warning(
+                "renamer: skipped - another file in this run was already "
+                "given the name %s; nothing was overwritten: %s", target, src)
+            copied += sizes[idx]
+            continue
+
+        # The target is this very file under another spelling - a change of
+        # case on a filesystem that ignores case.  A plain rename does it;
+        # treating it as an existing file to overwrite deleted the recording.
+        same = _same_file(src, target)
+        exists = os.path.exists(target) and not same
         if exists and not overwrite:
             skipped += 1                               # don't clobber
             log.info(
@@ -184,21 +237,30 @@ def move_jobs(jobs, overwrite, progress_cb, label_for):
 
         try:
             os.makedirs(os.path.dirname(target), exist_ok=True)
-            if exists:                                 # overwrite was requested
-                os.remove(target)
-                log.info("renamer: overwrote existing target: %s", target)
             # Now show the move (the second message) before the transfer starts,
             # for a file that was both renamed and is changing folder.
             if move_label and rename_label:
                 if not progress_cb(_permille(copied, total_bytes), 1000,
                                    move_label):
                     break
-            cancelled = _move_one(
-                row.path, target, copied, total_bytes, work_label, progress_cb
-            )
+            if exists:
+                # Overwrite: land beside the old file, then swap - the old one
+                # goes only once the new one has fully arrived.
+                cancelled = _move_one(
+                    row.path, target + ".part", copied, total_bytes,
+                    work_label, progress_cb, final=target,
+                )
+            else:
+                cancelled = _move_one(
+                    row.path, target, copied, total_bytes, work_label,
+                    progress_cb,
+                )
             if cancelled:
                 log.info("renamer: cancelled part-way through: %s", src)
                 break
+            if exists:
+                log.info("renamer: overwrote existing target: %s", target)
+            placed.add(_key(target))
             row.path = target
             row.status = "done"
             done += 1

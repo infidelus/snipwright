@@ -30,7 +30,7 @@ import re
 import shutil
 import subprocess
 
-from utils.proc import popen_progress, read_stderr
+from utils.proc import popen_progress, read_stderr, run_quick
 # The same reader the Quick Stream Fix repair uses, and the same test for a
 # placeholder name that Chalkline applies, so the three cannot drift apart.
 from repair.stream_fix import _source_service
@@ -79,11 +79,51 @@ def _fmt_tc(secs, fps=25.0):
     return f"{h:02d}:{m:02d}:{s:02d}.{frames:02d}"
 
 
+def _fmt_frames(n, fps):
+    """Frame count as HH:MM:SS.ff, worked exactly as the scene list does
+    (utils.timecode.frame_to_timecode), so the log's table reads the same as
+    the list on screen.  Local because that function follows the frame rate
+    the editor last loaded, which a batch export never sets."""
+    rate = max(1, int(round(float(fps or 25))))
+    n = max(0, int(n))
+    secs, ff = divmod(n, rate)
+    return "%02d:%02d:%02d.%02d" % (secs // 3600, (secs // 60) % 60,
+                                    secs % 60, ff)
+
+
+def _fmt_seconds(secs, fps):
+    """Seconds as HH:MM:SS.ff, with a frame part that rounds up to a whole
+    second carried into the seconds rather than printed as .25."""
+    rate = max(1, int(round(float(fps or 25))))
+    whole = int(max(0.0, float(secs)))
+    ff = int(round((float(secs) - whole) * rate))
+    if ff >= rate:
+        whole += 1
+        ff = 0
+    return "%02d:%02d:%02d.%02d" % (whole // 3600, (whole // 60) % 60,
+                                    whole % 60, ff)
+
+
+def _scene_table(keep_ranges, segment_durations, fps):
+    """One row per kept scene - start, end and duration as the scene list
+    shows them, and where the scene starts in the saved video (the Info
+    panel's Splice).  That last figure is the running total of the scenes'
+    real durations, the same numbers the chapter marks are placed from, so
+    the log, the chapters and the saved file agree.  Asked for 2026-11-13."""
+    rows = []
+    at = 0.0
+    for (a, b), dur in zip(keep_ranges, segment_durations):
+        rows.append((_fmt_frames(a, fps), _fmt_frames(b, fps),
+                     _fmt_frames(b - a + 1, fps), _fmt_seconds(at, fps)))
+        at += dur
+    return rows
+
+
 def _log_source_details(source_path):
     """Log the source's video/audio stream properties, VideoReDo-style, so the
     log records exactly what was fed in (codec, scan type, channels, etc.)."""
     try:
-        raw = subprocess.run(
+        raw = run_quick(
             [
                 "ffprobe", "-hide_banner", "-loglevel", "error",
                 "-show_streams", "-show_format", "-of", "json",
@@ -192,7 +232,7 @@ def _output_duration_seconds(path):
     duration when the streams do not say (some do not).
     """
     try:
-        out = subprocess.run(
+        out = run_quick(
             ["ffprobe", "-hide_banner", "-loglevel", "error",
              "-show_entries",
              "stream=codec_type,start_time,duration:stream_tags=DURATION",
@@ -216,7 +256,7 @@ def _output_duration_seconds(path):
     except Exception:
         pass
     try:
-        out = subprocess.run(
+        out = run_quick(
             [
                 "ffprobe", "-hide_banner", "-loglevel", "error",
                 "-show_entries", "format=duration",
@@ -460,52 +500,31 @@ def _empty_audio_tracks(source_path):
     A broadcaster can register an audio PID that is transmitted with no sample
     rate or channel count - a phantom track.  Nothing is lost by skipping one,
     so it shouldn't be reported like missing main audio.
+
+    Judged exactly as _usable_audio_tracks() judges them - PyAV, opened as the
+    cutter opens the file, and a track without parameters counts as empty
+    only if it does not decode either.  This used a deep ffprobe, whose
+    numbering and verdicts can differ from the cutter's; its comment said it
+    matched _usable_audio_tracks long after that had moved to PyAV, and the
+    two could disagree about the very track being reported (code scan,
+    2026-11-13).
     """
-    out = subprocess.run(
-        [
-            "ffprobe", "-hide_banner", "-loglevel", "error",
-            # Same deep probe as _usable_audio_tracks, so the two agree about
-            # which tracks really carry audio.
-            "-analyzeduration", "30M", "-probesize", "60M",
-            "-select_streams", "a",
-            "-show_entries", "stream=index,channels,sample_rate",
-            "-of", "csv=p=0",
-            source_path,
-        ],
-        capture_output=True, text=True,
-    ).stdout
-
-    seen = set()
-    empty = 0
-
-    for line in out.strip().splitlines():
-        parts = [p for p in line.rstrip(",").split(",") if p != ""]
-        if not parts:
-            continue
-        try:
-            idx = int(parts[0])
-        except ValueError:
-            continue
-        if idx in seen:                     # .ts lists streams per program
-            continue
-        seen.add(idx)
-
-        def _num(value):
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                return 0
-
-        channels = _num(parts[1]) if len(parts) > 1 else 0
-        rate = _num(parts[2]) if len(parts) > 2 else 0
-
-        if channels <= 0 or rate <= 0:
-            empty += 1
-
-    return empty
+    import av
+    from smartcut.open_options import SOURCE_OPEN_OPTIONS
+    try:
+        with av.open(source_path, options=SOURCE_OPEN_OPTIONS) as container:
+            streams = [(s.index,
+                        int(getattr(s.codec_context, "channels", 0) or 0),
+                        int(s.codec_context.sample_rate or 0))
+                       for s in container.streams.audio]
+    except Exception:
+        return 0
+    return sum(1 for sidx, channels, rate in streams
+               if (channels <= 0 or rate <= 0)
+               and not _audio_stream_decodes(source_path, sidx))
 
 
-def _audio_tracks_silent_in_ranges(source_path, keep_ranges, fps):
+def _audio_tracks_silent_in_ranges(source_path, segments):
     """Which audio tracks carry nothing in the parts of the recording kept.
 
     `_empty_audio_tracks` above catches a PID the broadcaster registered but
@@ -519,17 +538,23 @@ def _audio_tracks_silent_in_ranges(source_path, keep_ranges, fps):
     in the same terms as losing audio that was really there.  Returns the
     audio-relative indices (a:0, a:1 …) of tracks with no packets in range.
     """
-    if not keep_ranges or not fps:
+    if not segments:
         return []
     try:
         import av
+        from smartcut.open_options import SOURCE_OPEN_OPTIONS
     except Exception:
         return []
 
-    wanted = [(a / float(fps), (b + 1) / float(fps)) for a, b in keep_ranges]
+    # The kept scenes' own times on the source's clock (the segments handed
+    # to the cutter), not frame numbers over fps: after a leap in a
+    # recording's clock, frame arithmetic put the windows hours away from
+    # the packets, and a real audio track could be reported as having
+    # nothing in the kept scenes (code scan, 2026-11-13).
+    wanted = [(float(t0), float(t1)) for t0, t1 in segments]
     silent = []
     try:
-        container = av.open(source_path)
+        container = av.open(source_path, options=SOURCE_OPEN_OPTIONS)
     except Exception:
         return []
     try:
@@ -577,10 +602,6 @@ def _passthru_for_indices(n_audio, usable_indices):
     return tracks
 
 
-def _passthru_tracks(n):
-    return [AudioExportSettings(codec="passthru") for _ in range(n)]
-
-
 def _probe_output_extra(path):
     """Return (audio_frames, video_bitrate_bps) from the finished output.
 
@@ -610,7 +631,7 @@ def _probe_output_extra(path):
 
     try:
         # Video bitrate: prefer stream bit_rate, else derive from size/duration.
-        out = subprocess.run(
+        out = run_quick(
             [
                 "ffprobe", "-hide_banner", "-loglevel", "error",
                 "-select_streams", "v:0",
@@ -768,7 +789,7 @@ def _probe_video_stream(path):
     """``(codec_name, width, height)`` of the first video stream, or
     ``(None, 0, 0)`` if it can't be read."""
     try:
-        out = subprocess.run(
+        out = run_quick(
             ["ffprobe", "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=codec_name,width,height",
              "-of", "default=noprint_wrappers=1", path],
@@ -1077,10 +1098,18 @@ def _run_smartcut(source_path, out_path, segments, n_audio, keep_ranges, fps,
                         video_settings=_video_settings(source_interlaced),
                         progress=prog, cancel_object=cancel)
         if err is None:
+            # smart_cut deletes its output and returns quietly when stopped,
+            # exactly as it returns from a finished cut, so the log said
+            # "finished OK" for a Cancel and the next step then failed on the
+            # missing file.  Ask (code scan, 2026-11-13).
+            if cancel_cb is not None and cancel_cb():
+                raise _Cancelled()
             logger.info(
                 "smartcut: finished OK (%d audio track%s written)",
                 n_written, "" if n_written == 1 else "s",
             )
+            if drop_reason is not None:
+                drop_reason["kept"] = list(usable)
             return n_written
     except Exception as exc:
         # Warning rather than exception(), which logs at ERROR.  A retry
@@ -1157,6 +1186,7 @@ def _run_smartcut(source_path, out_path, segments, n_audio, keep_ranges, fps,
     # a real fault from being noticed.
     if drop_reason is not None:
         drop_reason["failed"] = True
+        drop_reason["kept"] = [0]
 
     return 1
 
@@ -1378,7 +1408,7 @@ _AUDIO_DISPOSITIONS = ("visual_impaired", "descriptions", "hearing_impaired",
                        "comment", "dub", "original")
 
 
-def _source_audio_meta(path):
+def _source_audio_meta(path, sources=None):
     """Per audio track (in stream order): the language and dispositions the
     source carries, so the export can reproduce them faithfully.
 
@@ -1397,7 +1427,7 @@ def _source_audio_meta(path):
     entries = ",".join(_AUDIO_DISPOSITIONS)
     tracks = []
     try:
-        out = subprocess.run(
+        out = run_quick(
             ["ffprobe", "-v", "error", "-select_streams", "a",
              "-show_entries",
              "stream=index:stream_tags=language:stream_disposition=" + entries,
@@ -1418,10 +1448,20 @@ def _source_audio_meta(path):
             })
     except Exception:
         logger.exception("Source audio metadata probe failed")
+    if sources is not None:
+        # The output's tracks in order, as positions among the SOURCE's audio
+        # tracks.  Matching by position alone put a flag on the wrong track
+        # whenever one ahead of it had been left out - an empty or
+        # unwritable track, or the retry with the main audio only - and
+        # could mark the main audio as audio description (code scan,
+        # 2026-11-13).
+        blank = {"language": "", "dispositions": set()}
+        tracks = [tracks[i] if 0 <= i < len(tracks) else blank
+                  for i in sources]
     return tracks
 
 
-def _ffmpeg_audio_meta_args(ad_source, skip=()):
+def _ffmpeg_audio_meta_args(ad_source, skip=(), sources=None):
     """ffmpeg args that reproduce the source's per-track audio language and
     dispositions on the output (for the .ts re-interleave, the ffmpeg MKV
     fallback and the MP4 transcode).
@@ -1438,7 +1478,8 @@ def _ffmpeg_audio_meta_args(ad_source, skip=()):
     # applied by output position, so those have to be left out and the
     # remaining ones renumbered - otherwise every flag lands on the wrong track.
     out_pos = 0
-    for i, info in enumerate(_source_audio_meta(ad_source or "")):
+    for i, info in enumerate(_source_audio_meta(ad_source or "",
+                                                  sources=sources)):
         if i in skip:
             continue
         # ffmpeg joins multiple disposition flags with "+"; an empty set is
@@ -1458,7 +1499,7 @@ def _mkvmerge_video_track_id(exe, ts_path):
     --aspect-ratio).  Falls back to 0 - the usual id for a single-video .ts -
     on any failure."""
     try:
-        out = subprocess.run(
+        out = run_quick(
             [exe, *MKVMERGE_PROBE, "-J", ts_path], capture_output=True, text=True,
         ).stdout
         data = json.loads(out)
@@ -1500,7 +1541,7 @@ def _is_matroska(path):
 def _mkvmerge_subtitle_track_ids(exe, path):
     """Every subtitle track's id as mkvmerge sees it, or [] on any failure."""
     try:
-        data = json.loads(subprocess.run(
+        data = json.loads(run_quick(
             [exe, *MKVMERGE_PROBE, "-J", path], capture_output=True, text=True,
         ).stdout)
         return [t.get("id") for t in data.get("tracks", [])
@@ -1917,7 +1958,7 @@ def _marks_in_output(markers, keep_ranges, frame_index, segment_durations,
 
 def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
                         cancel_cb=None, progress_cb=None, ad_source=None,
-                        extra_marks=None):
+                        extra_marks=None, problems=None, audio_sources=None):
     """Build the final .mkv from the cut .ts, one chapter per scene.
 
     mkvmerge (mkvtoolnix) is preferred: it repackages the broadcast LATM-muxed
@@ -1937,7 +1978,17 @@ def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
     The mux and the audio verify/rebuild have no measurable progress but can take
     20-30s, so we flag each stage to `progress_cb` with a negative percent - a
     cue for the UI to show a busy/pulsing bar instead of a frozen one.
+
+    `problems`, a list, receives a (headline, explanation) pair for each fault
+    the finished file still has.  Two used to go only to the log, so the
+    summary showed nothing worse than its "repackaged audio" footnote over an
+    .mkv whose audio was missing or would not play (code scan, 2026-11-13).
     """
+    def _problem(label, full):
+        logger.error(full)
+        if problems is not None:
+            problems.append((NoteText(label), full))
+
     def _busy(phase):
         if progress_cb is not None:
             progress_cb({"phase": phase, "percent": -1})
@@ -1979,20 +2030,25 @@ def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
                                          cancel_cb=cancel_cb,
                                          ad_source=ad_source,
                                          extra_marks=extra_marks,
-                                         extra_inputs=[audio_mka])
+                                         extra_inputs=[audio_mka],
+                                         audio_sources=audio_sources)
         finally:
             if os.path.exists(audio_mka):
                 os.remove(audio_mka)
         if not _audio_census_ok(mkv_path, ts_path, cancel_cb=cancel_cb,
                                 require_tracks=True):
-            logger.error("The .mkv is missing audio - see the census above.")
+            _problem(_NOTE_MKV_NO_AUDIO,
+                     "The .mkv is missing audio that the cut it was built "
+                     "from has - see the audio census in the log. The .ts "
+                     "output from the same cut keeps it.")
         return False
     if exe:
         _busy("finalise_mkv")
         _write_mkv_chapters_mkvmerge(ts_path, mkv_path, segment_durations, exe,
                                      aspect=aspect, cancel_cb=cancel_cb,
                                      ad_source=ad_source,
-                                     extra_marks=extra_marks)
+                                     extra_marks=extra_marks,
+                                     audio_sources=audio_sources)
         # The verify used to run under the mux's busy indicator, so the
         # decode looked like the mux still going.  It reports its own phase
         # now.  The census runs first: it is far cheaper than the decode, and
@@ -2021,7 +2077,8 @@ def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
         _write_mkv_chapters_ffmpeg(ts_path, mkv_path, segment_durations,
                                    aspect=aspect, cancel_cb=cancel_cb,
                                    ad_source=ad_source,
-                                   extra_marks=extra_marks)
+                                   extra_marks=extra_marks,
+                                   audio_sources=audio_sources)
 
         # Verify the rebuild too.  When a broadcast changes its channel
         # configuration part-way through - Channel 4 HD films do - no lossless
@@ -2055,13 +2112,14 @@ def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
                 ts_path, mkv_path, segment_durations, aspect=aspect,
                 cancel_cb=cancel_cb, ad_source=ad_source,
                 extra_marks=extra_marks, progress_cb=progress_cb,
-                total_seconds=sum(segment_durations or [])):
+                total_seconds=sum(segment_durations or []),
+                audio_sources=audio_sources):
             logger.info("MKV audio re-encoded to AAC (verified decodable).")
         else:
-            logger.error(
-                "Couldn't re-encode the MKV audio; the file's audio may not "
-                "play. Export it again with Audio set to AAC in the profile."
-            )
+            _problem(_NOTE_MKV_AUDIO_UNPLAYABLE,
+                     "Couldn't re-encode the MKV audio; the file's audio may "
+                     "not play. Export it again with Audio set to AAC in the "
+                     "profile, or save it as .ts.")
         return True
     else:
         logger.warning(
@@ -2075,13 +2133,15 @@ def _write_mkv_chapters(ts_path, mkv_path, segment_durations, aspect="source",
         _write_mkv_chapters_ffmpeg(ts_path, mkv_path, segment_durations,
                                    aspect=aspect, cancel_cb=cancel_cb,
                                    ad_source=ad_source,
-                                   extra_marks=extra_marks)
+                                   extra_marks=extra_marks,
+                                   audio_sources=audio_sources)
         return True
 
 
 def _write_mkv_chapters_mkvmerge(ts_path, mkv_path, segment_durations, exe,
                                  aspect="source", cancel_cb=None, ad_source=None,
-                                 extra_marks=None, extra_inputs=()):
+                                 extra_marks=None, extra_inputs=(),
+                                 audio_sources=None):
     """Mux the cut .ts into .mkv with mkvmerge (native AAC, lossless)."""
     # mkvmerge's simple/OGM chapter format: absolute HH:MM:SS.mmm timestamps.
     lines = []
@@ -2132,10 +2192,10 @@ def _write_mkv_chapters_mkvmerge(ts_path, mkv_path, segment_durations, exe,
         # visual-impaired FLAG - not a track name - so players label the track
         # from the flag exactly as they do on the source, and the other tracks
         # keep showing their language rather than a bare index.
-        meta = _source_audio_meta(ad_source or ts_path)
+        meta = _source_audio_meta(ad_source or ts_path, sources=audio_sources)
         if any("visual_impaired" in t["dispositions"] for t in meta):
             try:
-                ident = json.loads(subprocess.run(
+                ident = json.loads(run_quick(
                     [exe, *MKVMERGE_PROBE, "-J", ts_path], capture_output=True, text=True,
                 ).stdout)
                 audio_tids = [t.get("id") for t in ident.get("tracks", [])
@@ -2146,7 +2206,7 @@ def _write_mkv_chapters_mkvmerge(ts_path, mkv_path, segment_durations, exe,
             # --visual-impaired-flag needs MKVToolNix 52+ (2021); older ones
             # reject unknown options outright, so probe before using it.
             try:
-                have_vi_flag = "--visual-impaired-flag" in subprocess.run(
+                have_vi_flag = "--visual-impaired-flag" in run_quick(
                     [exe, "--help"], capture_output=True, text=True,
                 ).stdout
             except Exception:
@@ -2241,59 +2301,6 @@ def _dominant_audio_profile(ts_path, stream=0):
     return channels, bitrate
 
 
-def _reencode_mkv_audio(mkv_path, cancel_cb=None):
-    """Re-encode an MKV's audio in place, leaving video and subtitles alone.
-
-    UNUSED as of 2.6.0, and kept only so this note has somewhere to live.
-    The live path is _reencode_mkv_audio_from_ts, which rebuilds from the .ts
-    intermediate.  This one re-encoded the already-written .mkv - decoding a
-    file whose audio had already been established as undecodable - which is
-    how it once produced 126 audio frames for a two-and-a-half-hour film and
-    reported success.  Do not wire it back up.
-
-    Returns True if the result decodes.
-    """
-    tmp = mkv_path + ".aac.mkv"
-    cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-        "-i", mkv_path,
-        "-map", "0", "-map", "-0:d", "-ignore_unknown",
-        "-c:v", "copy", "-c:s", "copy",
-        # Two channels: the varying configuration is precisely the problem, so
-        # settle on the one every player handles.
-        "-c:a", "aac", "-ac", "2", "-b:a", "192k",
-        *subtitle_flags(mkv_path, tmp),     # see export/sub_flags.py
-        tmp,
-    ]
-    try:
-        proc = _run_cancellable(cmd, cancel_cb=cancel_cb)
-    except OSError as exc:
-        logger.warning("Audio re-encode couldn't run: %s", exc)
-        _safe_remove(tmp)
-        return False
-
-    if proc.returncode != 0 or not os.path.exists(tmp) \
-            or os.path.getsize(tmp) == 0:
-        logger.warning("Audio re-encode failed (rc=%s): %s",
-                       proc.returncode, (proc.stderr or "").strip()[:300])
-        _safe_remove(tmp)
-        return False
-
-    if not _mkv_audio_ok(tmp, cancel_cb=cancel_cb):
-        logger.warning("The re-encoded audio still won't decode; keeping the "
-                       "original file rather than a worse copy of it.")
-        _safe_remove(tmp)
-        return False
-
-    try:
-        os.replace(tmp, mkv_path)
-    except OSError as exc:
-        logger.warning("Couldn't put the re-encoded audio in place: %s", exc)
-        _safe_remove(tmp)
-        return False
-    return True
-
-
 def _audio_frame_counts(path):
     """Packets in EVERY audio track, in order.  [] if they can't be counted.
 
@@ -2343,7 +2350,8 @@ def _audio_frame_count(path, stream=0):
 def _reencode_mkv_audio_from_ts(ts_path, mkv_path, segment_durations,
                                 aspect="source", cancel_cb=None,
                                 ad_source=None, extra_marks=None,
-                                progress_cb=None, total_seconds=0.0):
+                                progress_cb=None, total_seconds=0.0,
+                                audio_sources=None):
     """Rebuild the .mkv from the cut .ts with the audio re-encoded to AAC.
 
     The last resort for a recording whose channel configuration varies within
@@ -2360,7 +2368,8 @@ def _reencode_mkv_audio_from_ts(ts_path, mkv_path, segment_durations,
             ts_path, mkv_path, segment_durations, aspect=aspect,
             cancel_cb=cancel_cb, ad_source=ad_source,
             extra_marks=extra_marks, audio_reencode=True,
-            progress_cb=progress_cb, total_seconds=total_seconds)
+            progress_cb=progress_cb, total_seconds=total_seconds,
+            audio_sources=audio_sources)
     except _Cancelled:
         raise
     except Exception as exc:
@@ -2388,7 +2397,7 @@ def _write_mkv_chapters_ffmpeg(ts_path, mkv_path, segment_durations,
                                aspect="source", cancel_cb=None, ad_source=None,
                                extra_marks=None, audio_reencode=False,
                                progress_cb=None, phase="recode_audio",
-                               total_seconds=0.0):
+                               total_seconds=0.0, audio_sources=None):
     """Fallback MKV mux via ffmpeg (lossless, but audio stays LATM-in-ACM).
 
     audio_reencode collapses the audio to plain stereo AAC instead of copying
@@ -2431,7 +2440,8 @@ def _write_mkv_chapters_ffmpeg(ts_path, mkv_path, segment_durations,
         # when the intermediate still has it, but the cut/graft can drop it -
         # so we mirror it from the original recording.  No track name is set:
         # the flag alone is what players label from, matching the source.
-        cmd += _ffmpeg_audio_meta_args(ad_source or ts_path)
+        cmd += _ffmpeg_audio_meta_args(ad_source or ts_path,
+                                       sources=audio_sources)
         dar = _aspect_dar(aspect)
         if dar:
             # Container display aspect, set without re-encoding the video.
@@ -2472,7 +2482,7 @@ def _audio_codec_names(path):
     """[(stream index, codec name)] for the audio streams in `path`."""
     out = []
     try:
-        text = subprocess.run(
+        text = run_quick(
             ["ffprobe", "-v", "error", "-select_streams", "a",
              "-show_entries", "stream=index,codec_name",
              "-of", "csv=p=0", path],
@@ -2549,90 +2559,6 @@ def _audio_stream_indexes(path):
         if line.isdigit() and int(line) not in out:
             out.append(int(line))
     return out
-
-
-def _stream_start_time(path, audio_position):
-    """Where an audio track starts, in seconds, or None."""
-    try:
-        result = _run_cancellable([
-            "ffprobe", "-v", "error", *DEEP_PROBE,
-            "-select_streams", f"a:{audio_position}",
-            "-show_entries", "stream=start_time",
-            "-of", "csv=p=0", path,
-        ])
-    except Exception:
-        return None
-    text = (result.stdout or "").strip().splitlines()
-    try:
-        return float(text[0])
-    except (ValueError, IndexError):
-        return None
-
-
-def _stream_language(path, audio_position):
-    """The language tag of an audio track, or None."""
-    try:
-        result = _run_cancellable([
-            "ffprobe", "-v", "error", *DEEP_PROBE,
-            "-select_streams", f"a:{audio_position}",
-            "-show_entries", "stream_tags=language",
-            "-of", "csv=p=0", path,
-        ])
-    except Exception:
-        return None
-    lang = (result.stdout or "").strip().splitlines()
-    return lang[0].strip() if lang and lang[0].strip() else None
-
-
-def _replace_audio_track(ts_path, position, new_audio_path):
-    """Swap one audio track in the cut for a repaired elementary stream.
-
-    Everything else - video, the other audio tracks, subtitles, and each
-    track's language - is copied through untouched.
-    """
-    tmp = ts_path + ".swap.ts"
-    tracks = _audio_stream_indexes(ts_path)
-    # A bare elementary stream carries no timestamps, so ffmpeg invents them
-    # from zero and the muxer's preload shifts everything: the repaired track
-    # landed 44s adrift and the finished .mp4 claimed 222s of a 178s cut.
-    # Offset the replacement to where the track it replaces began, keep the
-    # source timestamps, and pin the mux delay.
-    start = _stream_start_time(ts_path, position)
-    cmd = ["ffmpeg", "-hide_banner", "-v", "error", "-y", *DEEP_PROBE,
-           "-i", ts_path]
-    if start is not None:
-        cmd += ["-itsoffset", "%.6f" % start]
-    cmd += ["-i", new_audio_path, "-map", "0:v"]
-    for i in range(len(tracks)):
-        cmd += ["-map", "1:a:0" if i == position else f"0:a:{i}"]
-    cmd += ["-map", "0:s?", "-c", "copy"]
-    for i in range(len(tracks)):
-        lang = _stream_language(ts_path, i)
-        if lang:
-            cmd += [f"-metadata:s:a:{i}", f"language={lang}"]
-    cmd += ["-muxpreload", "0", "-muxdelay", "0", "-copyts", tmp]
-    try:
-        result = _run_cancellable(cmd)
-    except _Cancelled:
-        _safe_remove(tmp)
-        raise
-    except Exception as exc:
-        logger.warning("Audio track swap couldn't run: %s", exc)
-        _safe_remove(tmp)
-        return False
-    if result.returncode != 0 or not os.path.exists(tmp) \
-            or os.path.getsize(tmp) == 0:
-        logger.warning("Audio track swap failed (rc=%s): %s",
-                       result.returncode, (result.stderr or "").strip()[:200])
-        _safe_remove(tmp)
-        return False
-    try:
-        os.replace(tmp, ts_path)
-    except OSError as exc:
-        logger.warning("Couldn't put the repaired audio back: %s", exc)
-        _safe_remove(tmp)
-        return False
-    return True
 
 
 def _repair_audio_configs(ts_path, cancel_cb=None, progress_cb=None):
@@ -2820,7 +2746,7 @@ def _transcode_to_mp4(
         ts_path, mp4_path, video_codec, interlaced,
         total_seconds=0.0, progress_cb=None,
         cancel_cb=None, ad_source=None, drop_audio=False, cover=None,
-        segment_durations=None, extra_marks=None,
+        segment_durations=None, extra_marks=None, audio_sources=None,
 ):
     """Convert the freshly-cut .ts into an .mp4.
 
@@ -2983,9 +2909,11 @@ def _transcode_to_mp4(
     # (the only thing MP4 players show as a track label) to "visual impaired".
     # Other tracks get no name - matching the source, which names nothing.
     if not drop_audio:
-        cmd += _ffmpeg_audio_meta_args(ad_source or ts_path, skip=dead_audio)
+        cmd += _ffmpeg_audio_meta_args(ad_source or ts_path, skip=dead_audio,
+                                       sources=audio_sources)
         out_pos = 0
-        for i, info in enumerate(_source_audio_meta(ad_source or ts_path)):
+        for i, info in enumerate(_source_audio_meta(ad_source or ts_path,
+                                                    sources=audio_sources)):
             if i in dead_audio:
                 continue
             if "visual_impaired" in info["dispositions"]:
@@ -3089,7 +3017,7 @@ def _audio_codecs(path):
     """``codec_name`` for each audio stream, in order, de-duplicated by index
     (an MPEG-TS file can list a stream once per program)."""
     try:
-        out = subprocess.run(
+        out = run_quick(
             ["ffprobe", "-v", "error", "-select_streams", "a",
              "-show_entries", "stream=index,codec_name",
              "-of", "default=noprint_wrappers=1", path],
@@ -3145,13 +3073,26 @@ def _has_audio(path):
 def _container_seconds(path):
     """Container duration in seconds (0.0 if it can't be read)."""
     try:
-        out = subprocess.run(
+        out = run_quick(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "csv=p=0", path],
             capture_output=True, text=True,
         ).stdout.strip()
         return float(out)
     except Exception:
+        return 0.0
+
+
+def _audio_stream_seconds(path, track):
+    """Length in seconds of audio track `track` alone, or 0.0 if not given."""
+    try:
+        out = run_quick(
+            ["ffprobe", "-v", "error", "-select_streams", "a:%d" % track,
+             "-show_entries", "stream=duration", "-of", "csv=p=0", path],
+            capture_output=True, text=True,
+        ).stdout.split()
+        return float(out[0]) if out else 0.0
+    except (ValueError, IndexError, OSError):
         return 0.0
 
 
@@ -3184,7 +3125,12 @@ def _one_audio_track_decodes(path, track=0):
     copyable files into a needless rebuild).  Only a track that yields almost
     nothing fails.  It's an audio-only decode to null, far cheaper than the
     rebuild it guards."""
-    expected = _container_seconds(path)
+    # Judged against the track's OWN length where the container gives one,
+    # not the whole file's: an audio-description track is sparse, and one
+    # whose narration ends early in the cut decoded "too little" against the
+    # file and was taken for broken - sending a lossless graft to the lossy
+    # re-encode of every track (code scan, 2026-11-13).
+    expected = _audio_stream_seconds(path, track) or _container_seconds(path)
     prog = path + (".decodecheck%d" % track)
     try:
         result = subprocess.run(
@@ -3294,7 +3240,7 @@ def _audio_track_info(source_path):
     (SBR/PS) track - which has to be seeked rather than decoded from the start -
     from an ordinary LC track; ``channels`` picks a sensible per-track bitrate."""
     try:
-        out = subprocess.run(
+        out = run_quick(
             ["ffprobe", "-v", "error", "-select_streams", "a",
              "-show_entries", "stream=index,channels,profile",
              "-of", "default=noprint_wrappers=1", source_path],
@@ -3342,7 +3288,7 @@ def _audio_track_starts(source_path):
     .ts file can list the same stream once per program.
     """
     try:
-        out = subprocess.run(
+        out = run_quick(
             ["ffprobe", "-v", "error", "-select_streams", "a",
              "-show_entries", "stream=index,start_time",
              "-of", "default=noprint_wrappers=1", source_path],
@@ -3630,7 +3576,8 @@ def _graft_source_audio(video_path, source_path, scene_times, n_audio,
 
 
 def _rebuild_audio_from_source(video_path, source_path, scene_times,
-                               n_audio, progress_cb=None, cancel_cb=None):
+                               n_audio, progress_cb=None, cancel_cb=None,
+                               report=None):
     """Replace ``video_path``'s audio by re-encoding the source audio for the
     kept scene time-ranges and muxing it onto the (untouched) video.
 
@@ -3697,6 +3644,8 @@ def _rebuild_audio_from_source(video_path, source_path, scene_times,
         )
 
     need_seek = any(is_sbr(t) for t in build_tracks)
+    if report is not None:
+        report["tracks"] = list(build_tracks)    # source positions, in order
 
     # Sync diagnostics (a few lines, not per-frame): record how each rebuilt
     # track is anchored, so should the picture and sound ever part company the
@@ -3959,6 +3908,8 @@ _NOTE_AUDIO_MISSING = (
 )
 _NOTE_AUDIO_PATCHED = QT_TRANSLATE_NOOP("ExportNotes", "a few audio frames were re-encoded")
 _NOTE_MP4_NO_AUDIO = QT_TRANSLATE_NOOP("ExportNotes", "audio missing from the MP4")
+_NOTE_MKV_NO_AUDIO = QT_TRANSLATE_NOOP("ExportNotes", "audio missing from the MKV")
+_NOTE_MKV_AUDIO_UNPLAYABLE = QT_TRANSLATE_NOOP("ExportNotes", "the MKV's audio may not play")
 _NOTE_ADJUST_FAILED = QT_TRANSLATE_NOOP("ExportNotes", "audio adjustment not applied")
 _NOTE_NO_AUDIO = QT_TRANSLATE_NOOP("ExportNotes", "output has no audio")
 _NOTE_REPACKAGED = QT_TRANSLATE_NOOP("ExportNotes", "repackaged audio")
@@ -3997,7 +3948,7 @@ def _subtitle_codecs(path):
     one.
     """
     try:
-        out = subprocess.run(
+        out = run_quick(
             ["ffprobe", "-v", "error", "-select_streams", "s",
              "-show_entries", "stream=index,codec_name", "-of", "csv=p=0",
              path],
@@ -4016,11 +3967,12 @@ def _subtitle_codecs(path):
 
 def _drop_empty_audio(ts_path, cancel_cb=None):
     """Remove from `ts_path` any audio track _unwritable_audio_streams()
-    finds empty, copying everything else exactly.  Returns how many went;
-    on any failure the file is left as it was."""
+    finds empty, copying everything else exactly.  Returns the positions
+    (a:0, a:1 ...) of the tracks that went; on any failure the file is left
+    as it was and nothing is returned."""
     dead = _unwritable_audio_streams(ts_path)
     if not dead:
-        return 0
+        return []
     tmp = ts_path + ".live.ts"
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
@@ -4041,13 +3993,13 @@ def _drop_empty_audio(ts_path, cancel_cb=None):
         logger.warning("Could not leave out %d empty audio track(s) (ffmpeg "
                        "rc=%s): %s", len(dead), res.returncode,
                        (res.stderr or "").strip()[-300:])
-        return 0
+        return []
     os.replace(tmp, ts_path)
     logger.info(
         "Dropping %d empty audio track(s) before building the .mkv: the "
         "broadcaster registered them but transmitted nothing in the kept "
         "section.", len(dead))
-    return len(dead)
+    return dead
 
 
 def _unwritable_audio_streams(path):
@@ -4077,7 +4029,7 @@ def _unwritable_audio_streams(path):
     """
     dead = []
     try:
-        out = subprocess.run(
+        out = run_quick(
             ["ffprobe", "-v", "error", *DEEP_PROBE, "-select_streams", "a",
              "-show_entries", "stream=index,sample_rate,channels",
              "-of", "csv=p=0", path],
@@ -4143,7 +4095,7 @@ def _container_for(path):
     """
     fmt = ""
     try:
-        fmt = subprocess.run(
+        fmt = run_quick(
             ["ffprobe", "-v", "error", "-show_entries", "format=format_name",
              "-of", "default=nw=1:nk=1", path],
             capture_output=True, text=True,
@@ -4262,7 +4214,7 @@ def _apply_audio_adjustments(path, sync_ms=0, downmix="keep",
         # 192 kHz working rate in the output.
         rate = 0
         try:
-            rate = int(subprocess.run(
+            rate = int(run_quick(
                 ["ffprobe", "-v", "error", "-select_streams", "a:0",
                  "-show_entries", "stream=sample_rate",
                  "-of", "default=nw=1:nk=1", path],
@@ -4363,7 +4315,8 @@ def _apply_audio_adjustments(path, sync_ms=0, downmix="keep",
     return True
 
 
-def _finalise_ts_audio_meta(path, ad_source=None, progress_cb=None):
+def _finalise_ts_audio_meta(path, ad_source=None, progress_cb=None,
+                            audio_sources=None):
     """Restore the source's audio dispositions/language on a finished .ts.
 
     The lossless cut and the audio graft drop the MPEG-TS descriptor that
@@ -4387,7 +4340,8 @@ def _finalise_ts_audio_meta(path, ad_source=None, progress_cb=None):
     audio separately).
     Returns True if the file was rewritten, False if it was left untouched.
     """
-    meta = _source_audio_meta(ad_source) if ad_source else []
+    meta = (_source_audio_meta(ad_source, sources=audio_sources)
+            if ad_source else [])
     service_name, service_provider, service_id = (
         _source_service(ad_source) if ad_source else ("", "", None))
 
@@ -4473,7 +4427,7 @@ def _finalise_ts_audio_meta(path, ad_source=None, progress_cb=None):
     # untouched by it: exports with continuous audio came out identical,
     # timestamps included.
     cmd += ["-c", "copy", "-copyts"]
-    cmd += _ffmpeg_audio_meta_args(ad_source, skip=dead)
+    cmd += _ffmpeg_audio_meta_args(ad_source, skip=dead, sources=audio_sources)
     if service_name:
         cmd += ["-metadata", "service_name=%s" % service_name]
     if service_provider:
@@ -4594,6 +4548,17 @@ def _export_ranges(
     """
     if not keep_ranges:
         raise ExportError("No segments to export.")
+
+    # Never onto the recording itself.  Opening it as the output empties it
+    # while the cut reads it, and the failure clean-up below then deletes
+    # "the output" - the recording.  Every caller's dialog refuses this too;
+    # this is the backstop for any route that does not (an export handed to
+    # the Batch Manager keeps the path it was given).
+    from utils.same_file import is_same_file
+    if is_same_file(out_path, source_path):
+        raise ExportError(
+            "The output is the recording being saved from, so it cannot be "
+            "saved over. Choose another name or folder.")
 
     # Bound at function scope: the repair runs inside the cut block, and the
     # summary that reads it is outside.
@@ -4825,6 +4790,11 @@ def _export_ranges(
             media_container=source,
             drop_reason=audio_drop_reason,
         )
+        # Which SOURCE audio track each of the cut's tracks is, in order -
+        # kept up to date through every step below that can leave a track out
+        # or rebuild the set, so the language and audio-description flags are
+        # put back on the right tracks (see _source_audio_meta).
+        audio_sources = audio_drop_reason.get("kept")
 
         #
         # Verify the cut actually produced video.  smartcut can occasionally
@@ -4865,7 +4835,11 @@ def _export_ranges(
         # (The AD flag is later matched to tracks by position, so an empty
         # track ahead of a live one would leave a flag off, never misplace it.)
         if want_mkv and not _is_matroska(cut_target):
-            _drop_empty_audio(cut_target, cancel_cb=cancel_cb)
+            dropped_positions = _drop_empty_audio(cut_target,
+                                                  cancel_cb=cancel_cb)
+            if audio_sources is not None and dropped_positions:
+                audio_sources = [src for pos, src in enumerate(audio_sources)
+                                 if pos not in dropped_positions]
 
         # Decide whether the cut audio has to be rebuilt from source.
         #
@@ -4901,10 +4875,12 @@ def _export_ranges(
                     "source instead."
                 )
                 if rebuild_audio:
-                    _rebuild_audio_from_source(
-                        cut_target, source_path, segments, n_audio,
-                        progress_cb=progress_cb, cancel_cb=cancel_cb,
-                    )
+                    rebuilt = {}
+                    if _rebuild_audio_from_source(
+                            cut_target, source_path, segments, n_audio,
+                            progress_cb=progress_cb, cancel_cb=cancel_cb,
+                            report=rebuilt):
+                        audio_sources = rebuilt.get("tracks", audio_sources)
         elif n_audio > 0 and _audio_needs_rebuild(source_path):
             # smartcut's straight copy of some broadcast LATM comes through
             # mistyped and broken: ffprobe reports it as mp3, and neither
@@ -5009,12 +4985,16 @@ def _export_ranges(
                         "(container origin %.3fs)."
                         % (n_audio, audio_offset)
                     )
+                    rebuilt = {}
                     ok = _rebuild_audio_from_source(
                         cut_target, source_path, segments,
                         n_audio,
                         progress_cb=progress_cb,
                         cancel_cb=cancel_cb,
+                        report=rebuilt,
                     )
+                    if ok:
+                        audio_sources = rebuilt.get("tracks", audio_sources)
                 if ok and _has_audio(cut_target):
                     logger.info("Audio rebuild succeeded.")
                     # Optional, off by default: confirm the rebuilt audio still
@@ -5177,6 +5157,8 @@ def _export_ranges(
                 aspect=aspect, cancel_cb=cancel_cb, progress_cb=progress_cb,
                 ad_source=source_path,
                 extra_marks=chapter_marks,
+                problems=errors,
+                audio_sources=audio_sources,
             )
         elif want_mp4:
             #
@@ -5195,6 +5177,7 @@ def _export_ranges(
             mp4_args = dict(
                 segment_durations=segment_durations,
                 extra_marks=chapter_marks,
+                audio_sources=audio_sources,
                 total_seconds=sum(segment_durations),
                 progress_cb=progress_cb,
                 cancel_cb=cancel_cb,
@@ -5250,7 +5233,8 @@ def _export_ranges(
             # the transcode above, both of which re-interleave inherently.
             if cancel_cb is None or not cancel_cb():
                 _finalise_ts_audio_meta(out_path, ad_source=source_path,
-                                        progress_cb=progress_cb)
+                                        progress_cb=progress_cb,
+                                        audio_sources=audio_sources)
 
         if progress_cb is not None:
             progress_cb({
@@ -5490,6 +5474,13 @@ def _export_ranges(
     # "dropped" count are honest about what was written.
     try:
         actual_written = len(_audio_track_info(out_path))
+        # No tracks at all could also mean the probe could not read the file.
+        # Only believe it when the file can be read for something else - a
+        # failed probe used to make the summary report every track dropped
+        # (code scan, 2026-11-13).
+        if actual_written == 0 and audio_written and \
+                not _container_seconds(out_path):
+            actual_written = audio_written
     except Exception:
         actual_written = audio_written
     if 0 <= actual_written != audio_written:
@@ -5524,7 +5515,7 @@ def _export_ranges(
     if dropped > 0:
         try:
             silent_here = len(
-                _audio_tracks_silent_in_ranges(source_path, keep_ranges, fps)
+                _audio_tracks_silent_in_ranges(source_path, segments)
             )
             if silent_here:
                 logger.info(
@@ -5773,7 +5764,14 @@ def _export_ranges(
         "out_path": out_path,
         "errors": [NoteText(_SEE_LOGS, label) for label, _full in errors],
         "notes": [NoteText(_SEE_LOGS, label) for label, _full in notes],
+        # The same, with their full explanations, for a caller that reports
+        # them in its own summary - the Joiner, whose scene pieces and final
+        # profile pass are exports of their own.  It used to throw these away,
+        # so an HEVC join whose re-encode failed finished looking perfect.
+        "error_details": list(errors),
+        "note_details": list(notes),
         "scenes": len(keep_ranges),
+        "scene_table": _scene_table(keep_ranges, segment_durations, fps),
         "video_frames": reported_frames,
         "audio_frames": audio_frames,
         "duration_secs": duration_secs,
@@ -5890,6 +5888,23 @@ def format_completion_summary(label, stats, notes=(), errors=()):
         "    Video bitrate   : %.2f Mbps" % (
             (stats.get("video_bitrate") or 0) / 1_000_000),
     ]
+    # The scenes, lined up like the scene list with where each one starts in
+    # the saved file.  The joiner's stats carry no table, so it prints none.
+    table = stats.get("scene_table")
+    if table:
+        # A join's rows carry a fifth field: which recording each scene came
+        # from, since their start and end are times in different files.
+        named = any(len(row) > 4 for row in table)
+        lines.append("    Scenes          :   #  Start        End          "
+                     "Duration     In saved video"
+                     + ("  Recording" if named else ""))
+        for i, row in enumerate(table, start=1):
+            start, end, dur, at = row[:4]
+            line = ("                       %2d  %s  %s  %s  %s"
+                    % (i, start, end, dur, at))
+            if named:
+                line += "   " + (row[4] if len(row) > 4 else "")
+            lines.append(line)
     for lbl, full in notes:
         lines.append("    * %s - %s" % (lbl, full))
     for lbl, full in errors:
@@ -5998,6 +6013,11 @@ class ExportWorker(QThread):
             if self._cancel:
                 self.cancelled.emit()
             else:
+                if not isinstance(exc, ExportError):
+                    # Not a failure the exporter explains itself but a fault
+                    # in Snipwright - the one-line message alone left a bug
+                    # report with nothing to go on.
+                    logger.exception("Export raised an unexpected error")
                 self.failed.emit(str(exc))
             return
         if self._cancel:

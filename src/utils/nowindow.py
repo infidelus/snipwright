@@ -53,17 +53,3 @@ def install():
     subprocess.Popen.__init__ = patched_init
     _installed = True
     return True
-
-
-def no_window_kwargs():
-    """Flags for a single call, for anywhere the global patch isn't in force.
-
-    Returns an empty dict off Windows, so it can be splatted into any
-    subprocess call unconditionally:  subprocess.run(cmd, **no_window_kwargs())
-    """
-    if sys.platform != "win32":
-        return {}
-    si = subprocess.STARTUPINFO()
-    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    si.wShowWindow = subprocess.SW_HIDE
-    return {"creationflags": CREATE_NO_WINDOW, "startupinfo": si}

@@ -24,23 +24,10 @@ class SelectionManager:
         self.undo_stack = []
         self.redo_stack = []
 
-        # When the user marks IN inside an existing range, that range's index
-        # is recorded here so the next commit REPLACES it (adjusts its
-        # boundaries) rather than merging into it.  None means "new range".
-        self.editing_index = None
-
-    def range_index_at(self, frame):
-        """Return the index of the range containing `frame`, or None."""
-        for i, (start, end) in enumerate(self.ranges):
-            if start <= frame <= end:
-                return i
-        return None
-
     def clear_pending(self):
 
         self.pending_in = None
         self.pending_out = None
-        self.editing_index = None
 
     def finish_edit(self):
         """Finish a scene or cut without discarding the IN/OUT markers.
@@ -52,14 +39,10 @@ class SelectionManager:
         just made rather than adding a second one.  Clearing both markers meant
         re-marking from scratch for the sake of one frame.
 
-        `editing_index` is still cleared - that tracks which scene is being
-        edited, and the edit really has finished.
-
-        `_marked_since_commit` is cleared too, so commit_range() can tell a
+        `_marked_since_commit` is cleared, so commit_range() can tell a
         marker the user has just placed from one left over from this scene.
         See the inverted-span guard there.
         """
-        self.editing_index = None
         self._marked_since_commit = set()
 
     def clear_all(self):
@@ -137,7 +120,10 @@ class SelectionManager:
             self.pending_out
         )
 
-        self.push_undo_state()
+        # Undo is recorded only if the commit changes something: adding a
+        # scene exactly as it already is pushed an empty undo step and threw
+        # the redo history away (code scan, 2026-11-13).
+        before = list(self.ranges)
 
         new_start = start
         new_end = end
@@ -171,6 +157,7 @@ class SelectionManager:
             kept.append((new_start, new_end))
             kept.sort()
             self.ranges = kept
+            self._record_undo_if_changed(before)
             self.finish_edit()
             return True
 
@@ -227,6 +214,7 @@ class SelectionManager:
         merged.sort()
 
         self.ranges = merged
+        self._record_undo_if_changed(before)
 
         #
         # The markers stay where they are - see finish_edit.
@@ -235,6 +223,11 @@ class SelectionManager:
         self.finish_edit()
 
         return True
+
+    def _record_undo_if_changed(self, before):
+        if self.ranges != before:
+            self.undo_stack.append(before)
+            self.redo_stack.clear()
 
     @staticmethod
     def _subtract_from(ranges, start, end):
@@ -255,12 +248,6 @@ class SelectionManager:
         result.sort()
 
         return result
-
-    def adjust_cut(self, old_start, old_end, new_start, new_end):
-        """Replace one existing cut with a new span.  See replace_cuts()."""
-        if None in (old_start, old_end):
-            return False
-        return self.replace_cuts([(old_start, old_end)], new_start, new_end)
 
     def replace_cuts(self, olds, new_start, new_end):
         """Replace every cut in `olds` with the single span new_start..new_end.
@@ -365,27 +352,6 @@ class SelectionManager:
         merged.sort()
 
         return merged
-
-    def union_range(self, start, end):
-        """Add `start`..`end` back into the kept ranges, merging with anything
-        it touches.
-
-        Cut Mode's "Remove Selected Cuts": deleting a cut from the list means
-        putting that part of the programme back.  A single undo step.
-        """
-        if start is None or end is None:
-            return False
-
-        if start > end:
-            start, end = end, start
-
-        self.push_undo_state()
-
-        self.ranges = self._union_into(self.ranges, start, end)
-
-        self.clear_pending()
-
-        return True
 
     def union_ranges(self, spans):
         """Restore several cuts at once as a single undo step.
@@ -499,26 +465,6 @@ class SelectionManager:
             cuts.append((cursor, last_frame))
 
         return cuts
-
-    def remove_range(
-            self,
-            index,
-    ):
-
-        if (
-                index < 0
-                or
-                index >= len(
-            self.ranges
-        )
-        ):
-            return False
-
-        self.push_undo_state()
-
-        del self.ranges[index]
-
-        return True
 
     def remove_ranges(self, indices):
         """Remove several ranges at once as a single undo step.

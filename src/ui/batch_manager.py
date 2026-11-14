@@ -332,6 +332,15 @@ class BatchManagerDialog(QDialog):
 
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
 
+        # No default button here: there is no single action Enter should
+        # take, and Browse… - the first button - was becoming the default by
+        # accident, so Enter opened the folder picker (found when the Modern
+        # themes coloured it, 2026-11-13).  Starting a batch must be a
+        # deliberate press.  The row buttons get the same in _refresh_table.
+        for btn in self.findChildren(QPushButton):
+            btn.setAutoDefault(False)
+            btn.setDefault(False)
+
     # ------------------------------------------------------------------ #
     # Controller wiring
     # ------------------------------------------------------------------ #
@@ -744,12 +753,14 @@ class BatchManagerDialog(QDialog):
             fol_btn = self.table.cellWidget(r, COL_FOLDER)
             if not isinstance(fol_btn, QPushButton):
                 fol_btn = QPushButton()
+                fol_btn.setAutoDefault(False)
                 self.table.setCellWidget(r, COL_FOLDER, fol_btn)
             self._fill_row_folder_button(fol_btn, r, job)
 
             edit_btn = self.table.cellWidget(r, COL_EDIT)
             if not isinstance(edit_btn, QPushButton):
                 edit_btn = QPushButton(self.tr("Edit…"))
+                edit_btn.setAutoDefault(False)
                 edit_btn.clicked.connect(
                     lambda _checked=False, _r=r: self._edit_row(_r)
                 )
@@ -799,6 +810,10 @@ class BatchManagerDialog(QDialog):
             return self.tr("Needs review — Edit to repair & confirm")
         if job.status == FAILED and job.message:
             return f"Failed: {job.message.splitlines()[0]}"
+        note = getattr(job, "profile_note", None)
+        if job.status == DONE and note:
+            return self.tr("Done - profile \u201c%s\u201d not found, \u201c%s\u201d "
+                           "used") % (note[0], note[1])
         return QCoreApplication.translate(
             "BatchManager",
             _STATUS_TEXT.get(job.status, QT_TRANSLATE_NOOP("BatchManager", "Queued")),

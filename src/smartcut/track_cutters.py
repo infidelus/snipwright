@@ -126,7 +126,20 @@ class PassthruAudioCutter:
         in_name = getattr(self.track.av_stream.codec_context, "name", "")
         out_name = getattr(out_stream.codec_context, "name", "")
         if in_name == "aac_latm" and out_name == "aac" and self.track.packets:
-            self._latm = LatmRepacketiser(bytes(self.track.packets[0]))
+            # From the first packet that carries a configuration, not simply
+            # the first: a frame may legally reuse the previous one's
+            # (useSameStreamMux), and one at the very start of a recording
+            # failed the cut outright.  create_audio_output_stream() found a
+            # parsable packet to describe the stream, so one exists.
+            first_error = None
+            for i in range(min(len(self.track.packets), 200)):
+                try:
+                    self._latm = LatmRepacketiser(bytes(self.track.packets[i]))
+                    break
+                except LatmError as e:
+                    first_error = first_error or e
+            if self._latm is None:
+                raise first_error or LatmError("no LATM configuration found")
 
         # Output position state - can be set for joining multiple files
         self.segment_start_in_output = initial_position

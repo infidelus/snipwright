@@ -71,7 +71,7 @@ def _parse_sps(rbsp):
     b = _Bits(rbsp)
     profile = b.u(8)
     b.u(8)                      # constraint flags + reserved
-    level = b.u(8)
+    b.u(8)                      # level
     b.ue()                      # sps id
     chroma = 1
     if profile in _H264_HIGH_PROFILES:

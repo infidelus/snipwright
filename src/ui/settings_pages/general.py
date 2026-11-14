@@ -23,6 +23,9 @@ _THEME_OPTIONS = [
     (QT_TRANSLATE_NOOP("Settings", "Follow system"), "system"),
     (QT_TRANSLATE_NOOP("Settings", "Light"), "light"),
     (QT_TRANSLATE_NOOP("Settings", "Dark"), "dark"),
+    (QT_TRANSLATE_NOOP("Settings", "Modern (follow system)"), "modern-system"),
+    (QT_TRANSLATE_NOOP("Settings", "Modern Light"), "modern-light"),
+    (QT_TRANSLATE_NOOP("Settings", "Modern Dark"), "modern-dark"),
 ]
 
 
@@ -53,12 +56,13 @@ class GeneralPage(SettingsPage):
             "and scene list at once; the next video you open starts in the new mode.")
         ))
 
-        self._show_tooltips = QCheckBox(self.tr("Show tooltips on the transport controls"))
+        self._show_tooltips = QCheckBox(self.tr("Show tooltips in the editor window"))
         self._show_tooltips.setChecked(s.get("show_tooltips", True))
         self.add(self._show_tooltips)
         self.add(hint(
-            self.tr("Hover hints on the play, skip and marker buttons. Turn off once "
-            "you know the controls.")
+            self.tr("Hover hints on the editor's buttons, time boxes and Charms bar. "
+            "Turn off once you know the controls. Tooltips in other windows, "
+            "which often carry information, still show.")
         ))
 
         self._notify_batch = QCheckBox(
@@ -138,9 +142,12 @@ class GeneralPage(SettingsPage):
         theme_row.addWidget(self._theme)
         self.add_layout(theme_row)
         self.add(hint(
-            self.tr("Follow the desktop's own colours, or pin a Light or Dark look for "
-            "Snipwright. The editor's timeline and thumbnail bars stay dark in "
-            "every theme. The change applies straight away.")
+            self.tr("Follow the desktop's own colours, or pin a look for Snipwright: "
+            "Light or Dark as it has always been, or the Modern look with rounded "
+            "controls, more spacing and a blue accent - light or dark to match "
+            "the desktop, or pinned to either. The editor's timeline and "
+            "thumbnail bars stay dark in every theme. The change applies "
+            "straight away.")
         ))
 
         lang_row = QHBoxLayout()

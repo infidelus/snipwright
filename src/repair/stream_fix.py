@@ -15,7 +15,7 @@ import json
 import shutil
 import subprocess
 
-from utils.proc import popen_progress, read_stderr
+from utils.proc import popen_progress, read_stderr, run_quick
 
 from PySide6.QtCore import (
     QThread,
@@ -30,7 +30,7 @@ class StreamFixError(Exception):
 def _probe_duration_us(path):
     """Total duration in microseconds, or 0 if unknown."""
     try:
-        out = subprocess.run(
+        out = run_quick(
             [
                 "ffprobe", "-hide_banner", "-loglevel", "error",
                 "-show_entries", "format=duration",
@@ -58,7 +58,7 @@ def _dead_audio_streams(path):
     """
     dead = []
     try:
-        out = subprocess.run(
+        out = run_quick(
             [
                 "ffprobe", "-hide_banner", "-loglevel", "error",
                 "-analyzeduration", "30M", "-probesize", "60M",

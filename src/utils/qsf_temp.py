@@ -19,7 +19,6 @@ a crash is caught later by age.
 
 import logging
 import os
-import shutil
 import tempfile
 
 log = logging.getLogger("snipwright")
@@ -34,8 +33,51 @@ VIDEO_EXTS = {".ts", ".m2ts", ".mkv", ".mp4", ".mov", ".avi",
               ".mpg", ".mpeg", ".vob", ".m2v"}
 
 
+# Working copies live in a folder of their own inside the chosen one.  They
+# used to sit loose in it, named "<recording> - QSF.ts" - which is also what
+# Quick Stream Fix's Save a Copy suggests for a repaired copy kept beside the
+# recording on purpose.  Pointed at a recordings folder, the age sweep below
+# would have deleted those kept copies (code scan, 2026-11-13).
+WORKING_SUBFOLDER = "snipwright-working"
+
+
 def temp_dir():
-    """Where working copies are written.
+    """Where working copies are written: a folder of our own inside
+    base_dir(), so the sweep can never reach anything else."""
+    base = base_dir()
+    sub = os.path.join(base, WORKING_SUBFOLDER)
+    try:
+        os.makedirs(sub, exist_ok=True)
+        if os.access(sub, os.W_OK):
+            return sub
+    except OSError:
+        pass
+    log.warning("Could not use %s for working copies; using %s itself.",
+                sub, base)
+    return base
+
+
+def _sweep_folders(folder=None):
+    """The folders the listing and the sweeps look in.
+
+    Our own subfolder - plus, while copies made by older versions may still
+    be lying loose in it, the system temporary folder itself, but only when
+    that IS the chosen folder: nothing a person keeps on purpose lives there.
+    A folder the user chose is never swept outside our subfolder.
+    """
+    if folder:
+        return [folder]
+    folders = [temp_dir()]
+    base = base_dir()
+    if os.path.normcase(os.path.abspath(base)) == \
+            os.path.normcase(os.path.abspath(tempfile.gettempdir())):
+        folders.append(base)
+    return folders
+
+
+def base_dir():
+    """The folder chosen for working copies (the setting), or the system
+    temporary folder.
 
     The system temporary folder unless `settings.qsf_temp_dir` names
     somewhere else.  Configurable because retention does not solve the
@@ -71,20 +113,6 @@ def temp_dir():
     return tempfile.gettempdir()
 
 
-def free_space(folder=None):
-    """Bytes free where working copies are written, or None if unknown.
-
-    Used to say something useful when a repair runs out of room, rather than
-    reporting a bare write error and leaving the user to work out both which
-    folder filled up and that the folder is a setting they can change.
-    """
-    folder = folder or temp_dir()
-    try:
-        return shutil.disk_usage(folder).free
-    except OSError:
-        return None
-
-
 def looks_like_working_copy(path):
     """Whether `path` is one of ours.
 
@@ -102,14 +130,14 @@ def list_working_copies(folder=None):
     Returns a list of (path, size_bytes, mtime).  Unreadable entries are
     skipped rather than raising - this feeds a settings page, not a backup.
     """
-    folder = folder or temp_dir()
     out = []
-    try:
-        names = os.listdir(folder)
-    except OSError:
-        return out
-    for name in names:
-        path = os.path.join(folder, name)
+    paths = []
+    for each in _sweep_folders(folder):
+        try:
+            paths += [os.path.join(each, n) for n in os.listdir(each)]
+        except OSError:
+            continue
+    for path in paths:
         if not looks_like_working_copy(path):
             continue
         try:
@@ -121,11 +149,6 @@ def list_working_copies(folder=None):
         out.append((path, st.st_size, st.st_mtime))
     out.sort(key=lambda row: row[2], reverse=True)
     return out
-
-
-def total_size(folder=None):
-    """Bytes currently taken up by working copies."""
-    return sum(size for _p, size, _m in list_working_copies(folder))
 
 
 def human_size(num):

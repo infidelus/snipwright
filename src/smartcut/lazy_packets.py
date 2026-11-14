@@ -106,9 +106,14 @@ class LazyAudioPackets:
                 packet = next(self._demux)
             except StopIteration:
                 break
-            # A flush packet (empty, no data) marks the end; it is not one of
-            # the stream's packets and must not be counted as one.
-            if packet.dts is None and packet.pts is None and not bytes(packet):
+            # Counted exactly as the file walk counts them, or the two
+            # numberings drift apart: the walk (media_container.py) skips any
+            # packet with no pts, so this must too - including a flush packet.
+            # A packet with data but no pts, which a lightly-probed
+            # audio-description track can produce, used to be counted here
+            # and not there, putting every later packet one place out (code
+            # scan, 2026-11-13).
+            if packet.pts is None:
                 continue
             self._cache.append(packet)
             self._next_index += 1

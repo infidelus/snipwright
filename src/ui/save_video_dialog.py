@@ -9,7 +9,7 @@ destination, and opens the Profile Options manager via its button.
 
 import os
 
-from PySide6.QtCore import Qt, QCoreApplication
+from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -36,7 +36,7 @@ class SaveVideoDialog(QDialog):
 
     def __init__(self, config, suggested_path, source_ext, parent=None,
                  default_container=None, sample_source="",
-                 preselect_profile=None):
+                 preselect_profile=None, protected=None):
         super().__init__(parent)
         self.setWindowTitle(self.tr("Save Video"))
         self.setMinimumWidth(640)
@@ -44,6 +44,10 @@ class SaveVideoDialog(QDialog):
 
         self.config = config
         self._sample_source = sample_source
+        # Files this save must never write over: the recording being cut, by
+        # default, or every source of a join.  See utils/same_file.py.
+        self._protected = list(protected if protected is not None
+                               else [sample_source])
         from utils.media_ext import writable_extension
         self._source_ext = writable_extension(source_ext)
         self._preselect_container = default_container
@@ -441,6 +445,16 @@ class SaveVideoDialog(QDialog):
         want = profile.extension(self._source_ext)
         if ext.lower() != want.lower():
             path = root + want
+        # Never over a recording being read: the save would empty it as it
+        # read it, then delete it when the cut failed - see utils/same_file.
+        from utils.same_file import any_same_file
+        if any_same_file(path, self._protected):
+            QMessageBox.warning(
+                self, self.tr("Save Video"),
+                self.tr("%s is the recording being saved from, so it cannot "
+                        "be saved over. Choose another name or folder.")
+                % os.path.basename(path))
+            return
         # Auto-suggested names are de-duplicated already, so this only catches a
         # name the user typed (or picked) that collides with an existing file.
         if os.path.exists(path):

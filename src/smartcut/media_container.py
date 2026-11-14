@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from fractions import Fraction
-from typing import cast
 
 import logging
 import threading
@@ -11,7 +10,7 @@ from smartcut.latm import LatmError, LatmRepacketiser
 from smartcut.lazy_packets import LazyAudioPackets
 from smartcut.open_options import LEGACY_OPEN_ARGS, SOURCE_OPEN_OPTIONS
 from smartcut.rational import q
-from av import AudioStream, Packet, VideoStream
+from av import AudioStream, VideoStream
 from av import open as av_open
 from av import time_base as AV_TIME_BASE
 from av.container.input import InputContainer
@@ -39,10 +38,6 @@ from smartcut.nal_tools import (
 # any decode time is known" - which can only be the first GOP of the file.
 # The cutter relies on that reading; see VideoCutter.fetch_frame.
 UNKNOWN_DTS = -100_000_000
-
-
-def ts_to_time(ts: float) -> Fraction:
-    return Fraction(round(ts*1000), 1000)
 
 
 def _note_latm_config(track, packet) -> None:
@@ -581,87 +576,3 @@ class MediaContainer:
             self.av_container.close()
         except Exception:
             pass
-
-    def get_next_frame_time(self, t: Fraction) -> Fraction:
-        assert self.video_stream is not None
-        t += self.start_time
-        # Convert to PTS for searching
-        t_pts = round(t / cast(Fraction, q(self.video_stream.time_base)))
-        idx = np.searchsorted(self.video_frame_times_pts, t_pts)
-        if idx == len(self.video_frame_times_pts):
-            return self.duration
-        elif idx == 0:
-            return self.video_frame_times[0] - self.start_time
-        # Otherwise, find the closest of the two possible candidates: arr[idx-1] and arr[idx]
-        else:
-            prev_val = self.video_frame_times[idx - 1]
-            next_val = self.video_frame_times[idx]
-            if t - prev_val <= next_val - t:
-                return prev_val - self.start_time
-            else:
-                return next_val - self.start_time
-
-    def get_frame_time_at_or_before(self, t: Fraction) -> Fraction:
-        """Get frame time at or before the given time (snap down).
-
-        For video files: uses video frame times.
-        For audio-only files: uses first audio track's frame times.
-
-        Args:
-            t: Time in seconds (relative to start_time=0)
-
-        Returns:
-            Frame time at or before t, or 0 if t is before first frame.
-        """
-        t_absolute = t + self.start_time
-
-        if self.video_stream is not None:
-            frame_times = self.video_frame_times
-            frame_times_pts = self.video_frame_times_pts
-            time_base = cast(Fraction, q(self.video_stream.time_base))
-        elif self.audio_tracks:
-            track = self.audio_tracks[0]
-            frame_times = track.frame_times
-            frame_times_pts = track.frame_times_pts
-            time_base = cast(Fraction, q(track.av_stream.time_base))
-        else:
-            return t  # No frames to snap to
-
-        t_pts = round(t_absolute / time_base)
-        # side='right' ensures we get index after t if t is exactly on a frame boundary
-        idx = int(np.searchsorted(frame_times_pts, t_pts, side='right')) - 1
-        idx = max(0, idx)
-        return frame_times[idx] - self.start_time
-
-    def get_frame_time_at_or_after(self, t: Fraction) -> Fraction:
-        """Get frame time at or after the given time (snap up).
-
-        For video files: uses video frame times.
-        For audio-only files: uses first audio track's frame times.
-
-        Args:
-            t: Time in seconds (relative to start_time=0)
-
-        Returns:
-            Frame time at or after t, or duration if t is past last frame.
-        """
-        t_absolute = t + self.start_time
-
-        if self.video_stream is not None:
-            frame_times = self.video_frame_times
-            frame_times_pts = self.video_frame_times_pts
-            time_base = cast(Fraction, q(self.video_stream.time_base))
-        elif self.audio_tracks:
-            track = self.audio_tracks[0]
-            frame_times = track.frame_times
-            frame_times_pts = track.frame_times_pts
-            time_base = cast(Fraction, q(track.av_stream.time_base))
-        else:
-            return t  # No frames to snap to
-
-        t_pts = round(t_absolute / time_base)
-        # side='left' ensures we get index of frame at or after t
-        idx = int(np.searchsorted(frame_times_pts, t_pts, side='left'))
-        if idx >= len(frame_times):
-            return self.duration
-        return frame_times[idx] - self.start_time

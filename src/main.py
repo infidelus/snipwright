@@ -49,9 +49,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QDialog,
-    QDialogButtonBox,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -62,11 +60,9 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QStyle,
-    QStyleFactory,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
-    QGridLayout,
 )
 from media.frame_index import (
     get_or_build_index,
@@ -100,7 +96,6 @@ from utils.applog import (
 
 from utils.timecode import (
     frame_to_timecode,
-    marker_text,
 )
 from utils.tool_paths import (
     apply_tool_paths,
@@ -782,7 +777,7 @@ class MainWindow(QMainWindow):
     def _apply_tooltip_setting(self):
         """Honour the "Show tooltips" setting straight away.
 
-        The filter covers the transport controls only - see _TooltipGate.
+        The filter covers the editor window only - see _TooltipGate.
         Installing and removing it here means toggling the setting takes
         effect at once, rather than only after a restart.
         """
@@ -799,10 +794,7 @@ class MainWindow(QMainWindow):
                 self._tooltip_gate = None
         else:
             if gate is None:
-                panel = getattr(self, "transport_panel", None)
-                if panel is None:
-                    return
-                self._tooltip_gate = _TooltipGate(panel)
+                self._tooltip_gate = _TooltipGate(self)
                 app.installEventFilter(self._tooltip_gate)
 
     def _apply_edit_mode_now(self):
@@ -1440,7 +1432,7 @@ class MainWindow(QMainWindow):
         ))
         open_btn = box.addButton(self.tr("Open releases page"),
                                  QMessageBox.AcceptRole)
-        later_btn = box.addButton(self.tr("Later"), QMessageBox.RejectRole)
+        box.addButton(self.tr("Later"), QMessageBox.RejectRole)
         skip_btn = None
         if not manual:
             skip_btn = box.addButton(self.tr("Skip this version"),
@@ -2182,6 +2174,8 @@ class MainWindow(QMainWindow):
             self.config, suggested, source_ext, self,
             default_container="match",
             sample_source=sample_source,
+            protected=[e.source for e in entries
+                       if e.kind != JoinerEntry.KIND_TITLE and e.source],
         )
         if dialog.exec() != QDialog.Accepted:
             return
@@ -2504,6 +2498,11 @@ class MainWindow(QMainWindow):
             self,
         )
         progress.setWindowTitle(self.tr("Detect Commercials"))
+        # Blocks the editor while it runs (Cancel still works).  It did not -
+        # Qt's progress dialog is not modal unless told - so another recording
+        # could be opened mid-job and the result landed on THAT one: a
+        # detection's cuts applied to the wrong file (code scan, 2026-11-13).
+        progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
 
         # Size the dialog for the longest label it will ever show, before it
@@ -2527,6 +2526,7 @@ class MainWindow(QMainWindow):
 
         worker = make_worker()
         self._detect_worker = worker
+        generation = getattr(self, "_load_generation", 0)
 
         def _on_detect_progress(pct, pass_no):
             # Both detectors report a percentage that restarts partway
@@ -2553,6 +2553,10 @@ class MainWindow(QMainWindow):
         def _done(edl_path):
             from project.edl import load_edl
             progress.close()
+            if not self._still_open(generation, name):
+                worker.cleanup()
+                self._detect_worker = None
+                return
             try:
                 keep_ranges, _ = load_edl(edl_path, self.index)
             except Exception as exc:
@@ -2659,7 +2663,7 @@ class MainWindow(QMainWindow):
         source path, so letting Ctrl+P overwrite it would quietly replace the
         user's work with a lossy copy of it.
         """
-        from project.edl import load_edl, parse_edl_cuts
+        from project.edl import parse_edl_cuts
 
         self.raise_()
         self.activateWindow()
@@ -2734,8 +2738,7 @@ class MainWindow(QMainWindow):
 
     def _apply_edl(self, path, index, title="Import EDL"):
         """Map an EDL onto an index and make its kept ranges the selection."""
-        from project.edl import (describe_mismatch, load_edl,
-                                 parse_edl_cuts)
+        from project.edl import load_edl, parse_edl_cuts
 
         # An EDL has no source reference, so nothing stops it being applied to
         # the wrong recording - and the result looks plausible rather than
@@ -2885,6 +2888,7 @@ class MainWindow(QMainWindow):
             self.selection.ranges = list(data.keep_ranges)
             self.scenes.markers = list(data.markers)
             self._refresh_scenes_from_selection()
+            self._note_detector_project(data, new_index)
 
             # Jump the cursor to the start of the first kept scene, as VRD does
             # on import, so the user lands where the content begins.
@@ -3033,7 +3037,10 @@ class MainWindow(QMainWindow):
                 self.tr("Project saved: %s") % os.path.basename(path)
             )
         except Exception:
-            pass
+            # Still quiet in the window - the export is the real save point -
+            # but no longer silent in the log as well.
+            log.warning("The project could not be saved after the export",
+                        exc_info=True)
         else:
             # An edit the user has just exported is the most trustworthy
             # ground truth there is - they backed it with a render.  Outside
@@ -3134,6 +3141,48 @@ class MainWindow(QMainWindow):
             return
 
         self._start_learn(job)
+
+    def _note_detector_project(self, data, index):
+        """Recognise a project whose cuts are still the detector's own.
+
+        A Watcher project opened here and saved or exported unchanged counted
+        as a correction - unlike the same cuts from Detect Commercials run in
+        the editor - because nothing told the editor where they came from.
+        So it was relabelled as made by a person and taught Chalkline as
+        though someone had checked it (code scan, 2026-11-13).
+
+        A .swproj says so itself.  A .vprj cannot, so its cuts are compared
+        with the detector's answer kept for this recording
+        (utils/field_answers.py), within a couple of frames - unless a
+        correction has been saved since, which makes the project a person's.
+        """
+        try:
+            prov = getattr(data, "provenance", None) or {}
+            made_by = prov.get("made_by")
+            if prov:
+                if made_by in ("chalkline", "comskip") \
+                        and not prov.get("reviewed"):
+                    self._proposed_ranges = (self.current_filename,
+                                             list(data.keep_ranges), made_by)
+                return
+            from utils.field_answers import detector_answer
+            from project.vprj import cuts_seconds_from_keeps
+            record = detector_answer(self.original_source
+                                     or self.current_filename)
+            if not record or record.get("user"):
+                return
+            mine, _duration = cuts_seconds_from_keeps(data.keep_ranges, index)
+            theirs = record.get("cuts") or []
+            tolerance = 2.5 / float(getattr(index, "fps", 25) or 25)
+            if len(mine) == len(theirs) and all(
+                    abs(a - c) <= tolerance and abs(b - d) <= tolerance
+                    for (a, b), (c, d) in zip(mine, theirs)):
+                self._proposed_ranges = (
+                    self.current_filename, list(data.keep_ranges),
+                    str(record.get("detector") or "chalkline").lower())
+        except Exception:
+            log.debug("Could not tell whether the project is the detector's",
+                      exc_info=True)
 
     def _project_was_corrected(self, recording):
         """Did the user change what the detector proposed for this recording?
@@ -3890,10 +3939,6 @@ class MainWindow(QMainWindow):
         finally:
             painter.end()
 
-    def _set_qsf_on_open(self, enabled):
-        self.config.setdefault("settings", {})["qsf_on_open"] = bool(enabled)
-        save_config(self.config)
-
     def _start_dir(self, kind):
         """Return the directory a file dialog of the given kind should start
         in, honouring the user's path settings.
@@ -4382,7 +4427,6 @@ class MainWindow(QMainWindow):
 
     def _open_with_qsf(self, filename):
         """Quick Stream Fix the chosen file into /tmp, then load the result."""
-        import tempfile
 
         # If this file has already been Quick Stream Fixed, skip the redundant
         # repair silently and just open it - QSF-on-open shouldn't nag.  The
@@ -4410,10 +4454,16 @@ class MainWindow(QMainWindow):
             self,
         )
         progress.setWindowTitle(self.tr("Opening"))
+        # Blocks the editor while it runs (Cancel still works).  It did not -
+        # Qt's progress dialog is not modal unless told - so another recording
+        # could be opened mid-job and the result landed on THAT one: a
+        # detection's cuts applied to the wrong file (code scan, 2026-11-13).
+        progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
 
         worker = StreamFixWorker(filename, tmp_path, self)
         self._open_qsf_worker = worker
+        generation = getattr(self, "_load_generation", 0)
 
         worker.progress.connect(progress.setValue)
 
@@ -4421,7 +4471,8 @@ class MainWindow(QMainWindow):
             progress.close()
             self._open_qsf_worker = None
             self._record_qsf(filename, path)
-            self._load_file(path)
+            if self._still_open(generation, self.tr("Quick Stream Fix")):
+                self._load_file(path)
 
         def _fail(message):
             progress.close()
@@ -4451,6 +4502,7 @@ class MainWindow(QMainWindow):
 
         log.info("Opening video: %s", filename)
         self._log_source_info(filename)
+        self._bump_load_generation()
 
         self._reset_media_state()
 
@@ -4533,6 +4585,7 @@ class MainWindow(QMainWindow):
             return
 
         self._reset_media_state()
+        self._bump_load_generation()
 
         #
         # Empty the cut list and markers (the per-file reset doesn't touch
@@ -4582,6 +4635,28 @@ class MainWindow(QMainWindow):
         # .fuse_hidden file until Snipwright exits (reported 2026-10-17).
         import gc
         gc.collect()
+
+    def _bump_load_generation(self):
+        """Note that a different recording (or none) is now open.
+
+        A background job - detection, a Quick Stream Fix - takes its number
+        when it starts and applies its result only if it is unchanged.  The
+        progress windows block the editor, but a recording handed over by a
+        second launch (double-clicking a file) is opened regardless.
+        """
+        self._load_generation = getattr(self, "_load_generation", 0) + 1
+
+    def _still_open(self, generation, what):
+        """True if the recording open when `generation` was taken still is.
+        Otherwise logs that `what` finished too late to apply."""
+        if generation == getattr(self, "_load_generation", 0):
+            return True
+        log.info("%s finished after a different recording was opened; its "
+                 "result was not applied.", what)
+        self.statusBar().showMessage(
+            self.tr("%s finished for a recording that is no longer open, so "
+                    "its result was not applied.") % what, 8000)
+        return False
 
     def _set_controls_enabled(self, on):
         """Enable/disable the playback, mark and action controls below the
@@ -4919,7 +4994,6 @@ class MainWindow(QMainWindow):
             )
             return
 
-        from config.loader import CONFIG_DIR
 
         # Reference the file we're working from: the QSF'd /tmp copy when one is
         # loaded, else the original recording.  The cut points are in this file's
@@ -5063,7 +5137,6 @@ class MainWindow(QMainWindow):
         nothing was dropped we fall back to a time-based remap.  Either way the
         user is asked to eyeball the markers before saving.
         """
-        import tempfile
 
         source = self.current_filename
 
@@ -5096,11 +5169,17 @@ class MainWindow(QMainWindow):
             self,
         )
         progress.setWindowTitle(self.tr("Quick Stream Fix"))
+        # Blocks the editor while it runs (Cancel still works).  It did not -
+        # Qt's progress dialog is not modal unless told - so another recording
+        # could be opened mid-job and the result landed on THAT one: a
+        # detection's cuts applied to the wrong file (code scan, 2026-11-13).
+        progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
         progress.setValue(0)
 
         worker = StreamFixWorker(source, tmp_path, self)
         self._streamfix_worker = worker
+        generation = getattr(self, "_load_generation", 0)
 
         worker.progress.connect(progress.setValue)
 
@@ -5108,6 +5187,8 @@ class MainWindow(QMainWindow):
             progress.close()
             self._streamfix_worker = None
             self._record_qsf(source, path)
+            if not self._still_open(generation, self.tr("Quick Stream Fix")):
+                return
             self.statusBar().showMessage(self.tr("Re-indexing repaired stream…"))
 
             def _after_load(new_index):
@@ -5212,6 +5293,15 @@ class MainWindow(QMainWindow):
         if not out_path:
             return
 
+        from utils.same_file import is_same_file
+        if is_same_file(out_path, self.current_filename):
+            QMessageBox.warning(
+                self, self.tr("Quick Stream Fix"),
+                self.tr("%s is the recording being repaired, so the copy "
+                        "cannot be saved over it. Choose another name or "
+                        "folder.") % os.path.basename(out_path))
+            return
+
         progress = QProgressDialog(
             self.tr("Repairing stream (remuxing)…"),
             self.tr("Cancel"),
@@ -5220,6 +5310,11 @@ class MainWindow(QMainWindow):
             self,
         )
         progress.setWindowTitle(self.tr("Quick Stream Fix"))
+        # Blocks the editor while it runs (Cancel still works).  It did not -
+        # Qt's progress dialog is not modal unless told - so another recording
+        # could be opened mid-job and the result landed on THAT one: a
+        # detection's cuts applied to the wrong file (code scan, 2026-11-13).
+        progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
 
         worker = StreamFixWorker(
@@ -5492,7 +5587,6 @@ class MainWindow(QMainWindow):
         check before saving - we do not auto-export, since a repair can shift
         boundaries slightly and the user should verify them.
         """
-        import tempfile
 
         # Capture each scene boundary three ways so we can remap robustly onto
         # the repaired file:
@@ -5524,11 +5618,17 @@ class MainWindow(QMainWindow):
             self,
         )
         progress.setWindowTitle(self.tr("Repairing"))
+        # Blocks the editor while it runs (Cancel still works).  It did not -
+        # Qt's progress dialog is not modal unless told - so another recording
+        # could be opened mid-job and the result landed on THAT one: a
+        # detection's cuts applied to the wrong file (code scan, 2026-11-13).
+        progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
         progress.setValue(0)
 
         worker = StreamFixWorker(source, tmp_path, self)
         self._export_fix_worker = worker
+        generation = getattr(self, "_load_generation", 0)
 
         worker.progress.connect(progress.setValue)
 
@@ -5536,6 +5636,8 @@ class MainWindow(QMainWindow):
             progress.close()
             self._export_fix_worker = None
             self._record_qsf(source, path)
+            if not self._still_open(generation, self.tr("Quick Stream Fix")):
+                return
 
             self.statusBar().showMessage(self.tr("Re-indexing repaired stream…"))
 
@@ -5948,12 +6050,16 @@ class MainWindow(QMainWindow):
         if not self.frames:
             return
 
-        # Only show it if it's still the frame we want (latest-wins guard).
-        if frame_index != self.current_frame:
-            # A newer navigation happened; ignore this stale delivery for the
-            # preview, but it's still a valid decode so let it through only if
-            # it matches.  Simplest: drop it.
-            pass
+        # A frame decoded for an earlier position.  During a drag it is shown
+        # - the preview chasing the cursor is the point of a scrub.  At any
+        # other time it is dropped: the comment here always said so, over a
+        # bare `pass`, so a cold jump followed at once by an arrow key showed
+        # the jump's frame AFTER the step had shown the right one - the
+        # picture one frame behind the timecode, with nothing to put it right
+        # (code scan, 2026-11-13; reproduced four times in four).
+        if frame_index != self.current_frame and not getattr(
+                self, "_scrubbing", False):
+            return
 
         self._set_preview_frame_type(letter)
         self.preview.setPixmap(
@@ -6546,7 +6652,19 @@ class MainWindow(QMainWindow):
         status line: settings moving house is worth a moment's attention, and
         the status bar is easy to miss.
         """
-        from config.loader import MIGRATION_NOTE
+        from config.loader import MIGRATION_NOTE, take_config_problem
+        problem = take_config_problem()
+        if problem:
+            kept = problem.get("kept") or ""
+            message = self.tr(
+                "Your settings file could not be read, so Snipwright has "
+                "started with the default settings.\n\n%s") % (
+                problem.get("error") or "")
+            if kept:
+                message += "\n\n" + self.tr(
+                    "The file was kept as:\n%s\n\nCorrect it, or copy "
+                    "your settings across from it, then restart.") % kept
+            QMessageBox.warning(self, self.tr("Settings"), message)
         if not MIGRATION_NOTE:
             return
         log.info(MIGRATION_NOTE)
@@ -7742,6 +7860,19 @@ class MainWindow(QMainWindow):
             learner.cancel()
             learner.wait(5000)
 
+        # Detection and Quick Stream Fix run on threads of their own; quitting
+        # under them destroyed a running QThread on the way out.  Their
+        # results belong to a recording being closed, so they are stopped.
+        for attr in ("_detect_worker", "_open_qsf_worker",
+                     "_streamfix_worker", "_export_fix_worker"):
+            job = getattr(self, attr, None)
+            try:
+                if job is not None and job.isRunning():
+                    job.cancel()
+                    job.wait(5000)
+            except Exception:
+                pass
+
         # Remember the window size for next launch (use the normal, non-
         # maximised geometry so a maximised session doesn't save a giant size),
         # plus whether it was maximised so we can restore that state.
@@ -7912,6 +8043,7 @@ except Exception:
     app.setStyleSheet(
         "QToolTip { color:#f0f0f0; background-color:#2b2b2b;"
         " border:1px solid #555; padding:4px 6px; }"
+        " #infoBox { border: 1px solid #555555; }"
     )
 
 # Language: install the chosen UI translation before any windows are built, so
@@ -7926,40 +8058,46 @@ except Exception:
     pass
 
 class _TooltipGate(QObject):
-    """Eats tooltip events for the transport controls, and only those.
+    """Eats the hover hints in the editor window, and only there.
 
-    The setting this serves says "Show tooltips on the transport controls",
-    and it used to be an app-wide filter that swallowed EVERY tooltip - so
+    It used to be an app-wide filter that swallowed EVERY tooltip - so
     turning off the hints on the play and step buttons also hid the ones that
     carry information nothing else shows: what each remembered logo has
     scored, a long path abbreviated in a menu, a queue row's error. The user
     turned it off for the transport buttons, went looking for a logo's record
     in the Remembered Logos dialog, and found nothing there to see.
 
-    `panel` is the transport panel; a tooltip is swallowed only when it is
-    bound for that panel or something inside it.
+    It was then narrowed to the transport panel alone, which left the play
+    and skip row, the action buttons and the Charms bar still hinting with
+    the setting off.  Asked for (2026-11-13): it covers the editor window -
+    every widget whose window is the main window.  Dialogs and menus are
+    their own windows, so their informative tooltips still show.  The volume
+    control is let through: its only tooltip says why it is disabled (no Qt
+    Multimedia), which is information, not a hint.
     """
 
-    def __init__(self, panel):
+    def __init__(self, window):
         super().__init__()
-        self._panel = panel
+        self._window = window
 
     def eventFilter(self, obj, event):
         if event.type() != QEvent.ToolTip:
             return False
-        panel = self._panel
-        if panel is None:
+        if self._window is None or not isinstance(obj, QWidget):
             return False
+        from ui.transport_panel import VolumeControl
         try:
-            widget = obj if isinstance(obj, QWidget) else None
+            if obj.window() is not self._window:
+                return False
+            widget = obj
             while widget is not None:
-                if widget is panel:
-                    return True    # swallow it
+                if isinstance(widget, VolumeControl):
+                    return False
                 widget = widget.parentWidget()
+            return True    # swallow it
         except RuntimeError:
-            # The panel has been destroyed with the window; let it through.
+            # The window has been destroyed; let it through.
             return False
-        return False
 
 
 # Only one editor at a time.

@@ -211,6 +211,9 @@ def apply_repairs(src, dst, stream_index, replacements, cancel_cb=None,
         return False
 
     out = None
+    from smartcut.ts_teletext import restore_descriptors, teletext_streams
+    teletext_descriptors = teletext_streams(src)
+    teletext_kept = []
     try:
         audio_streams = [s for s in inp.streams if s.type == "audio"]
         target = audio_streams[stream_index]
@@ -220,6 +223,26 @@ def apply_repairs(src, dst, stream_index, replacements, cancel_cb=None,
             if s.type not in ("video", "audio", "subtitle"):
                 continue                      # EPG and other data PIDs
             if s.codec_context is None:
+                # DVB teletext: PyAV has no decoder for it, so nothing to copy
+                # a template from - it was skipped, and silently lost from an
+                # .mkv or .mp4 whose audio needed this repair (code scan,
+                # 2026-11-13).  Carried as smartcut carries it: a bare muxing
+                # stream, its page details put back once the file is closed.
+                desc = teletext_descriptors.get(s.id) \
+                    if s.type == "subtitle" else None
+                if desc is None:
+                    logger.warning("Audio repair: stream %d has no codec "
+                                   "and is not teletext; it is left out.",
+                                   s.index)
+                    continue
+                new_stream = out.add_mux_stream("dvb_teletext")
+                new_stream.time_base = s.time_base
+                try:
+                    new_stream.metadata.update(dict(s.metadata))
+                except Exception:
+                    pass
+                mapping[s.index] = new_stream
+                teletext_kept.append(desc)
                 continue
             try:
                 new_stream = out.add_stream_from_template(s)
@@ -296,4 +319,6 @@ def apply_repairs(src, dst, stream_index, replacements, cancel_cb=None,
                     handle.close()
             except Exception:
                 pass
+    if teletext_kept:
+        restore_descriptors(dst, teletext_kept)
     return os.path.exists(dst) and os.path.getsize(dst) > 0

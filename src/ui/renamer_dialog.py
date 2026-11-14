@@ -29,7 +29,6 @@ so they can be unit-tested on their own.
 
 import os
 import re
-import shutil
 
 from PySide6.QtCore import Qt, QT_TRANSLATE_NOOP, QCoreApplication
 from PySide6.QtWidgets import (

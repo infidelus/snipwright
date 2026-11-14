@@ -219,38 +219,6 @@ class OutputProfile:
     def output_mode_label(self):
         return QT_TRANSLATE_NOOP("ProfileEditor", "Smart")
 
-    def audio_label(self):
-        if self.audio == "none":
-            return "No audio (silent)"
-        if self.audio == "aac":
-            if self.audio_bitrate:
-                return "Re-encode AAC %d kbps" % self.audio_bitrate
-            return "Re-encode AAC (automatic)"
-        return "Smart copy (lossless)"
-
-    def aspect_label(self):
-        return {"source": "Source", "4:3": "4:3", "16:9": "16:9"}.get(
-            self.aspect, self.aspect
-        )
-
-    def crop_label(self):
-        """Short description of the crop setting, for the profile list/summary."""
-        if self.crop_mode == "auto":
-            return "Auto-detect bars (re-encode)"
-        if self.crop_mode == "fixed":
-            t, b, l, r = self.crop
-            parts = []
-            if t:
-                parts.append("T%d" % t)
-            if b:
-                parts.append("B%d" % b)
-            if l:
-                parts.append("L%d" % l)
-            if r:
-                parts.append("R%d" % r)
-            return ("Crop " + " ".join(parts) + " (re-encode)") if parts else "None"
-        return "None"
-
     def extension(self, source_ext):
         """The output file extension.  ``match`` keeps the source's own
         extension (e.g. .ts for Freeview recordings)."""
@@ -398,11 +366,6 @@ def save_profiles(config, profiles):
         pass
 
 
-def profile_names(config):
-    """Names of the saved profiles, in list order (for a picker)."""
-    return [p.name for p in load_profiles(config)]
-
-
 def default_profile_name(config):
     """A sensible default profile name for a new job: a favourite if there is
     one, else the first profile, else the built-in Match Source."""
@@ -413,14 +376,73 @@ def default_profile_name(config):
     return profiles[0].name if profiles else "Match Source"
 
 
+def current_profile_name(config, name):
+    """`name` after any renames recorded since it was stored.
+
+    A job queued under "HEVC small" must find the same profile after it was
+    renamed "HEVC (small)".  The profile manager records each rename in
+    config["profile_renames"] (old -> new) rather than editing the queue,
+    which a running batch would write straight back over.
+    """
+    renames = (config or {}).get("profile_renames") or {}
+    # A profile that has the name NOW wins over any old rename of it - the
+    # name can be given back to a new profile.
+    existing = {p.get("name") for p in (config or {}).get("profiles", [])
+                if isinstance(p, dict)}
+    seen = set()
+    while name in renames and name not in seen and name not in existing:
+        seen.add(name)
+        name = renames[name]
+    return name
+
+
+def record_profile_renames(config, renames):
+    """Remember `renames` (old -> new) so stored names keep resolving.
+
+    Earlier renames that pointed at a name now renamed again are carried on
+    to the newest name.  An old name that a profile now uses again is
+    dropped - the name has been given back and means that profile.
+    """
+    table = dict((config or {}).get("profile_renames") or {})
+    table.update(renames)
+    for old in list(table):
+        table[old] = current_profile_name({"profile_renames": table}, old)
+    in_use = {p.get("name") for p in config.get("profiles", []) if isinstance(p, dict)}
+    for old in list(table):
+        if old in in_use or table[old] == old:
+            del table[old]
+    if table or "profile_renames" in config:
+        config["profile_renames"] = table
+
+
+def resolve_profile_noting(config, name):
+    """(profile, substitute_note) - the note is None when `name` was found.
+
+    Otherwise it is (missing name, name used instead), for the caller to show
+    on the job: the fallback below used to happen with no word anywhere, so a
+    job queued for HEVC could come out a lossless copy marked Done (code
+    scan, 2026-11-13).
+    """
+    wanted = current_profile_name(config, name)
+    profile = resolve_profile(config, wanted)
+    if profile.name == wanted:
+        return profile, None
+    import logging
+    logging.getLogger("snipwright").warning(
+        "Output profile %r was not found - it was deleted or renamed since "
+        "the job was queued; %r was used instead.", name, profile.name)
+    return profile, (name, profile.name)
+
+
 def resolve_profile(config, name):
     """The saved profile with this ``name``.
 
     If it's gone (renamed or deleted since a job was queued) fall back to a
     favourite, then the first profile, then a plain Match-Source profile - so a
     queued job can always still run rather than being orphaned by a profile
-    edit.
+    edit.  Renames are followed first (see current_profile_name).
     """
+    name = current_profile_name(config, name)
     profiles = load_profiles(config)
     for p in profiles:
         if p.name == name:

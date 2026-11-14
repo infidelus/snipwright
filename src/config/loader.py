@@ -107,6 +107,58 @@ def migrate_legacy_config():
     return MIGRATION_NOTE
 
 
+CONFIG_PROBLEM_FILE = "config-problem.json"
+
+
+def _set_aside_unreadable_config(exc):
+    """Keep an unreadable config.json, note why, and return fresh defaults."""
+    import copy
+    import time
+    keep = CONFIG_FILE.with_name(
+        "config.json.unreadable-%s" % time.strftime("%Y%m%d-%H%M%S"))
+    try:
+        shutil.copy2(str(CONFIG_FILE), str(keep))
+    except OSError:
+        keep = None
+    detail = str(exc)
+    try:
+        _atomic_write_json(CONFIG_DIR / CONFIG_PROBLEM_FILE, {
+            "kept": str(keep) if keep else "",
+            "error": detail,
+        })
+    except Exception:
+        pass
+    import logging
+    logging.getLogger("snipwright").warning(
+        "The settings file %s could not be read (%s); starting with the "
+        "default settings. The file was kept as %s.",
+        CONFIG_FILE, detail, keep or "(it could not be copied)")
+    defaults = copy.deepcopy(DEFAULT_CONFIG)
+    if keep is not None:
+        # Only once the old file is safely copied: otherwise every start would
+        # meet the same broken file and report it again.  Without a copy it is
+        # left alone - the defaults then apply for this session only.
+        try:
+            _atomic_write_json(CONFIG_FILE, defaults)
+        except Exception:
+            pass
+    return defaults
+
+
+def take_config_problem():
+    """The note left by an unreadable settings file, once: {kept, error}
+    or None.  Read and removed, so the editor reports it a single time."""
+    path = CONFIG_DIR / CONFIG_PROBLEM_FILE
+    note = load_sidecar(CONFIG_PROBLEM_FILE, default=None)
+    if note is None:
+        return None
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    return note if isinstance(note, dict) else None
+
+
 def ensure_config():
 
     migrate_legacy_config()
@@ -136,13 +188,30 @@ def ensure_config():
 
         )
 
-    with open(
-            CONFIG_FILE,
-            encoding="utf-8",
-    ) as f:
-        config = json.load(
-            f
-        )
+    try:
+        with open(
+                CONFIG_FILE,
+                encoding="utf-8",
+        ) as f:
+            config = json.load(
+                f
+            )
+        if not isinstance(config, dict):
+            raise ValueError("the file does not hold a settings object")
+    except (ValueError, UnicodeDecodeError) as exc:
+        # A settings file that will not read - a stray comma after editing
+        # the shortcuts by hand is enough.  It used to stop the editor
+        # starting at all, with the error only on a terminal nobody sees
+        # when it is launched from the menu (code scan, 2026-11-13).  Keep
+        # the file as it is, carry on with the defaults, and leave a note the
+        # editor shows once its window is up - the Watcher usually starts
+        # first, and would otherwise put the defaults in place with nobody
+        # told.
+        config = _set_aside_unreadable_config(exc)
+        # Fresh defaults would also give an existing installation the
+        # new-install theme; keep the look it had while its file is sorted.
+        if existing_install and isinstance(config.get("settings"), dict):
+            config["settings"]["theme"] = "system"
 
     #
     # Merge in any keys added in newer versions that an older config file on
@@ -159,6 +228,16 @@ def ensure_config():
     if (existing_install and isinstance(paths, dict)
             and "project_format" not in paths):
         paths["project_format"] = "vprj"
+        changed = True
+
+    # The same for the theme.  New installations start in Modern, following
+    # the desktop's light or dark preference (since 2.17.0); an installation from before then has no "theme" saved unless
+    # its owner opened Settings, and must keep the desktop's own look it has
+    # always had rather than change appearance on upgrade.
+    settings = config.get("settings")
+    if (existing_install and isinstance(settings, dict)
+            and "theme" not in settings):
+        settings["theme"] = "system"
         changed = True
 
     for key, value in DEFAULT_CONFIG.items():
@@ -215,7 +294,37 @@ def ensure_config():
     return config
 
 
-def _atomic_write_json(path, obj):
+def write_text_atomic(path, text):
+    """Write `text` to `path` the same safe way as the JSON files: beside it,
+    then swapped in, so a reader never meets half a file and a write cut
+    short leaves the old one whole."""
+    import os
+    import tempfile
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, str(path))
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def write_json_atomic(path, obj, indent=4):
+    """Public name for the safe JSON writer below, for files outside the
+    config folder.  `indent` keeps each file's existing layout."""
+    _atomic_write_json(path, obj, indent=indent)
+
+
+def _atomic_write_json(path, obj, indent=4):
     """Write ``obj`` as JSON to ``path`` atomically (temp file + rename).
 
     Shared by the main config and the sidecar cache files so all of them get
@@ -227,7 +336,7 @@ def _atomic_write_json(path, obj):
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = json.dumps(obj, indent=4)
+    data = json.dumps(obj, indent=indent)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as fh:

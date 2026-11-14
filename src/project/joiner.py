@@ -188,8 +188,9 @@ class JoinerList:
         }
 
     def save(self, path):
-        with open(path, "w", encoding="utf-8") as handle:
-            json.dump(self.to_dict(), handle, indent=2)
+        # Swapped in, never written in place - see config/loader.py.
+        from config.loader import write_json_atomic
+        write_json_atomic(path, self.to_dict(), indent=2)
         self.path = path
 
     @staticmethod

@@ -17,7 +17,7 @@ import os
 import re as _re
 
 from PySide6.QtCore import QT_TRANSLATE_NOOP, QCoreApplication
-import subprocess
+from utils.proc import run_quick
 
 
 _NA = QT_TRANSLATE_NOOP("ProgramInfo", "N/A")
@@ -26,7 +26,7 @@ _NA = QT_TRANSLATE_NOOP("ProgramInfo", "N/A")
 def _run_ffprobe(path):
     """Return ffprobe's parsed JSON (format + streams), or {} on any failure."""
     try:
-        proc = subprocess.run(
+        proc = run_quick(
             [
                 "ffprobe", "-v", "error",
                 "-probesize", "50M", "-analyzeduration", "50M",

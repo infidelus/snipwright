@@ -41,20 +41,6 @@ SNIPWRIGHT_VERSION_TAG = "SnipwrightVersion"
 LEGACY_VERSION_TAG = "VideoReDoVersion"
 
 
-def written_by(root):
-    """What wrote this project, as free text, or "" if it does not say.
-
-    Reads either version tag.  Nothing in Snipwright depends on the answer -
-    it is here so a project's origin can be reported rather than guessed at,
-    now that two different tags mean the same thing.
-    """
-    for tag in (SNIPWRIGHT_VERSION_TAG, LEGACY_VERSION_TAG):
-        node = root.find(tag)
-        if node is not None and (node.text or "").strip():
-            return node.text.strip()
-    return ""
-
-
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
@@ -310,10 +296,7 @@ def save_vprj(path, keep_ranges, markers, source_filename, index):
         sm.text = str(_seconds_to_ticks(secs))
 
     _indent(root)
-    tree = ET.ElementTree(root)
-    with open(path, "wb") as f:
-        f.write(b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n')
-        tree.write(f, encoding="utf-8", xml_declaration=False)
+    _write_tree(path, ET.ElementTree(root))
 
 
 def save_vprj_from_cuts(path, source_filename, cut_ranges_seconds,
@@ -377,10 +360,30 @@ def save_vprj_from_cuts(path, source_filename, cut_ranges_seconds,
     ET.SubElement(root, "SceneList")
 
     _indent(root)
-    tree = ET.ElementTree(root)
-    with open(path, "wb") as f:
-        f.write(b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n')
-        tree.write(f, encoding="utf-8", xml_declaration=False)
+    _write_tree(path, ET.ElementTree(root))
+
+
+def _write_tree(path, tree):
+    """Write a project beside its final name, then put it in place.
+
+    Opening the project itself for writing empties it first, so a write
+    that failed part-way - a full disk, a network share dropping - left
+    the user's existing project empty or cut short (code scan, 2026-11-13).
+    The .swproj writer has always done it this way.
+    """
+    import os
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "wb") as f:
+            f.write(b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n')
+            tree.write(f, encoding="utf-8", xml_declaration=False)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _indent(elem, level=0):

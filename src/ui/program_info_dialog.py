@@ -5,7 +5,7 @@ sections, with a Copy to clipboard button.  Opened from Tools > Show Video
 Programme Info or the configured shortcut (Ctrl+L by default).
 """
 
-from PySide6.QtCore import Qt, QCoreApplication
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -114,6 +114,9 @@ class ProgramInfoDialog(QDialog):
         body.addStretch(1)
         scroll.setWidget(content)
         outer.addWidget(scroll)
+        self._scroll = scroll
+        self._content = content
+        self._fitted = False
 
         # Buttons: Copy to clipboard (left), OK (right).
         buttons = QHBoxLayout()
@@ -131,7 +134,62 @@ class ProgramInfoDialog(QDialog):
 
         outer.addLayout(buttons)
 
+        # The starting size; _fit_to_content() sets the real height once the
+        # window is on screen and its wrapped rows can be measured.
         self.resize(560, 520)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._fitted:
+            self._fitted = True
+            self._fit_to_content()
+
+    def _fit_to_content(self):
+        """Open tall enough to show everything, up to 85% of the screen.
+
+        A fixed 520 pixels showed a scroll bar for an ordinary recording with
+        two audio tracks, in every theme (reported 2026-11-13).  The content's
+        height is read at the width it will have with no scroll bar - its rows
+        wrap, so the height depends on the width - and only content taller
+        than 85% of the screen still scrolls.
+        """
+        layout = self._content.layout()
+        layout.activate()
+        viewport = self._scroll.viewport()
+        width = viewport.width()
+        bar = self._scroll.verticalScrollBar()
+        if bar.isVisible():
+            width += bar.width()
+        needed = layout.totalHeightForWidth(width)
+        if needed < 0:
+            needed = self._content.sizeHint().height()
+        height = self.height() + (needed - viewport.height())
+
+        over = self.parentWidget().window() if self.parentWidget() else None
+        screen = (over.screen() if over is not None else None) or self.screen()
+        area = screen.availableGeometry() if screen is not None else None
+        if area is not None:
+            # The cap is on the whole window, title bar included.
+            decoration = max(0, self.frameGeometry().height() - self.height())
+            height = min(height, int(area.height() * 0.85) - decoration)
+        height = max(height, self.minimumSizeHint().height())
+        self.resize(self.width(), height)
+
+        # Qt centred the window at its first size and keeps the top-left
+        # corner on a resize, so centre it again over the editor (or the
+        # screen), kept on the screen - as Remembered logos does.
+        from PySide6.QtCore import QRect
+        centre = (over.frameGeometry().center() if over is not None
+                  else (area.center() if area is not None else None))
+        if centre is not None:
+            frame = QRect(self.frameGeometry())
+            frame.moveCenter(centre)
+            if area is not None:
+                frame.moveLeft(max(area.left(), min(
+                    frame.left(), area.right() - frame.width() + 1)))
+                frame.moveTop(max(area.top(), min(
+                    frame.top(), area.bottom() - frame.height() + 1)))
+            self.move(frame.topLeft())
 
     def _copy_to_clipboard(self):
         # Copy what's actually on screen: the gathered sections keep English

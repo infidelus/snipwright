@@ -19,7 +19,6 @@ from PySide6.QtGui import QBrush, QColor, QPalette
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
-    QHBoxLayout,
     QTreeWidget,
     QTreeWidgetItem,
     QAbstractItemView,
@@ -41,13 +40,6 @@ from PySide6.QtWidgets import (
 )
 
 from project.joiner import JoinerList, JoinerEntry, JOINER_EXT
-
-
-def _fmt_clock(seconds):
-    seconds = max(0, int(round(seconds)))
-    return "%02d:%02d:%02d" % (
-        seconds // 3600, (seconds % 3600) // 60, seconds % 60,
-    )
 
 
 def _fmt_tc(seconds, fps):

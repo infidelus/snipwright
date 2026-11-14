@@ -116,9 +116,9 @@ class WatchConfig:
 
     def save(self):
         try:
-            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            with open(WATCH_FILE, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, indent=2)
+            # Swapped in, never written in place - see config/loader.py.
+            from config.loader import write_json_atomic
+            write_json_atomic(WATCH_FILE, self._data, indent=2)
         except OSError:
             pass
 

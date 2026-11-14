@@ -36,6 +36,20 @@ def _cuts(cuts):
     return [[round(float(a), 3), round(float(b), 3)] for a, b in cuts]
 
 
+def detector_answer(source):
+    """The record kept for `source`, or None: {"detector", "cuts", ...,
+    and "user" once a correction has been saved}."""
+    try:
+        _folder, path = _path_for(source)
+        if not os.path.exists(path):
+            return None
+        with open(path, encoding="utf-8") as fh:
+            record = json.load(fh)
+        return record if isinstance(record, dict) else None
+    except Exception:
+        return None
+
+
 def record_detector_answer(source, project_path, cuts, duration, detector,
                            channel=None, made_with=""):
     """Keep the detector's untouched answer for `source`."""
@@ -52,8 +66,8 @@ def record_detector_answer(source, project_path, cuts, duration, detector,
             "duration": duration,
             "cuts": _cuts(cuts),
         }
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(record, fh, indent=1)
+        from config.loader import write_json_atomic
+        write_json_atomic(path, record, indent=1)
         cutoff = time.time() - KEEP_DAYS * 86400
         for name in os.listdir(folder):
             old = os.path.join(folder, name)
@@ -77,7 +91,7 @@ def record_user_answer(source, project_path, via):
             record = json.load(fh)
         record["user"] = {"cuts": _cuts(cuts), "saved": time.time(),
                           "via": via}
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(record, fh, indent=1)
+        from config.loader import write_json_atomic
+        write_json_atomic(path, record, indent=1)
     except Exception:
         log.debug("Could not keep the user's answer", exc_info=True)

@@ -25,10 +25,9 @@ from PySide6.QtGui import (
 )
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
-    QApplication, QSystemTrayIcon, QMenu, QDialog, QVBoxLayout, QHBoxLayout,
+    QSystemTrayIcon, QMenu, QDialog, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLabel, QPushButton, QListWidget, QLineEdit, QSpinBox,
-    QCheckBox, QFileDialog, QMessageBox, QGroupBox, QPlainTextEdit,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QCheckBox, QFileDialog, QMessageBox, QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QComboBox, QStyledItemDelegate,
 )
 

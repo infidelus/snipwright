@@ -12,12 +12,10 @@ core (``match_films``) is kept free of widgets so it can be unit-tested.
 
 import os
 import re
-import shutil
 
 from PySide6.QtCore import Qt, QT_TRANSLATE_NOOP, QCoreApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,

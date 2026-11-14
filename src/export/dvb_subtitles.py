@@ -689,18 +689,35 @@ def carry_dvb_subtitles(joined, out_path, segments, durations, sources=None,
         out_sub.codec_context.extradata = PAGE.to_bytes(2, "big") * 2 + bytes([0x10])
         if language:
             out_sub.metadata["language"] = language
-        items = [(float(p.dts * p.time_base), mapping[p.stream.index], p)
-                 for p in src.demux(*[src.streams[i] for i in mapping])
-                 if p.dts is not None]
-        for when, payload in sets:
-            p = av.Packet(payload)
-            p.time_base = Fraction(1, 90000)
-            p.pts = p.dts = int(round(when * 90000))
-            items.append((when, out_sub, p))
-        items.sort(key=lambda item: item[0])
-        for _when, stream, packet in items:
-            packet.stream = stream
+        # Merged as the file streams through, never held.  This used to put
+        # every video and audio packet of the joined file in one list and sort
+        # it, so the step needed as much memory as the file is big - measured
+        # at 255 MB for a 250 MB file, which is gigabytes for an hour of HD and
+        # more than most machines have for a Blu-ray join (code scan,
+        # 2026-11-13).  The subtitle sets are few and are sorted here; each one
+        # goes in just before the first packet of the picture or sound that
+        # comes after it, so the order written is the order the sort gave.
+        pending = sorted(sets, key=lambda item: item[0])
+        nxt = 0
+
+        def subtitle_packet(when, payload):
+            pkt = av.Packet(payload)
+            pkt.time_base = Fraction(1, 90000)
+            pkt.pts = pkt.dts = int(round(when * 90000))
+            pkt.stream = out_sub
+            return pkt
+
+        for packet in src.demux(*[src.streams[i] for i in mapping]):
+            if packet.dts is None:
+                continue
+            when = float(packet.dts * packet.time_base)
+            while nxt < len(pending) and pending[nxt][0] <= when:
+                dst.mux(subtitle_packet(*pending[nxt]))
+                nxt += 1
+            packet.stream = mapping[packet.stream.index]
             dst.mux(packet)
+        for when, payload in pending[nxt:]:
+            dst.mux(subtitle_packet(when, payload))
     finally:
         dst.close()
         src.close()

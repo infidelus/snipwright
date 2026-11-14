@@ -73,6 +73,12 @@ class MultiOpenDialog(QDialog):
         sort_btn = QPushButton(self.tr("Sort List"))
         sort_btn.setToolTip(self.tr("Sort the files by name."))
         sort_btn.clicked.connect(self._sort)
+        # Not an auto-default button: it is the first button in the dialog,
+        # so it took the focus on opening and, being auto-default, became the
+        # default - Enter sorted the list instead of adding the files, despite
+        # setDefault() on the Add button below.  The Modern themes made it
+        # visible by colouring the default button.
+        sort_btn.setAutoDefault(False)
         bottom.addWidget(sort_btn)
         bottom.addStretch(1)
 

@@ -100,6 +100,12 @@ by VideoReDo.</p>
   <a href="#videoredo">11. Coming from VideoReDo</a>
 </div>
 
+<p>To search this guide inside Snipwright, press <kbd>Ctrl+F</kbd> and type in
+the <strong>Find</strong> box at the bottom of the window. Every match is
+highlighted; <kbd>Enter</kbd> or <kbd>F3</kbd> goes to the next one,
+<kbd>Shift+Enter</kbd> or <kbd>Shift+F3</kbd> back to the previous, and
+<kbd>Esc</kbd> clears the search.</p>
+
 <h2 id="intro">1. Introduction</h2>
 <p>Snipwright cuts unwanted sections &mdash; such as adverts &mdash; out of video
 recordings frame-accurately and, wherever possible, <strong>losslessly</strong>: the
@@ -311,7 +317,16 @@ you just made is adjusted rather than a second one added. The same applies to
 the playhead to its start, which is the quickest way to correct one you have already made:
 select it, nudge whichever marker is wrong, and press <strong>Add Selection</strong>
 (or <strong>Cut Selection</strong> in Cut Mode) to replace it. The <strong>Selection</strong>
-row of the Info panel shows the duration and size of whatever is marked.</p>
+row of the Info panel shows the duration and size of whatever is marked, and the
+<strong>Splice</strong> row shows where the selected row's join will land in the saved video
+&mdash; the time to go to in a player such as VLC to check how that join came out. In Scene
+Mode that is where the selected scene begins, joined to the scene before it; in Cut Mode it
+is where the programme resumes after the selected cut. It is worked out from the
+recording's own timing, so it matches the saved file. It is blank for the first scene,
+which starts the saved video, and for a cut at the very start or end of the recording,
+where nothing is joined. Once the video is saved, the log lists every scene the
+same way &mdash; start, end and duration as the list shows them, and where each one
+starts in the saved video &mdash; under the export&rsquo;s completion figures.</p>
 <p><strong>Add Unselected</strong> (<kbd>Ctrl+Insert</kbd>) does the opposite of Add Selection,
 as in VideoReDo: everything <em>outside</em> the IN and OUT marks &mdash; from the start of the
 recording up to IN, and from OUT to the end &mdash; becomes the scenes, and the marked part is
@@ -474,13 +489,21 @@ settles, hovering over its <strong>Learn</strong> box shows how far it has got &
 example &ldquo;3 of 5 confirmed saves&rdquo;.</p>
 <p>Chalkline also learns which channels carry <strong>no adverts</strong>. When five recordings
 in a row that you correct from a channel have only their start and end cut &mdash; the
-recording's padding &mdash; that channel is listed with <strong>No adverts</strong> in the Mask
-column, and from then on only the start and end of its recordings are trimmed: nothing in
-the middle of the programme is ever cut, whatever turns up in a corner of the picture. The
+recording's padding &mdash; that channel's <strong>Adverts</strong> column says
+<strong>None</strong>, and from then on only the start and end of its recordings are trimmed:
+nothing in the middle of the programme is ever cut, whatever turns up in a corner of the
+picture. On the way there it says how far it has got &mdash; for example &ldquo;None so far: 4 of
+5&rdquo; &mdash; and a channel you have cut adverts from says <strong>Yes</strong>. Every channel
+the count knows about has a row, so one with no logo, such as BBC Three, is listed too, and
+its Channel and Service ID can be filled in to pair the two recorders' halves of it exactly as
+for a logo &mdash; their counts are then added together. The
 first project you save on that channel with a cut in the middle of the programme clears it
 straight away, so a channel that starts showing adverts is looked at properly again from
-its next recording. <strong>Forget</strong> on that row clears it by hand. Nothing about
-any channel is built in: it is learned from your own corrections, one channel at a time.</p>
+its next recording. <strong>Forget</strong> on a channel listed for this alone clears what
+was learned about it. Hovering over the Adverts column also shows how far a recorder
+without a programme guide has got in learning where the channel's programmes end. Nothing
+about any channel is built in: it is learned from your own corrections, one channel at a
+time.</p>
 <p align="center" class="figrow"><img class="gimg m780" src="img/chalkline.png" width="780" height="452" alt="The Remembered logos dialog, listing learned channel logos"></p>
 <p align="center" class="cap">Logos Chalkline has learned. Every row carries both a channel name and a service ID, so recordings from either kind of recorder are matched to the same logo. Learning is switched off for Channel 4 HD, and LEGEND has learned a break ident as well as its logo.</p>
 <div class="note">The drawing is not there to let you recognise the brand; it is far too
@@ -934,7 +957,8 @@ the Batch Manager.</div>
 <p>Open <strong>Tools &rarr; Settings</strong>. The pages are:</p>
 <ul>
   <li><strong>General</strong> &mdash; overall behaviour and appearance, including the
-  <strong>Theme</strong> (Follow&nbsp;system, Light or Dark).</li>
+  <strong>Theme</strong> (Follow&nbsp;system, Light, Dark, Modern (follow&nbsp;system),
+  Modern&nbsp;Light or Modern&nbsp;Dark).</li>
   <li><strong>Charms bar</strong> &mdash; whether the Charms bar is shown and what its
   buttons do; see <a href="#view">The View menu and the Charms bar</a>.</li>
   <li><strong>Files &amp; folders</strong> &mdash; your recording, output and working
@@ -951,9 +975,15 @@ the Batch Manager.</div>
   folder and how long working copies are kept, and checking for new versions.</li>
 </ul>
 <div class="note">The <strong>Theme</strong> on the General page lets you follow your
-desktop's own colours or pin a <strong>Light</strong> or <strong>Dark</strong> look for
-Snipwright, and applies straight away. The editor's timeline and thumbnail bars stay dark in
-every theme, as is usual in video editors.</div>
+desktop's own colours or pin a look for Snipwright, and applies straight away.
+<strong>Follow system</strong>, <strong>Light</strong> and <strong>Dark</strong> are the
+classic look; the Modern themes add rounded controls, a little more spacing and a single blue
+accent for the default button, the focused box and selections.
+<strong>Modern (follow system)</strong> is light or dark to match your desktop and changes
+when the desktop does; <strong>Modern Light</strong> and <strong>Modern Dark</strong> stay
+as they are. A new installation starts in Modern (follow system); one upgraded from an
+earlier version keeps the look it had. The pictures in this guide use Modern Dark. The editor's timeline and thumbnail bars stay dark in every theme, as is
+usual in video editors.</div>
 <p>Keyboard shortcuts can also be viewed and customised here, through the built-in config
 editor.</p>
 
@@ -961,13 +991,17 @@ editor.</p>
 <p>Repairing a recording with Quick Stream Fix writes a working copy of it to the
 <strong>working copy folder</strong>, and the editor cuts that copy rather than the original.
 That folder is set under <strong>Settings &rarr; Maintenance</strong>; left blank it is the
-system temporary folder, which is what the field shows as its placeholder. Those copies are
+system temporary folder, which is what the field shows as its placeholder. The copies go in a
+folder of their own inside it, <code>snipwright-working</code>, so the tidying-up described
+below never touches anything else in the folder you choose. Those copies are
 whole video files &mdash; often several gigabytes &mdash; and they are kept, so you can close
 Snipwright and come back to a recording later without repairing it again. Under
 <strong>Settings &rarr; Maintenance</strong> they are deleted once they reach a set age, a
 week by default.</p>
 <div class="note">Choosing a folder of your own is worth doing, because a working copy is
-roughly the size of the recording it came from and several can exist at once. On Windows the
+roughly the size of the recording it came from and several can exist at once. The Joiner
+works in the same folder while it saves &mdash; every scene, and then the joined video &mdash;
+so it needs room for about twice the size of the result there. On Windows the
 system temporary folder sits on the system drive, which is usually the smallest one you have.
 If the folder you set goes missing or cannot be written to, Snipwright falls back to the
 system folder rather than failing the repair.</div>

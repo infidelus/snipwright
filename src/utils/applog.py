@@ -42,7 +42,6 @@ _DATEFMT = "%Y-%m-%d %H:%M:%S"
 # removes the ones we added, never anything else.
 _OURS = "_snipwright_handler"
 
-_current_log_file = None
 _current_log_dir = None
 _excepthook_installed = False
 _verbose = False
@@ -171,7 +170,7 @@ def configure_logging(log_folder="", max_age_days=30, verbose=False,
     Returns the path to the active log file, or None if no file could be opened
     (in which case logging still goes to the console).
     """
-    global _current_log_file, _current_log_dir, _verbose
+    global _current_log_dir, _verbose
 
     _verbose = bool(verbose)
 
@@ -220,17 +219,11 @@ def configure_logging(log_folder="", max_age_days=30, verbose=False,
             log_file = None
 
     _current_log_dir = directory
-    _current_log_file = log_file
 
     _prune(directory, max_age_days, prefix, max_files)
     _install_excepthook()
 
     return log_file
-
-
-def current_log_file():
-    """Path to the active log file, or None if logging is console-only."""
-    return _current_log_file
 
 
 def log_directory():

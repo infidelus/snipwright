@@ -187,25 +187,3 @@ def parse_timecode(
     total += frames
 
     return total
-
-def marker_text(selection):
-
-    in_text = "--:--:--.--"
-    out_text = "--:--:--.--"
-
-    if selection.pending_in is not None:
-
-        in_text = frame_to_timecode(
-            selection.pending_in
-        )
-
-    if selection.pending_out is not None:
-
-        out_text = frame_to_timecode(
-            selection.pending_out
-        )
-
-    return (
-        f"IN {in_text}    "
-        f"OUT {out_text}"
-    )

@@ -81,11 +81,6 @@ def clean_basename(path):
     return base
 
 
-def export_format(fmt):
-    """The value export_ranges expects for a batch format ('ts'/'mkv'/'mp4')."""
-    return _FORMAT_TO_EXPORT.get(fmt, "match")
-
-
 def format_ext(fmt, source_path=""):
     """The output extension for a batch format.  For 'ts' we follow the
     source's own extension (a .ts recording stays .ts), defaulting to .ts."""
@@ -149,6 +144,9 @@ class BatchJob:
         self.dest_path = None        # where the output was/will be written
         self.status = QUEUED
         self.message = ""            # error detail when FAILED
+        # (missing profile name, name used instead) when the job's profile had
+        # gone by the time it ran; None otherwise.  Shown on its row.
+        self.profile_note = None
         self.percent = 0             # 0-100 within the current job
         self.phase = ""              # last progress phase (for seeding the UI)
 

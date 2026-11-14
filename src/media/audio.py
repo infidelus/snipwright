@@ -692,18 +692,6 @@ class AudioController:
         except Exception:
             pass
 
-    def position_seconds(self):
-        """Approximate current playback position (container-relative seconds),
-        or None if audio isn't actively playing.  Used to keep the video
-        gently locked to the audio clock."""
-        if not self.available or self._sink is None or not self._active:
-            return None
-        try:
-            processed = self._sink.processedUSecs() / 1_000_000.0
-            return self._play_start + processed - self._latency
-        except Exception:
-            return None
-
     def pause(self):
         # Resume is always a fresh play_from with an explicit position, so a
         # full stop here keeps the state simple.

@@ -48,7 +48,6 @@ from addons.output_profiles import (
     save_profiles,
     CRF_AUTO,
     GOP_AUTO,
-    GOP_MIN,
     GOP_MAX,
     CRF_MAX,
     DEFAULT_PRESET,
@@ -1024,6 +1023,12 @@ class ProfileManagerDialog(QDialog):
             edited = dlg.result()
             edited.favourite = self.profiles[row].favourite
             edited.enabled = self.profiles[row].enabled
+            # A rename is remembered, so jobs already queued under the old
+            # name - and the batch's default - keep finding this profile.
+            old_name = self.profiles[row].name
+            if edited.name != old_name:
+                self._renames = getattr(self, "_renames", {})
+                self._renames[old_name] = edited.name
             self.profiles[row] = edited
             self._fill_table()
             self.table.selectRow(row)
@@ -1074,5 +1079,8 @@ class ProfileManagerDialog(QDialog):
         self.table.selectRow(new)
 
     def _save(self):
+        from addons.output_profiles import record_profile_renames
+        self.config["profiles"] = [p.to_dict() for p in self.profiles]
+        record_profile_renames(self.config, getattr(self, "_renames", {}))
         save_profiles(self.config, self.profiles)
         self.accept()

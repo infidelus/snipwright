@@ -26,11 +26,6 @@ _BUILTIN_DIR = os.path.normpath(
 _cache = {}
 
 
-def builtin_icon_dir():
-    """Absolute path to the bundled icon directory."""
-    return _BUILTIN_DIR
-
-
 def icon_path(name):
     """Absolute path to a built-in icon by name (without the .svg extension)."""
     return os.path.join(_BUILTIN_DIR, name + ".svg")

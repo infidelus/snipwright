@@ -217,6 +217,60 @@ def make_cut_segments(media_container: MediaContainer,
     return cut_segments
 
 
+def _cut_into(output_av_container, generators, cut_segments,
+              previously_done_segments, output_path_segment, progress,
+              cancel_object):
+    """Mux every cut segment's packets, then the generators' tails.
+
+    Split out of smart_cut() so a failure part-way can be caught there and
+    the generators' source handles closed.  Returns the count of segments
+    done.
+    """
+    if progress is not None:
+        progress.emit(len(cut_segments))
+    for s in cut_segments[previously_done_segments:]:
+        if cancel_object is not None and cancel_object.cancelled:
+            break
+        if s.start_time >= output_path_segment[1][1]: # Go to the next output file
+            break
+
+        if progress is not None:
+            progress.emit(previously_done_segments)
+        previously_done_segments += 1
+        assert s.start_time < s.end_time, f"Invalid segment: start_time {s.start_time} >= end_time {s.end_time}"
+        # Collect this segment's packets from every generator, then mux
+        # them in timestamp order rather than one whole stream at a
+        # time.  Draining each generator to completion in turn left a
+        # long run of video packets followed by the segment's audio in
+        # a lump; on players with small demux buffers (Kodi, VLC) that
+        # bunching at seams caused the audio to drop out for seconds.
+        # Interleaving by decode time as we mux keeps audio and video
+        # adjacent, so the output plays cleanly everywhere without a
+        # separate re-interleave pass afterwards.
+        seg_packets = []
+        for g in generators:
+            for packet in g.segment(s):
+                if packet.dts is not None and packet.dts < -900_000:
+                    packet.dts = None
+                if packet.dts is not None and packet.dts > 1_000_000_000_000:
+                    print(f"BAD DTS: seg {s.start_time:.3f}-{s.end_time:.3f} gop={s.gop_index} recode={s.require_recode} pts={packet.pts} dts={packet.dts}")
+                seg_packets.append(packet)
+        for packet in _interleave_by_time(seg_packets):
+            output_av_container.mux(_sane_timestamps(packet))
+    # Flush: same interleave so any tail packets stay ordered.
+    fin_packets = []
+    for g in generators:
+        for packet in g.finish():
+            if packet.dts is not None and packet.dts > 1_000_000_000_000:
+                print(f"BAD DTS in finish: pts={packet.pts} dts={packet.dts}", flush=True)
+            fin_packets.append(packet)
+    for packet in _interleave_by_time(fin_packets):
+        output_av_container.mux(_sane_timestamps(packet))
+    if progress is not None:
+        progress.emit(previously_done_segments)
+    return previously_done_segments
+
+
 def smart_cut(media_container: MediaContainer, positive_segments: list[tuple[Fraction, Fraction]],
               out_path: str, audio_export_info: AudioExportInfo | None = None, log_level: str | None = None, progress: ProgressCallback | None = None,
               video_settings: VideoSettings | None = None, segment_mode: bool = False, cancel_object: CancelObject | None = None,
@@ -321,48 +375,25 @@ def smart_cut(media_container: MediaContainer, positive_segments: list[tuple[Fra
                 generators.append(SubtitleCutter(media_container, subtitle_out_stream, sub_track_i))
 
             output_av_container.start_encoding()
-            if progress is not None:
-                progress.emit(len(cut_segments))
-            for s in cut_segments[previously_done_segments:]:
-                if cancel_object is not None and cancel_object.cancelled:
-                    break
-                if s.start_time >= output_path_segment[1][1]: # Go to the next output file
-                    break
-
-                if progress is not None:
-                    progress.emit(previously_done_segments)
-                previously_done_segments += 1
-                assert s.start_time < s.end_time, f"Invalid segment: start_time {s.start_time} >= end_time {s.end_time}"
-                # Collect this segment's packets from every generator, then mux
-                # them in timestamp order rather than one whole stream at a
-                # time.  Draining each generator to completion in turn left a
-                # long run of video packets followed by the segment's audio in
-                # a lump; on players with small demux buffers (Kodi, VLC) that
-                # bunching at seams caused the audio to drop out for seconds.
-                # Interleaving by decode time as we mux keeps audio and video
-                # adjacent, so the output plays cleanly everywhere without a
-                # separate re-interleave pass afterwards.
-                seg_packets = []
+            try:
+                previously_done_segments = _cut_into(
+                    output_av_container, generators, cut_segments,
+                    previously_done_segments, output_path_segment,
+                    progress, cancel_object)
+            except BaseException:
+                # A cut that fails part-way never reaches the generators'
+                # finish(), which is where the video cutter closes its own
+                # handle on the source - left to the garbage collector, a file
+                # deleted afterwards on a FUSE share lingered as .fuse_hidden
+                # (code scan, 2026-11-13).
                 for g in generators:
-                    for packet in g.segment(s):
-                        if packet.dts is not None and packet.dts < -900_000:
-                            packet.dts = None
-                        if packet.dts is not None and packet.dts > 1_000_000_000_000:
-                            print(f"BAD DTS: seg {s.start_time:.3f}-{s.end_time:.3f} gop={s.gop_index} recode={s.require_recode} pts={packet.pts} dts={packet.dts}")
-                        seg_packets.append(packet)
-                for packet in _interleave_by_time(seg_packets):
-                    output_av_container.mux(_sane_timestamps(packet))
-            # Flush: same interleave so any tail packets stay ordered.
-            fin_packets = []
-            for g in generators:
-                for packet in g.finish():
-                    if packet.dts is not None and packet.dts > 1_000_000_000_000:
-                        print(f"BAD DTS in finish: pts={packet.pts} dts={packet.dts}", flush=True)
-                    fin_packets.append(packet)
-            for packet in _interleave_by_time(fin_packets):
-                output_av_container.mux(_sane_timestamps(packet))
-            if progress is not None:
-                progress.emit(previously_done_segments)
+                    handle = getattr(g, "input_av_container", None)
+                    if handle is not None:
+                        try:
+                            handle.close()
+                        except Exception:
+                            pass
+                raise
 
         # The muxer wrote teletext's PMT entry with default page details -
         # see smartcut/ts_teletext.py.  Only a transport stream has a PMT.

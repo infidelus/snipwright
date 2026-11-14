@@ -22,7 +22,7 @@ import logging
 
 from media.pixfmt import for_output as pixfmt_for_output
 
-from utils.proc import popen_progress, read_stderr
+from utils.proc import popen_progress, read_stderr, run_quick
 import tempfile
 
 from PySide6.QtCore import (
@@ -42,7 +42,9 @@ from export.exporter import (
     _audio_track_info,
     _Cancelled as _ExporterCancelled,
     probe_subtitle_tracks,
+    ExportError,
     _NOTE_SUBS_LOST,
+    _SEE_LOGS,
     _SUBTITLE_NAMES,
 )
 from utils.note_text import NoteText, counted, translate_note
@@ -50,7 +52,6 @@ from export.dvb_subtitles import (
     CARRIED_CODECS,
     DISC_CODECS,
     DVB_CODECS,
-    PGS_CODECS,
     carry_dvb_subtitles,
     subtitle_kinds,
 )
@@ -63,6 +64,10 @@ _REENCODING_JOIN = QT_TRANSLATE_NOOP("ExportNotes", "Re-encoding and joining sce
 _APPLYING_PROFILE = QT_TRANSLATE_NOOP("ExportNotes", "Applying profile…")
 _WRITING_MKV = QT_TRANSLATE_NOOP("ExportNotes", "Writing MKV…")
 _CONVERTING_MP4 = QT_TRANSLATE_NOOP("ExportNotes", "Converting to MP4…")
+_JOIN_AUDIO_LOST = (
+    QT_TRANSLATE_NOOP("ExportNotes", "%d audio track lost in the join"),
+    QT_TRANSLATE_NOOP("ExportNotes", "%d audio tracks lost in the join"),
+)
 
 def _joiner_pix_fmt(segments):
     """Pixel format for a joined render, taken from the first clip.
@@ -117,7 +122,7 @@ def _source_signature(path):
     """(video_codec, width, height, audio_codec) for the first video/audio
     streams - the things that must match for a straight-copy join to work."""
     try:
-        data = json.loads(subprocess.run(
+        data = json.loads(run_quick(
             ["ffprobe", "-v", "error", "-show_entries",
              "stream=codec_type,codec_name,width,height", "-of", "json", path],
             capture_output=True, text=True).stdout)
@@ -175,7 +180,7 @@ def _probe_dims_fps(path):
     stored pixel grid.  Square-pixel sources are returned unchanged.
     """
     try:
-        data = json.loads(subprocess.run(
+        data = json.loads(run_quick(
             ["ffprobe", "-v", "error", "-select_streams", "v:0",
              "-show_entries",
              "stream=width,height,avg_frame_rate,r_frame_rate,"
@@ -263,7 +268,7 @@ def _source_chapter_starts(path):
 
 def _probe_video(path):
     """Return (codec_name, interlaced) for the first video stream."""
-    out = subprocess.run(
+    out = run_quick(
         ["ffprobe", "-v", "error", "-select_streams", "v:0",
          "-show_entries", "stream=codec_name,field_order",
          "-of", "default=noprint_wrappers=1:nokey=1", path],
@@ -320,6 +325,12 @@ class JoinerRenderWorker(QThread):
         # recordings into one shape, so what it did is worth reporting rather
         # than leaving to the log.
         self._notes = []
+        # The same for real problems, shown at the top of the window.  The
+        # Joiner had none of its own, and dropped the exporter's: every scene
+        # piece and the final profile pass are exports, and what they reported
+        # - a re-encode that failed, audio that could not be written - went
+        # nowhere but the log (code scan, 2026-11-13).
+        self._errors = []
         # The current stage's high-water mark, which stage it is, and when
         # that stage began; see _report.
         self._last_percent = 0
@@ -447,9 +458,11 @@ class JoinerRenderWorker(QThread):
         stats = {
             "out_path": self._out,
             "scenes": len(self._entries),
+            "scene_table": self._scene_table(durations),
             "duration_secs": sum(durations),
             "processing_secs": max(0.0, time.time() - started),
-            "errors": [],
+            "errors": [NoteText(_SEE_LOGS, label)
+                       for label, _full in self._errors],
             "notes": list(self._notes),
         }
 
@@ -496,12 +509,42 @@ class JoinerRenderWorker(QThread):
 
         return stats
 
+    def _scene_table(self, durations):
+        """The log's scene table for a join (see _scene_table in exporter):
+        each scene's start, end and length in its own recording, where it
+        starts in the joined video, and which recording it came from.  The
+        joined positions are the same running total of scene lengths the
+        join's chapters are placed from.  Asked for 2026-11-13: a joined
+        video's summary had no scene table."""
+        from export.exporter import _fmt_seconds
+        rows = []
+        at = 0.0
+        for entry, length in zip(self._entries, durations):
+            fps = float(getattr(entry, "fps", 25.0) or 25.0)
+            if entry.is_title:
+                start = end = "-          "
+                name = "(title card)"
+            else:
+                start = _fmt_seconds(entry.start, fps)
+                end = _fmt_seconds(entry.end, fps)
+                name = os.path.basename(entry.source or "")
+            rows.append((start, end, _fmt_seconds(length, fps),
+                         _fmt_seconds(at, fps), name))
+            at += float(length)
+        return rows
+
     def run(self):
         import time
 
         started = time.time()
         self._started_at = started
-        tmpdir = tempfile.mkdtemp(prefix="snipwright-joiner-")
+        # In the working folder Quick Stream Fix uses (Settings), not always
+        # the system's: a join holds every scene piece and the joined file
+        # at once - about twice the output - and the system temporary folder
+        # is often on the smallest drive.  temp_dir() falls back to it when
+        # the setting is empty or unusable.
+        from utils.qsf_temp import temp_dir
+        tmpdir = tempfile.mkdtemp(prefix="snipwright-joiner-", dir=temp_dir())
         index_cache = {}
         segments = []
         durations = []
@@ -514,6 +557,14 @@ class JoinerRenderWorker(QThread):
             n = len(self._entries)
             if n == 0:
                 raise RuntimeError("The joiner list is empty.")
+            # The join reads every source before it writes the result, so a
+            # result written over one of them would replace that recording.
+            from utils.same_file import any_same_file
+            if any_same_file(self._out, [e.source for e in self._entries
+                                         if not e.is_title and e.source]):
+                raise RuntimeError(
+                    "The joined video would be saved over one of the "
+                    "recordings being joined. Choose another name or folder.")
 
             # The scene renders are one stage and own the whole bar
             # between them; the join and the format pass are stages of their
@@ -574,7 +625,7 @@ class JoinerRenderWorker(QThread):
 
                 # Always render the intermediate pieces as .ts; the chosen
                 # output format is applied once, to the joined file.
-                export_ranges(
+                piece = export_ranges(
                     src, seg, [(start_f, end_f)], index,
                     out_format="match",
                     progress_cb=_cb,
@@ -589,6 +640,13 @@ class JoinerRenderWorker(QThread):
                         i + 1, n),
                     summary_compact=True,
                 )
+                # A piece's real problems belong in the join's summary.  Its
+                # notes do not: they describe the .ts intermediate - a disc's
+                # subtitles "not carried" into it, say, which the join then
+                # converts from the source - not the finished file.
+                for label, full in (piece or {}).get("error_details", []):
+                    self._errors.append(
+                        (label, "Scene %d of %d: %s" % (i + 1, n, full)))
                 self._check_cancel()
                 offset = sum(durations)
                 for t in _source_chapter_starts(src):
@@ -646,7 +704,8 @@ class JoinerRenderWorker(QThread):
             # actually produced.  Same formatter as a plain export, so the
             # two cannot drift.
             logger.info("\n".join(format_completion_summary(
-                "Joined video complete:", self.stats, notes=self._notes)))
+                "Joined video complete:", self.stats, notes=self._notes,
+                errors=self._errors)))
             self.finished_ok.emit(self._out)
 
         except (_Cancelled, _ExporterCancelled):
@@ -664,11 +723,21 @@ class JoinerRenderWorker(QThread):
                 # Cancel, so that's the answer - not the wreckage's shape.
                 self.failed.emit("Cancelled.")
             else:
+                if not isinstance(exc, (ExportError, RuntimeError)):
+                    # A fault in Snipwright rather than a failure the join
+                    # explains itself: keep the traceback for the report.
+                    logger.exception("Join raised an unexpected error")
                 self.failed.emit(str(exc))
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
     def _discard_output(self):
+        # Never a recording being joined: refusing to write over one is
+        # itself a failure, and this clean-up would otherwise delete it.
+        from utils.same_file import any_same_file
+        if any_same_file(self._out, [e.source for e in self._entries
+                                     if not e.is_title and e.source]):
+            return
         try:
             if os.path.exists(self._out):
                 os.remove(self._out)
@@ -734,10 +803,10 @@ class JoinerRenderWorker(QThread):
         except Exception:
             before = after = 0
         if before and after and after < before:
-            logger.warning(
-                "Joiner: the joined file has %d audio track(s) but the scenes "
-                "had %d - %d lost in the join.",
-                after, before, before - after)
+            full = ("The joined file has %d audio track(s) but the scenes had "
+                    "%d - %d lost in the join." % (after, before, before - after))
+            logger.warning("Joiner: %s", full)
+            self._errors.append((counted(before - after, *_JOIN_AUDIO_LOST), full))
         return joined
 
     def _join_reencode(self, segments, tmpdir, target, durations, fades=None):
@@ -1229,7 +1298,7 @@ class JoinerRenderWorker(QThread):
             state["last"] = value
             self._report(value, _APPLYING_PROFILE)
 
-        export_ranges(
+        final = export_ranges(
             joined_ts,
             self._out,
             [(0, last)],
@@ -1256,6 +1325,11 @@ class JoinerRenderWorker(QThread):
                                  else None),
             markers=markers,
         )
+        # This pass writes the finished file, so everything it reports is
+        # about the join: a failed HEVC re-encode most of all, which left the
+        # join in its original codec while the window said nothing.
+        self._errors += (final or {}).get("error_details", [])
+        self._notes += (final or {}).get("note_details", [])
 
     def _finalize(self, joined_ts, durations):
         """Write the joined .ts out in the requested format.
@@ -1296,7 +1370,7 @@ class JoinerRenderWorker(QThread):
             _write_mkv_chapters(
                 joined_ts, self._out, durations,
                 cancel_cb=lambda: self._cancel, progress_cb=_mkv_cb,
-                extra_marks=self._chapter_marks)
+                extra_marks=self._chapter_marks, problems=self._errors)
             self._check_cancel()
         elif self._out_format == "mp4":
             self._report(0, _CONVERTING_MP4, stage="finish")

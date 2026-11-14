@@ -20,7 +20,6 @@ caller when the user clicks OK, so Cancel discards cleanly.
 
 import copy
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,

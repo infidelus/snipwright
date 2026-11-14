@@ -14,7 +14,7 @@ the source has more.
 """
 
 import logging
-import subprocess
+from utils.proc import run_quick
 
 logger = logging.getLogger("snipwright")
 
@@ -36,7 +36,7 @@ DEFAULT = "yuv420p"
 def source_pix_fmt(path):
     """The first video stream's pixel format, or "" if it can't be read."""
     try:
-        out = subprocess.run(
+        out = run_quick(
             ["ffprobe", "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=pix_fmt",
              "-of", "default=nw=1:nk=1", path],

@@ -60,25 +60,31 @@ def _bcd(b):
     return (b >> 4) * 10 + (b & 0xF)
 
 
-def _sync_offset(fh):
-    head = fh.read(188 * 2000)
-    off = head.find(b"\x47")
-    while 0 <= off and off + 188 < len(head) and head[off + 188] != 0x47:
-        off = head.find(b"\x47", off + 1)
-    return max(off, 0)
+# Packet sizes a recording may use: plain DVB 188, Blu-ray recorders'
+# 192 (a 4-byte timestamp before each packet) and 204 (16 bytes of error
+# correction after it).  Gloster's Panasonic recording (2026-11-10) was 192
+# and gave this reader nothing at all - no EPG, no cues - though it saved
+# fine once the teletext reader learned the same thing.  Each 188-byte
+# packet is read from its own sync byte whatever the size.
+_PACKET_SIZES = (188, 192, 204)
 
 
-def _programme_ids(path, off):
-    """(service_id, video_pid) from the first PAT and its PMT, or Nones."""
-    service, vpid, _scte = _programme_pids(path, off)
-    return service, vpid
+def _layout(fh):
+    """(offset of the first sync byte, packet size) from the file's start."""
+    head = fh.read(204 * 2000)
+    for size in _PACKET_SIZES:
+        for o in range(min(size, len(head))):
+            if all(head[o + k * size:o + k * size + 1] == b"\x47"
+                   for k in range(8)):
+                return o, size
+    return max(head.find(b"\x47"), 0), 188
 
 
 # SCTE-35 splice information, stream type 0x86 in a PMT.
 _SCTE35_TYPE = 0x86
 
 
-def _programme_pids(path, off):
+def _programme_pids(path, off, size=188):
     """(service_id, video_pid, scte35_pid) from the first PAT and its PMT,
     or Nones.
 
@@ -90,10 +96,10 @@ def _programme_pids(path, off):
     with open(path, "rb") as fh:
         fh.seek(off)
         for _ in range(200):
-            raw = fh.read(188 * 10000)
+            raw = fh.read(size * 10000)
             if len(raw) < 188:
                 break
-            for k in range(0, len(raw) - 187, 188):
+            for k in range(0, len(raw) - 187, size):
                 row = raw[k:k + 188]
                 if row[0] != 0x47 or not row[1] & 0x40:
                     continue
@@ -143,15 +149,15 @@ def has_present_following(path, limit=64 * 1024 * 1024):
     """
     try:
         with open(path, "rb") as fh:
-            off = _sync_offset(fh)
+            off, size = _layout(fh)
             fh.seek(off)
             raw = fh.read(limit)
     except OSError:
         return False
-    n = len(raw) // 188
+    n = len(raw) // size
     if n == 0:
         return False
-    a = np.frombuffer(raw[:n * 188], dtype=np.uint8).reshape(n, 188)
+    a = np.frombuffer(raw[:n * size], dtype=np.uint8).reshape(n, size)[:, :188]
     a = a[a[:, 0] == 0x47]
     pid = ((a[:, 1].astype(np.int32) & 0x1F) << 8) | a[:, 2]
     for i in np.where((pid == 0x12) & ((a[:, 1] & 0x40) != 0))[0]:
@@ -159,12 +165,6 @@ def has_present_following(path, limit=64 * 1024 * 1024):
         if pl and 1 + pl[0] < len(pl) and pl[1 + pl[0]] == 0x4E:
             return True
     return False
-
-
-def scte35_cues(path, cancel_cb=None):
-    """The advert slots a recording's SCTE-35 stream announces - see
-    broadcast_cues()."""
-    return broadcast_cues(path, cancel_cb)[1]
 
 
 _CUE_CACHE = {}
@@ -212,8 +212,8 @@ def _read_cues(path, cancel_cb):
     """broadcast_cues() without the cache; None when cancelled."""
     try:
         with open(path, "rb") as fh:
-            off = _sync_offset(fh)
-        service, vpid, scte_pid = _programme_pids(path, off)
+            off, size = _layout(fh)
+        service, vpid, scte_pid = _programme_pids(path, off, size)
     except OSError:
         return [], []
     if vpid is None:
@@ -232,11 +232,12 @@ def _read_cues(path, cancel_cb):
             if cancel_cb is not None and cancel_cb():
                 return None
             at = fh.tell()
-            raw = fh.read(_CHUNK)
+            raw = fh.read(_CHUNK // 188 * size)
             if len(raw) < 188:
                 break
-            n = len(raw) // 188
-            a = np.frombuffer(raw[:n * 188], dtype=np.uint8).reshape(n, 188)
+            n = len(raw) // size
+            a = np.frombuffer(raw[:n * size], dtype=np.uint8).reshape(
+                n, size)[:, :188]
             sync = a[:, 0] == 0x47
             if not sync.all():
                 # A damaged packet: keep what came before it and re-find the
@@ -244,9 +245,9 @@ def _read_cues(path, cancel_cb):
                 # silently stopped part-way through the file.
                 bad = int(np.argmin(sync))
                 a = a[:bad]
-                k = bad * 188 + 1
-                while k + 188 < len(raw) and not (raw[k] == 0x47
-                                                  and raw[k + 188] == 0x47):
+                k = bad * size + 1
+                while k + size < len(raw) and not (raw[k] == 0x47
+                                                   and raw[k + size] == 0x47):
                     k += 1
                 fh.seek(at + k)
                 n = bad
@@ -577,4 +578,3 @@ def logo_confirmed_switch(switch, present, times, gap=EPG_LOGO_GAP,
                 return switch
             return float(start)
     return switch
-

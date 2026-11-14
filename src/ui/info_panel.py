@@ -1,3 +1,4 @@
+import numpy as np
 from PySide6.QtCore import Qt, QT_TRANSLATE_NOOP, QCoreApplication
 
 from PySide6.QtWidgets import (
@@ -13,6 +14,36 @@ from utils.timecode import (
     frame_to_timecode,
     seconds_to_timecode,
 )
+
+
+def _real_span(index, first, last, total_frames, fps=25.0):
+    """How long frames first..last play for, in seconds, from the index's
+    real timestamps - the same timing the exporter gives its chapter marks.
+
+    Not (last - first + 1) / fps: a field-coded HD recording does not space
+    its frames evenly, and the count drifted a frame from where the join
+    really landed in a saved 1080i test (2026-11-12).  A leap in the
+    recording's clock - a recorder's own crude edit, say - is not playing
+    time and counts as one frame.
+    """
+    if index is None:
+        return (last - first + 1) / fps
+    try:
+        num, den = index.time_base
+        stop = min(last + 2, total_frames)
+        pts = np.asarray(index.pts[first:stop], dtype=np.float64)
+        steps = np.diff(pts) * num / den
+        if len(steps):
+            frame = float(np.median(steps)) or 1.0 / fps
+        else:
+            frame = 1.0 / fps
+        steps[steps > 1.0] = frame
+        total = float(steps.sum())
+        if last + 1 >= total_frames:
+            total += frame          # the last frame's own length
+        return total
+    except Exception:
+        return (last - first + 1) / fps
 
 
 class InfoPanel(QWidget):
@@ -69,15 +100,16 @@ class InfoPanel(QWidget):
         # capped to its contents vertically (so it never stretches down the
         # column).
         #
+        # The border itself is in the application's style sheet (ui/theme.py,
+        # keyed on the object name), not set here: a widget's own sheet always
+        # wins over the application's, which stopped the Modern themes giving
+        # the box their rounded border.
+        #
 
         box = QFrame()
 
         box.setObjectName(
             "infoBox"
-        )
-
-        box.setStyleSheet(
-            "#infoBox { border: 1px solid #555555; }"
         )
 
         box.setSizePolicy(
@@ -159,6 +191,9 @@ class InfoPanel(QWidget):
             QT_TRANSLATE_NOOP("InfoPanel", "Program"),
             QT_TRANSLATE_NOOP("InfoPanel", "Selection"),
             QT_TRANSLATE_NOOP("InfoPanel", "Output"),
+            # Where the selected cut's join lands in the saved video -
+            # asked for by a user checking his joins in VLC (2026-11-12).
+            QT_TRANSLATE_NOOP("InfoPanel", "Splice"),
             QT_TRANSLATE_NOOP("InfoPanel", "Joiner"),
         ]
 
@@ -209,6 +244,11 @@ class InfoPanel(QWidget):
                 "time": value,
                 "mb": mb,
             }
+
+            if name == "Splice":
+                # No tooltip, like every other row here; the guide explains
+                # it.  Never a size: a moment, not a span.
+                mb.setText("")
 
         outer.addWidget(
             box
@@ -351,6 +391,38 @@ class InfoPanel(QWidget):
         self.rows["Output"]["mb"].setText(
             f"{mb_for(kept_ranges, total_kept):.2f}"
         )
+
+        #
+        # Splice: where the selected row's join lands in the saved video -
+        # everything kept before it.  Cut Mode lists cuts, Scene Mode lists
+        # the scenes kept; either way the join is at the row's start, and
+        # there is one only with kept material both before and after it.
+        #
+
+        splice_text = "--:--:--.--"
+        if window.selected_scene is not None:
+            scene_list = getattr(window, "scene_list", None)
+            rows = (scene_list.displayed_ranges()
+                    if scene_list is not None else kept_ranges)
+            # Clicking a row puts the IN/OUT markers on it, VideoReDo-style,
+            # so markers on the row are expected.  Markers somewhere else
+            # mean a new edit is being marked, and the row no longer speaks
+            # for what is being looked at.
+            on_row = (0 <= window.selected_scene < len(rows) and (
+                pending_in is None or pending_out is None
+                or (min(pending_in, pending_out),
+                    max(pending_in, pending_out))
+                == tuple(rows[window.selected_scene])))
+            if on_row:
+                row_start = rows[window.selected_scene][0]
+                before = [(start, min(end, row_start - 1))
+                          for start, end in kept_ranges if start < row_start]
+                after = any(end >= row_start for _s, end in kept_ranges)
+                if before and after:
+                    seconds = sum(_real_span(index, a, b, total_frames)
+                                  for a, b in before)
+                    splice_text = seconds_to_timecode(seconds)
+        self.rows["Splice"]["time"].setText(splice_text)
 
         #
         # Program: the whole active video's length + size.

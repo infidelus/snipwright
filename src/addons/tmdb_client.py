@@ -89,10 +89,6 @@ class TmdbClient:
             params["year"] = year
         return self._get("/search/movie", **params).get("results", [])
 
-    def movie_details(self, movie_id):
-        return self._get("/movie/%d" % int(movie_id))
-
-
 def year_of(date_str):
     """'2009-03-09' -> 2009 (int), or None for empty/odd values."""
     if date_str and len(date_str) >= 4 and date_str[:4].isdigit():

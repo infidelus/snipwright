@@ -32,20 +32,10 @@ def _ext(path):
     return os.path.splitext(path or "")[1].lower()
 
 
-def is_project(path):
-    """Whether `path` is a project this module can open (.swproj or .vprj)."""
-    return _ext(path) in PROJECT_EXTENSIONS
-
-
 def default_extension(config):
     """The extension Save Project writes when nothing else decides it."""
     chosen = str((config or {}).get("paths", {}).get("project_format", "vprj"))
     return SWPROJ if chosen.lower() == "swproj" else VPRJ
-
-
-def with_default_extension(path, config):
-    """`path` with the default project extension in place of whatever it had."""
-    return os.path.splitext(path)[0] + default_extension(config)
 
 
 def is_queued_join(path):

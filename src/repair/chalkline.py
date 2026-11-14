@@ -95,6 +95,7 @@ float at a time.
 import argparse
 import base64
 import json
+import logging
 import os
 import re
 import subprocess
@@ -103,6 +104,15 @@ import tempfile
 import time
 
 import numpy as np
+
+# Run as a script - the corpus harness, the command line - src/ is not on
+# the path, so put it there before importing the project's own modules (the
+# same arrangement the functions below make for theirs).  Without it the
+# script stopped at this import and the corpus run scored nothing.
+_SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
+from utils.proc import run_quick  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants, all measured rather than assumed
@@ -698,7 +708,7 @@ def _run_ffmpeg_progress(cmd, duration, label, interval=15.0,
 
 def probe(video):
     """Duration and frame rate of the recording."""
-    out = subprocess.run(
+    out = run_quick(
         ["ffprobe", "-hide_banner", "-loglevel", "error", "-select_streams",
          "v:0", "-show_entries", "format=duration:stream=avg_frame_rate",
          "-of", "json", video],
@@ -747,7 +757,7 @@ def channel_key(video):
     carries neither - which is the case for a file that has been through an
     encoder.
     """
-    out = subprocess.run(
+    out = run_quick(
         ["ffprobe", "-hide_banner", "-loglevel", "error", "-show_programs",
          "-of", "json", video],
         capture_output=True, text=True).stdout
@@ -801,7 +811,7 @@ def main_audio_stream(video):
     falling back to something simple whenever the disposition data is not
     unambiguous.
     """
-    out = subprocess.run(
+    out = run_quick(
         ["ffprobe", "-hide_banner", "-loglevel", "error",
          "-analyzeduration", "30M", "-probesize", "60M",
          "-select_streams", "a",
@@ -835,7 +845,7 @@ def stream_starts(video):
     longer share a timebase.  See video_signals().
     """
     try:
-        out = subprocess.run(
+        out = run_quick(
             ["ffprobe", "-v", "error", "-show_entries",
              "stream=codec_type,start_time", "-of", "json", video],
             capture_output=True, text=True).stdout
@@ -1880,12 +1890,12 @@ def _sar_at(video, t):
     clip_fd, clip_path = tempfile.mkstemp(prefix="addetect-sar-", suffix=".ts")
     os.close(clip_fd)
     try:
-        subprocess.run(
+        run_quick(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
              "-ss", str(t), "-i", video, "-t", "1",
              "-c", "copy", clip_path],
             capture_output=True)
-        sar = subprocess.run(
+        sar = run_quick(
             ["ffprobe", "-hide_banner", "-loglevel", "error",
              "-select_streams", "v:0",
              "-show_entries", "stream=sample_aspect_ratio",
@@ -2414,10 +2424,6 @@ def detect(video, verbose=False, keep=None, learn=None,
         # have produced had it been set the other way.  Stays None outside
         # --polarity-ab, so nothing about an ordinary run touches it.
         mask_br_alt = None
-        # Spans a remembered mask proposed that survive to become brackets,
-        # and so may use the shorter length floor.  Empty unless a mask
-        # actually contributes something - see MIN_BREAK_STRONG.
-        mask_short_ok = []
 
         # Learn or apply a remembered logo mask.  This never changes which
         # breaks are reported - the obvious way of using it, pairing each
@@ -3810,9 +3816,45 @@ def load_store(path=LOGO_STORE):
     try:
         with open(path, encoding="utf-8") as fh:
             raw = json.load(fh)
+    except FileNotFoundError:
+        return {"version": STORE_VERSION, "channels": []}
     except Exception:
+        # The store is THERE but will not read.  Carrying on as empty is
+        # still right for detection, but the next learn would then save over
+        # it, so keep the unreadable copy first - months of corrections must
+        # never vanish without a trace.
+        _set_aside_unreadable(path)
         return {"version": STORE_VERSION, "channels": []}
     return _migrate_store(raw)
+
+
+_SET_ASIDE = set()
+
+
+def _set_aside_unreadable(path):
+    """Copy an unreadable store to <name>.unreadable-<stamp>, once, and say so.
+
+    Once per file per session: detection reads the store again and again, and
+    until a save replaces it each read would otherwise leave another copy.
+    """
+    import shutil
+    import time as _time
+    if path in _SET_ASIDE:
+        return
+    _SET_ASIDE.add(path)
+    try:
+        if not os.path.getsize(path):
+            return
+        keep = "%s.unreadable-%s" % (path, _time.strftime("%Y%m%d-%H%M%S"))
+        shutil.copy2(path, keep)
+        logging.getLogger("snipwright").warning(
+            "Chalkline's store %s could not be read; a copy has been kept "
+            "as %s and Chalkline is carrying on without what it held.",
+            path, keep)
+    except OSError:
+        logging.getLogger("snipwright").warning(
+            "Chalkline's store %s could not be read, and could not be "
+            "copied aside either.", path, exc_info=True)
 
 
 def store_get(store, key):
@@ -4453,12 +4495,15 @@ def store_service_id(entry):
 
 
 def save_store(store, path=LOGO_STORE):
-    parent = os.path.dirname(path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
+    # Written beside the store and swapped in, never in place: opening the
+    # store itself for writing empties it, so a save cut short - a crash, the
+    # PC shut down mid-learn - or a read by the Watcher's process landing
+    # mid-write met half a file, load_store() called that an empty store, and
+    # the next learn saved "empty + one channel" over every logo learned
+    # (code scan, 2026-11-13).  The other Chalkline stores already did this.
+    from config.loader import write_json_atomic
     store.setdefault("version", STORE_VERSION)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(store, fh, indent=1)
+    write_json_atomic(path, store, indent=1)
 
 
 # ---------------------------------------------------------------------------
@@ -4622,6 +4667,81 @@ def tail_store_path(logo_store_path=LOGO_STORE):
     return os.path.join(folder, name)
 
 
+def learned_key(channels, key, store_path=LOGO_STORE):
+    """The entry in a no-adverts or end-padding store that `key` belongs
+    to: the key itself, a key paired with it by hand in Remembered logos
+    (the entry's "aliases"), or one the logo store pairs it with - the same
+    channel recorded by a recorder that keeps its name and one that keeps
+    only its service number.  The key itself when none exists yet."""
+    if key in channels:
+        return key
+    for primary, entry in channels.items():
+        if key in (entry.get("aliases") or []):
+            return primary
+    try:
+        logo = store_get(load_store(store_path), key)
+    except Exception:
+        logo = None
+    for other in (logo or {}).get("keys") or []:
+        if other == key:
+            continue
+        if other in channels:
+            return other
+        for primary, entry in channels.items():
+            if other in (entry.get("aliases") or []):
+                return primary
+    return key
+
+
+def learned_keys(channels, primary):
+    """Every key an entry answers to: its own and its aliases."""
+    entry = channels.get(primary) or {}
+    return [primary] + [k for k in entry.get("aliases") or [] if k != primary]
+
+
+def pair_learned(key, other, store_path=LOGO_STORE):
+    """Treat `other` as the same channel as `key` in both learned stores -
+    typed into a row of Remembered logos.  An entry `other` already has is
+    merged in: its no-adverts recordings joined to these (and cleared if
+    either saw adverts), its end paddings added to these."""
+    for path, kind in ((adfree_store_path(store_path), "adfree"),
+                       (tail_store_path(store_path), "tails")):
+        store = load_adfree(path)
+        ch = store["channels"]
+        mine = learned_key(ch, key, store_path)
+        theirs = learned_key(ch, other, store_path)
+        if mine not in ch and theirs not in ch:
+            continue
+        entry = dict(ch.get(mine) or {})
+        aliases = set(entry.get("aliases") or [])
+        if theirs != mine and theirs in ch:
+            them = ch.pop(theirs)
+            aliases |= set(them.get("aliases") or []) | {theirs}
+            if kind == "adfree":
+                if ((entry.get("adverts") and not entry.get("clean"))
+                        or (them.get("adverts") and not them.get("clean"))):
+                    entry["clean"] = []
+                    entry["adverts"] = entry.get("adverts") or them.get(
+                        "adverts")
+                else:
+                    joined = list(dict.fromkeys(
+                        (entry.get("clean") or []) + (them.get("clean")
+                                                      or [])))
+                    entry["clean"] = joined[-ADFREE_KEEP:]
+            else:
+                regimes = dict(entry.get("padding") or {})
+                for reg, held in (them.get("padding") or {}).items():
+                    merged = dict(regimes.get(reg) or {})
+                    merged.update(held)
+                    regimes[reg] = dict(list(merged.items())[-TAIL_KEEP:])
+                entry["padding"] = regimes
+        aliases |= {other}
+        aliases.discard(mine)
+        entry["aliases"] = sorted(aliases)
+        ch[mine] = entry
+        save_adfree(store, path)
+
+
 def note_end_padding(key, video, cuts, duration, store_path=LOGO_STORE):
     """Remember how much end padding the user cut from a recording that has
     no EPG.  Returns the number held for the channel, or None if this edit
@@ -4633,6 +4753,7 @@ def note_end_padding(key, video, cuts, duration, store_path=LOGO_STORE):
         return None
     path = tail_store_path(store_path)
     store = load_adfree(path)            # same shape: {"channels": {...}}
+    key = learned_key(store["channels"], key, store_path)
     entry = dict(store["channels"].get(key) or {})
     regimes = dict(entry.get("padding") or {})
     regime = padding_regime(duration)
@@ -4655,7 +4776,8 @@ def learned_switch(key, duration, store_path=LOGO_STORE):
     corrected end padding - or None until TAIL_MIN_SEEN are held."""
     if not key or not duration:
         return None, 0
-    entry = load_adfree(tail_store_path(store_path))["channels"].get(key)
+    channels = load_adfree(tail_store_path(store_path))["channels"]
+    entry = channels.get(learned_key(channels, key, store_path))
     regimes = (entry or {}).get("padding") or {}
     tails = list((regimes.get(padding_regime(duration)) or {}).values())
     if len(tails) < TAIL_MIN_SEEN:
@@ -4693,13 +4815,20 @@ def adfree_store_path(logo_store_path=LOGO_STORE):
 
 def load_adfree(path):
     """The no-adverts store; a missing or unreadable file is an empty one."""
+    # A missing file is simply empty.  One that is THERE but will not read
+    # is kept aside first, as the logo store is: the next learn would save
+    # over it, and the channels it held must not vanish without a trace
+    # (code scan, 2026-11-13).
     try:
         with open(path, encoding="utf-8") as fh:
             raw = json.load(fh)
         if isinstance(raw, dict) and isinstance(raw.get("channels"), dict):
             return raw
-    except (OSError, ValueError):
+        _set_aside_unreadable(path)
+    except FileNotFoundError:
         pass
+    except (OSError, ValueError):
+        _set_aside_unreadable(path)
     return {"version": ADFREE_STORE_VERSION, "channels": {}}
 
 
@@ -4732,6 +4861,7 @@ def note_adverts_seen(key, video, mid_programme_cut, store_path=LOGO_STORE):
     so."""
     path = adfree_store_path(store_path)
     store = load_adfree(path)
+    key = learned_key(store["channels"], key, store_path)
     entry = dict(store["channels"].get(key) or {})
     clean = list(entry.get("clean", []))
     rec = _adfree_recording_id(video)
@@ -4753,7 +4883,8 @@ def no_adverts(key, store_path=LOGO_STORE):
     """(marked, clean) for a channel - see note_adverts_seen()."""
     if not key:
         return False, 0
-    entry = load_adfree(adfree_store_path(store_path))["channels"].get(key)
+    channels = load_adfree(adfree_store_path(store_path))["channels"]
+    entry = channels.get(learned_key(channels, key, store_path))
     clean = len((entry or {}).get("clean", []))
     return clean >= NO_ADVERTS_AFTER, clean
 
@@ -4762,19 +4893,27 @@ def forget_no_adverts(key, store_path=LOGO_STORE):
     """Clear what has been learned about a channel's adverts."""
     path = adfree_store_path(store_path)
     store = load_adfree(path)
+    key = learned_key(store["channels"], key, store_path)
     if store["channels"].pop(key, None) is not None:
         save_adfree(store, path)
 
 
-def adfree_channels(store_path=LOGO_STORE):
-    """{key: clean} for every channel currently marked as advert-free."""
-    out = {}
-    for key, entry in load_adfree(
-            adfree_store_path(store_path))["channels"].items():
-        clean = len(entry.get("clean", []))
-        if clean >= NO_ADVERTS_AFTER:
-            out[key] = clean
-    return out
+def forget_end_padding(key, store_path=LOGO_STORE):
+    """Clear the end padding learned for a channel."""
+    path = tail_store_path(store_path)
+    store = load_adfree(path)
+    key = learned_key(store["channels"], key, store_path)
+    if store["channels"].pop(key, None) is not None:
+        save_adfree(store, path)
+
+
+def end_padding_held(key, store_path=LOGO_STORE):
+    """How many corrected end paddings a channel has, under its most used
+    padding setting - for showing progress towards TAIL_MIN_SEEN."""
+    channels = load_adfree(tail_store_path(store_path))["channels"]
+    entry = channels.get(learned_key(channels, key, store_path))
+    regimes = (entry or {}).get("padding") or {}
+    return max((len(v) for v in regimes.values()), default=0)
 
 
 def keep_padding_only(breaks, end):
@@ -4808,13 +4947,20 @@ def card_store_path(logo_store_path=LOGO_STORE):
 
 def load_cards(path):
     """The card store; a missing or unreadable file is an empty one."""
+    # A missing file is simply empty.  One that is THERE but will not read
+    # is kept aside first, as the logo store is: the next learn would save
+    # over it, and the channels it held must not vanish without a trace
+    # (code scan, 2026-11-13).
     try:
         with open(path, encoding="utf-8") as fh:
             raw = json.load(fh)
         if isinstance(raw, dict) and isinstance(raw.get("channels"), list):
             return raw
-    except Exception:
+        _set_aside_unreadable(path)
+    except FileNotFoundError:
         pass
+    except (OSError, ValueError):
+        _set_aside_unreadable(path)
     return {"version": CARD_STORE_VERSION, "channels": []}
 
 
@@ -5023,13 +5169,20 @@ def marker_store_path(logo_store_path=LOGO_STORE):
 
 def load_markers(path):
     """The marker store; a missing or unreadable file is an empty one."""
+    # A missing file is simply empty.  One that is THERE but will not read
+    # is kept aside first, as the logo store is: the next learn would save
+    # over it, and the channels it held must not vanish without a trace
+    # (code scan, 2026-11-13).
     try:
         with open(path, encoding="utf-8") as fh:
             raw = json.load(fh)
         if isinstance(raw, dict) and isinstance(raw.get("channels"), list):
             return raw
-    except Exception:
+        _set_aside_unreadable(path)
+    except FileNotFoundError:
         pass
+    except (OSError, ValueError):
+        _set_aside_unreadable(path)
     return {"version": MARKER_STORE_VERSION, "channels": []}
 
 

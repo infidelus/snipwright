@@ -17,10 +17,10 @@ import os
 from PySide6.QtCore import QThread, Signal
 
 from batch.job import (
-    QUEUED, RUNNING, DONE, FAILED, CANCELLED, NEEDS_REVIEW,
+    RUNNING, DONE, FAILED, CANCELLED, NEEDS_REVIEW,
     build_dest_path, container_to_fmt,
 )
-from addons.output_profiles import resolve_profile
+from addons.output_profiles import resolve_profile_noting
 from export.exporter import export_ranges, ExportError, ExportCancelled
 from media.frame_index import build_index_sync
 # Either project format - Snipwright's own .swproj or a VideoReDo .vprj.
@@ -39,7 +39,18 @@ class NeedsReview(Exception):
     (it is held rather than failed)."""
 
 
-def _delete_quietly(path):
+def _delete_quietly(path, sources=()):
+    """Remove a failed job's output - never a recording it was made from.
+
+    A destination can be a source: an export handed to the Batch Manager keeps
+    the path it was given, and the exporter refuses to write over its own
+    source - but that refusal is a failure, and the failure is cleaned up
+    here.  Deleting "the output" then deleted the recording (code scan,
+    2026-11-13; see utils/same_file.py).
+    """
+    from utils.same_file import any_same_file
+    if any_same_file(path, sources):
+        return
     if path and os.path.exists(path):
         try:
             os.remove(path)
@@ -93,7 +104,7 @@ def process_job(
         )
     except ExportError as exc:
         # Clean up the unusable output the failed export may have produced.
-        _delete_quietly(job.dest_path)
+        _delete_quietly(job.dest_path, (source, job.source_path))
         msg = str(exc)
         if "no readable video" in msg.lower():
             # Needs a Quick Stream Fix first - hold it for the user to repair
@@ -110,7 +121,7 @@ def process_job(
     # with broken audio.  Normally the in-sync rebuild handles it and this is
     # not hit.
     if isinstance(stats, dict) and stats.get("audio_needs_repair"):
-        _delete_quietly(job.dest_path)
+        _delete_quietly(job.dest_path, (source, job.source_path))
         raise NeedsReview(
             "Needs repair before cutting (its audio couldn't be rebuilt) - "
             "open Edit to run Quick Stream Fix and confirm the cuts, then it "
@@ -122,7 +133,7 @@ def process_job(
     # and in a batch nobody is watching, that goes unnoticed until someone
     # checks the file size months later.  Hold it instead.
     if isinstance(stats, dict) and stats.get("recode_failed"):
-        _delete_quietly(job.dest_path)
+        _delete_quietly(job.dest_path, (source, job.source_path))
         raise NeedsReview(
             "The cut worked but the video couldn't be re-encoded, so the "
             "output wasn't in the format this profile asks for. Try again, "
@@ -157,7 +168,7 @@ def _index_and_export(
     # The profile drives the container, audio and aspect.  Resolve by name so a
     # profile edited or deleted after queueing still falls back to something
     # usable rather than orphaning the job.
-    profile = resolve_profile(config, job.profile_name)
+    profile, job.profile_note = resolve_profile_noting(config, job.profile_name)
 
     dest = getattr(job, "fixed_dest", None)
     if dest:
@@ -238,7 +249,7 @@ def _process_join(job, out_folder, modifier, config, taken,
 
     name_path = queued_name_path(job.vprj_path)
     job.source_path = name_path
-    profile = resolve_profile(config, job.profile_name)
+    profile, job.profile_note = resolve_profile_noting(config, job.profile_name)
 
     dest = getattr(job, "fixed_dest", None)
     if dest:
@@ -272,7 +283,8 @@ def _process_join(job, out_folder, modifier, config, taken,
     worker.run()
 
     if "ok" not in outcome:
-        _delete_quietly(dest)
+        _delete_quietly(dest, [e.source for e in entries
+                               if e.kind != JoinerEntry.KIND_TITLE])
         raise JobError(outcome.get("error") or "The join did not finish.")
     return dict(worker.stats or {})
 

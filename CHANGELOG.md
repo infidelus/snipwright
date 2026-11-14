@@ -6,6 +6,265 @@ All notable changes to Snipwright are documented here. Releases before
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [2.17.0] - 2026-11-14
+
+### Added
+
+- **New Modern themes.** Settings > General > Theme now offers Modern
+  (follow system), Modern Light and Modern Dark beside Follow system, Light
+  and Dark. Modern (follow system) is light or dark to match the desktop
+  and changes when the desktop does. They keep
+  the same layout and add rounded buttons, boxes and tables, a little more
+  spacing, flat column headers, slim scroll bars, an underline on the
+  selected tab and a single blue accent for the default button, the box
+  being typed in and selections; Modern Dark is a cooler charcoal than
+  Dark. Like the others they apply straight away, and the timeline and
+  thumbnail strip stay dark in every theme. Light and Dark look exactly as
+  before. A new installation starts in Modern (follow system); an
+  installation upgraded from an earlier version keeps the theme it had
+  (Follow system, unless it was changed).
+
+- **The Info panel shows where each join lands in the saved video.** A
+  new Splice line gives, for the scene or cut selected in the list, the
+  time its join will be at in the saved file - in Scene Mode where the
+  scene begins, joined to the one before; in Cut Mode where the programme
+  resumes after the cut - the place to go to in a
+  player such as VLC to check how it came out. It is worked out from the
+  recording's own timing rather than by counting frames, so it matches the
+  saved file on interlaced HD too. Suggested by Gloster on the Linux Mint
+  forum. Once the video is saved, the log also lists every scene in a
+  table - start, end and duration as the scene list shows them, and where
+  each scene starts in the saved video - so the whole set can be checked
+  in one place. A joined video gets the same table, with the recording
+  each scene came from.
+- **The User Guide can be searched.** Press Ctrl+F in the guide window and
+  type: every match is highlighted and a count shows how many there are.
+  Enter or F3 goes to the next, Shift+Enter or Shift+F3 to the previous,
+  and Esc clears the search. No need to open the guide in a browser to
+  find something in it.
+
+### Changed
+
+- **PySide6 6.11.3 is now tested.** It is the bug-fix release a fresh
+  installation has been receiving since late October; the Modern themes
+  allow for a change it makes to number boxes, so they look the same with
+  6.11.2 and 6.11.3.
+
+- **Programme Information opens tall enough to show everything.** It used
+  to open at a fixed size, so a recording with two audio tracks already
+  needed scrolling. It now fits its contents when it opens, up to about
+  85% of the screen's height, still centred over the editor; only a
+  recording with a great many tracks scrolls.
+
+- **Remembered logos opens wide enough to show every column whole, and
+  centred like the other windows.** The Channel column was squeezed into
+  whatever the others left, so a name such as Channel 4 HD showed as a few
+  letters.
+
+- **A Watcher project opened and saved unchanged is no longer counted as
+  a correction.** Its cuts are recognised as the detector's own, as they are
+  after Detect Commercials in the editor, so Chalkline does not take an
+  unreviewed answer as something you have checked.
+- **A failed crop, resize or HEVC re-encode says why in the log.**
+
+- **The Joiner works in the working copy folder** set under Settings →
+  Maintenance, as Quick Stream Fix does, rather than always in the system
+  temporary folder. A join holds every scene and then the joined video
+  there while it saves - about twice the size of the result - and the
+  system folder is often on the smallest drive.
+- **An unexpected error during a save or a join is logged in full.** The
+  log used to keep only its one-line message, which left nothing to go on
+  when the fault was in Snipwright itself.
+
+- **Remembered logos shows how far each channel has got with the no-adverts
+  count.** Only channels already marked as carrying no adverts were listed,
+  so a channel on its way there - BBC Three, say, at four corrected
+  recordings of five - appeared nowhere, which looked like a fault. A new
+  Adverts column now shows every channel's state: None once it qualifies,
+  "None so far: 4 of 5" on the way, Yes for a channel you have cut adverts
+  from. A channel with no logo gets a row of its own, whose Channel and
+  Service ID can be filled in to pair a recorder that keeps the channel's
+  name with one that keeps its number - their counts are then added
+  together, as a logo's are. Hovering over the
+  column also shows how far a recording without a programme guide has got
+  in learning where the channel's programmes end.
+
+### Fixed
+
+- **Turning off the transport tooltips left most of them on.** Only the
+  row with the time boxes and the mark buttons was covered; the play,
+  frame-step and skip buttons, the Add and Save Video buttons and the
+  Charms bar all kept showing their hints. The setting is now **Show
+  tooltips in the editor window** and covers all of it. Tooltips in other
+  windows - Remembered logos, the Batch Manager, menus - still show, as
+  they often carry information found nowhere else, and so does the volume
+  control's note when sound is unavailable.
+- **Enter in the Batch Manager opened the folder picker.** Browse… was
+  the window's default button only because it came first. The Batch
+  Manager now has no default button, so Enter does nothing there; starting
+  a batch takes a deliberate press of Start.
+- **Enter in Open Multiple Files sorted the list instead of adding the
+  files.** Sort List became the default button when the window opened,
+  so pressing Enter re-sorted the files and left the window open.
+  Enter now adds them to the Joiner list, as the highlighted button says.
+
+- **Teletext is kept when a recording's audio has to be repaired for .mkv
+  or .mp4.** The repair that evens out a soundtrack whose channel layout
+  changes part-way copied every other stream but left the teletext behind,
+  without a word. It is now carried through with its page details.
+
+- **The audio-description label always lands on the right track.** When a
+  track ahead of the description track was left out of a save - an empty
+  one, or a retry with the main audio only - the labels were put back by
+  position, so the description track could lose its label or the main
+  audio be marked as description.
+- **An audio-description track that falls quiet early no longer forces the
+  whole soundtrack to be re-encoded.** Where the broadcast audio has to be
+  rebuilt from the recording, each track's check now measures it against
+  its own length, so sparse narration is no longer taken for a broken track.
+- **The save summary no longer claims every audio track was lost** when the
+  finished file simply could not be read back to count them.
+- **A dropped audio track is described correctly after a jump in the
+  recording's clock.** Whether a track had "nothing in the scenes you kept"
+  was worked out from frame counts, which go wrong after such a jump; it
+  now uses the recording's own timing.
+- **Adding a scene exactly as it already is no longer clears Redo.**
+- **A cut that fails part-way no longer leaves the recording open.** On a
+  network share that could stop a deleted recording disappearing until
+  Snipwright was closed.
+
+- **A typing slip in the settings file no longer stops Snipwright opening.**
+  A settings file that could not be read - one stray comma after editing
+  the shortcuts by hand is enough - made the editor quit as it started,
+  with nothing on screen to say why. It now keeps a copy of the file, starts
+  with the default settings, and tells you once the window is up: what was
+  wrong, on which line, and where the copy is.
+- **Tidying up Quick Stream Fix working copies can no longer reach a copy
+  you kept.** Working copies were named like the repaired copies Save a
+  Copy keeps beside a recording, and the age-based tidy-up deleted by that
+  name - so with the working-copy folder pointed at a recordings folder,
+  copies kept on purpose could be deleted. Working copies now go in a
+  folder of their own, snipwright-working, inside the one you choose, and
+  only that folder is tidied.
+
+- **The Watcher no longer replaces a project you have corrected.** It saved
+  each recording's project under the recording's name and replaced whatever
+  was there - the very project you open, correct and save - so a recording
+  processed again had your corrections overwritten by a fresh, unreviewed
+  detection. Two recordings with the same name in different watched folders
+  collided the same way. An existing project is now kept, the new one is
+  saved as "(2)", and the log says so.
+- **The Watcher's list of processed recordings can no longer be wiped by a
+  save that is cut short.** It is saved after every recording, and was
+  emptied and rewritten each time: a crash or shutdown at the wrong moment
+  left it empty, and the next scan took every recording in your folders for
+  new. It, and the ignore list, are now written alongside and swapped into
+  place.
+
+- **A batch job keeps its output profile when the profile is renamed.** A
+  job remembered its profile by name, and renaming the profile left the job
+  - and the batch's default - pointing at a name that no longer existed, so
+  it quietly ran with your favourite profile instead: a job queued for HEVC
+  could come out as a lossless copy and be marked Done. Renames are now
+  followed. If a job's profile has really been deleted it still runs with
+  the favourite, but its row in the Batch Manager says which profile was
+  missing and which was used, and the log records it.
+
+- **The TV and Film renamers can no longer lose a file when overwriting.**
+  With overwrite ticked, three things could go wrong. The file already at
+  the new name was deleted before the move began, so a move that then
+  failed - a NAS refusing it, a full disk - lost it with nothing to replace
+  it; the new file now arrives under a working name and is swapped in only
+  once it is complete. On Windows and on Samba shares, where capitals do not
+  matter, changing only the capitals of a name found the recording itself
+  "already there" and deleted it; that is now recognised as the same file
+  and simply renamed. And two recordings given the same name in one run -
+  an episode recorded in HD and in SD - had the second delete the first; the
+  second is now skipped, and the log says why.
+
+- **Chalkline's remembered logos can no longer be wiped by a save that is
+  cut short.** The logo store was emptied and rewritten in place, and a
+  store that could not be read was treated as empty - so a save
+  interrupted by a crash or a shutdown, or read by the Watcher at the
+  moment the editor was writing it, could leave the next learning pass
+  saving one channel over every logo learned. The store is now written
+  alongside and swapped into place, so it is always either the old version
+  or the new one; and should it ever be unreadable, a copy is kept beside
+  it and the log says so before Chalkline carries on. The Watcher's
+  settings, its ignore and missing-recordings logs, joiner lists and the
+  detector's per-recording records are saved the same way, and the
+  no-adverts, edge-card and marker stores keep an unreadable copy aside as
+  the logo store does.
+
+- **A video can no longer be saved over the recording it is cut from.**
+  Choosing the recording's own name in Save Video and answering Yes to
+  "Overwrite?" emptied the recording as the save began, the save then
+  failed, and its clean-up deleted the recording - the programme was lost.
+  Save Video, the Joiner, Quick Stream Fix's Save a Copy and Trim and Copy
+  now refuse that name and ask for another, and the files a save is made
+  from are never removed when one fails - including an export handed to
+  the Batch Manager.
+
+- **The preview no longer shows the frame before the one you are on.** After
+  a jump to a part of the recording not yet decoded, pressing an arrow key
+  straight away showed the right frame and then, a moment later, the frame
+  from the jump - one frame behind the timecode, until you moved again.
+- **Detection and Quick Stream Fix results always land on the right
+  recording.** Their progress windows did not block the editor, so another
+  recording could be opened while they ran, and the result was then
+  applied to that one - a detection's cuts on the wrong file, or a repaired
+  copy loaded over the recording you had moved on to. The windows now hold
+  the editor until they finish or are cancelled, and a result for a
+  recording that is no longer open is set aside with a note in the status
+  bar. Quitting while one runs now stops it cleanly.
+- **Saving a .vprj project can no longer leave it empty.** The file was
+  emptied before the new one was written, so a save that failed part-way -
+  a full disk, a network share dropping - lost the project. It is now
+  written alongside and swapped into place, as .swproj files always were.
+
+- **Joining scenes that have subtitles no longer needs as much memory as
+  the joined video is big.** Adding the subtitles held the whole joined
+  file in memory - several gigabytes for an hour of HD, and more than most
+  machines have for a join of Blu-ray scenes. It now takes the same small
+  amount whatever the length.
+- **The Joiner's summary says when something went wrong.** Each scene, and
+  the final pass that applies the profile, is saved by the same exporter
+  as Save Video, but the Joiner threw away what it reported - so a join
+  whose HEVC re-encode failed finished looking perfect while still in its
+  original codec, and an audio track that could not be written, or was
+  lost in the join itself, appeared only in the log. They are now shown at
+  the top of the Joiner's summary, as they are for a single save.
+- **An .mkv whose audio is missing or may not play says so.** Two late
+  failures in building an .mkv - audio that mkvmerge left out, and a last-
+  resort re-encode that did not work - were only written to the log, and
+  the summary showed nothing worse than its "repackaged audio" note.
+
+- **A file check that hangs no longer freezes Snipwright.** The quick
+  checks run on a recording - reading its streams, its length, its
+  subtitles, one frame for the crop preview - had no time limit, so a
+  network share that stalled, or a damaged file that sent ffprobe round in
+  circles, could leave a save, the Joiner, Program Info or advert detection
+  waiting for ever, with Cancel unable to stop it. Each check is now stopped
+  after two minutes - far longer than any normally takes - and treated
+  like a file that could not be read, with a line in the log saying which.
+
+- **Scene markers can be moved with F5, F6 and A while the scene list has
+  the focus.** After clicking a scene in the list, F5 and F6 went back to
+  the start of that scene before looking for a marker, so they found the
+  same one every time and seemed stuck, and A jumped to the start of the
+  scene instead of adding or removing a marker. Clicking the timeline
+  first was the only way out. S, E, F3, F4 and the rest of the editor's
+  letter and function-key shortcuts now work from the list too.
+
+- **Advert detection reads the programme guide and advert cues from
+  recordings made with larger packets.** A Blu-ray recorder's recording
+  (192-byte packets) or one with error-correction bytes (204) was read as
+  carrying neither, so its start and end could not be trimmed from the
+  guide. Both sizes are now understood. The Panasonic recording that
+  showed the problem turned out to carry no guide data at all, so it is
+  detected as before; recordings that do carry it now benefit.
+
+
 ## [2.16.0] - 2026-11-11
 
 ### Added

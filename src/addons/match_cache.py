@@ -106,10 +106,6 @@ def get_checked(config, kind, path, default=True):
     return bool(entry.get("checked", default))
 
 
-def forget_match(config, kind, path):
-    _bucket(config, kind).pop(os.path.abspath(path), None)
-
-
 def purge_old(config, max_age_days):
     """Remove cache entries older than ``max_age_days``.  0 (or less) keeps
     everything.  Returns the number of entries removed.

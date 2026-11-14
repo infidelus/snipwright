@@ -14,14 +14,17 @@ would expect it to.  Audio and subtitles are copied straight through.
 ffmpeg/ffprobe are expected on the PATH, as elsewhere in the exporter.
 """
 
+import logging
 import os
 import re
 import subprocess
 
 from media.pixfmt import for_output as pixfmt_for_output
 
-from utils.proc import run_cancellable
+from utils.proc import run_cancellable, run_quick
 from export.sub_flags import subtitle_flags
+
+log = logging.getLogger("snipwright")
 
 _CROP_RE = re.compile(r"crop=(\d+):(\d+):(\d+):(\d+)")
 _DEFAULT_KBPS = 8000          # fallback target when the source bitrate is unknown
@@ -48,7 +51,7 @@ def _probe(path, entries, stream=False):
         "-of", "default=noprint_wrappers=1:nokey=1", path,
     ]
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True).stdout
+        out = run_quick(cmd, capture_output=True, text=True).stdout
         return [ln.strip() for ln in out.splitlines() if ln.strip()]
     except Exception:
         return []
@@ -164,7 +167,7 @@ def _audio_kbps(path):
         "-of", "default=noprint_wrappers=1:nokey=1", path,
     ]
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True).stdout
+        out = run_quick(cmd, capture_output=True, text=True).stdout
     except Exception:
         return 0
     total = 0
@@ -285,7 +288,7 @@ def detect_crop(path, src_w=0, src_h=0, samples=8):
                "-vf", "cropdetect=24:2:0", "-frames:v", "150",
                "-an", "-sn", "-f", "null", "-"]
         try:
-            err = subprocess.run(cmd, capture_output=True, text=True).stderr
+            err = run_quick(cmd, capture_output=True, text=True).stderr
         except Exception:
             continue
         last = None
@@ -301,7 +304,7 @@ def detect_crop(path, src_w=0, src_h=0, samples=8):
                "-vf", "cropdetect=24:2:0", "-t", "90",
                "-an", "-sn", "-f", "null", "-"]
         try:
-            err = subprocess.run(cmd, capture_output=True, text=True).stderr
+            err = run_quick(cmd, capture_output=True, text=True).stderr
             last = None
             for m in _CROP_RE.finditer(err):
                 last = tuple(int(g) for g in m.groups())
@@ -329,15 +332,19 @@ def _run_progress(cmd, total_seconds, progress_cb, cancel_cb):
     duration to report 0-100%.  Works with ``progress_cb`` None too (batch with
     no UI) - it just runs.  Returns True on success.
     """
-    proc = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
-    )
+    # stderr to a temp file, never a pipe (utils/proc.py) - and kept, so a
+    # failed encode says why.  It went to /dev/null, and "Finishing re-encode
+    # failed" arrived in the log with no reason (code scan, 2026-11-13).
+    from utils.proc import popen_progress, read_stderr
+    proc, err_file = popen_progress(cmd)
+    cancelled = False
     last = -1
     try:
         for line in proc.stdout:
             if cancel_cb is not None:
                 try:
                     if cancel_cb():
+                        cancelled = True
                         proc.terminate()
                         break
                 except Exception:
@@ -359,6 +366,12 @@ def _run_progress(cmd, total_seconds, progress_cb, cancel_cb):
                 proc.stdout.close()
         except Exception:
             pass
+    err = read_stderr(err_file) or ""
+    if proc.returncode != 0 and not cancelled:
+        tail = [ln for ln in err.strip().splitlines() if ln.strip()][-5:]
+        log.warning("Re-encode failed (ffmpeg rc=%s).", proc.returncode)
+        for ln in tail or ["(no output from ffmpeg)"]:
+            log.warning("  ffmpeg: %s", ln)
     return proc.returncode == 0
 
 
@@ -478,7 +491,7 @@ def detect_crop_window(path, at_seconds=0.0, src_w=0, src_h=0, frames=120):
            "-vf", "cropdetect=24:2:0", "-frames:v", str(frames),
            "-an", "-sn", "-f", "null", "-"]
     try:
-        err = subprocess.run(cmd, capture_output=True, text=True).stderr
+        err = run_quick(cmd, capture_output=True, text=True).stderr
     except Exception:
         return (0, 0, 0, 0)
     last = None
@@ -506,31 +519,7 @@ def extract_frame(path, out_png, at_seconds=None):
         "-frames:v", "1", out_png,
     ]
     try:
-        rc = subprocess.run(cmd, capture_output=True).returncode
+        rc = run_quick(cmd, capture_output=True).returncode
         return rc == 0 and os.path.exists(out_png) and os.path.getsize(out_png) > 0
     except Exception:
         return False
-
-
-def resolve_crop_box(profile, in_path, src_w=0, src_h=0):
-    """Work out the crop rectangle for a profile against ``in_path``.
-
-    For "auto" the bars are detected; for "fixed" the profile's pixel amounts are
-    used.  Returns (w, h, x, y) or ``None`` when the profile asks for no crop or
-    nothing is croppable.
-    """
-    mode = getattr(profile, "crop_mode", "none")
-    if mode not in ("auto", "fixed"):
-        return None
-    if not src_w or not src_h:
-        src_w, src_h = source_dimensions(in_path)
-    if not src_w or not src_h:
-        return None
-    if mode == "auto":
-        top, bottom, left, right = detect_crop(in_path, src_w, src_h)
-    else:
-        top, bottom, left, right = profile.crop
-    if not any((top, bottom, left, right)):
-        return None
-    interlaced = source_field_order(in_path) in ("tt", "bb")
-    return even_rect(src_w, src_h, top, bottom, left, right, interlaced=interlaced)

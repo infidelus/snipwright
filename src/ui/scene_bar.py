@@ -5,7 +5,6 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QColor,
     QPainter,
-    QFont,
 )
 from PySide6.QtWidgets import (
     QWidget,
@@ -35,8 +34,6 @@ class SceneBar(QWidget):
     ):
 
         from PySide6.QtGui import (
-            QPainter,
-            QColor,
             QPen,
         )
 
@@ -328,7 +325,7 @@ class SceneBar(QWidget):
         `arm` is how far the top and bottom arms reach, and which way: positive
         turns the bracket right (IN), negative turns it left (OUT).
         """
-        from PySide6.QtGui import QColor, QPen
+        from PySide6.QtGui import QPen
 
         def bracket(colour, width):
             painter.setPen(QPen(QColor(colour), width))

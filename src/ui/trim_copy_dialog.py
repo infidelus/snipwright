@@ -9,7 +9,6 @@ of that portion - no re-encode.  See media/trim_copy.py for the copy logic.
 import os
 import re
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -381,6 +380,15 @@ class TrimCopyDialog(QDialog):
         if plan is None:
             return
         start, length = plan
+
+        from utils.same_file import is_same_file
+        if is_same_file(dst, src):
+            QMessageBox.warning(
+                self, self.tr("Trim and Copy"),
+                self.tr("%s is the recording being copied from, so it cannot "
+                        "be copied over. Choose another name or folder.")
+                % os.path.basename(dst))
+            return
 
         if os.path.exists(dst):
             resp = QMessageBox.question(

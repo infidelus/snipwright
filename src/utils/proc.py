@@ -22,8 +22,51 @@ nothing, never blocks the writer, and can be read back in full afterwards for
 the error message.
 """
 
+import logging
+import os
 import subprocess
 import tempfile
+
+log = logging.getLogger(__name__)
+
+# Longest a quick check - an ffprobe of a file's headers, an mkvmerge -J, one
+# frame grabbed with ffmpeg - may take before it is stopped.  Each normally
+# answers in well under a second, and a deep probe of a recording on a slow
+# network share in a few; two minutes is far beyond any of that, and only
+# there so a hang ends.
+QUICK_TIMEOUT = 120
+
+
+def run_quick(cmd, timeout=QUICK_TIMEOUT, **kwargs):
+    """subprocess.run() for a short check, with a time limit.
+
+    These checks had none, so a network share that stalled, or a damaged file
+    that sent ffprobe round in circles, left the export, the window or the
+    batch waiting for ever, and Cancel could not reach it (code scan,
+    2026-11-13).  A check that runs out of time is stopped, logged, and
+    returned as a FAILED run - returncode -1, nothing on stdout - which every
+    caller already handles, because it is exactly what a check that cannot
+    read its file returns.
+
+    Only for checks that read headers or a little of a file.  Anything that
+    reads a whole recording (a decode, a copy, -count_packets) must not use
+    this: a long recording on a busy machine would trip it.
+    """
+    try:
+        return subprocess.run(cmd, timeout=timeout, **kwargs)
+    except subprocess.TimeoutExpired:
+        target = next((a for a in reversed(cmd)
+                       if isinstance(a, str) and os.sep in a), "")
+        log.warning("%s gave no answer in %d s and was stopped%s",
+                    os.path.basename(str(cmd[0])), timeout,
+                    " (reading %s)" % target if target else "")
+        text = (kwargs.get("text") or kwargs.get("universal_newlines")
+                or kwargs.get("encoding") or kwargs.get("errors"))
+        empty = "" if text else b""
+        piped = kwargs.get("capture_output")
+        out = empty if piped or kwargs.get("stdout") == subprocess.PIPE else None
+        err = empty if piped or kwargs.get("stderr") == subprocess.PIPE else None
+        return subprocess.CompletedProcess(cmd, -1, stdout=out, stderr=err)
 
 
 def popen_progress(cmd, **kwargs):

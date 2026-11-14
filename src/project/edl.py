@@ -64,50 +64,6 @@ def parse_edl_cuts(path):
     return cuts
 
 
-def describe_mismatch(cuts, duration):
-    """Say whether a cut list looks like it belongs to a different recording.
-
-    An EDL names no video - it is only a list of times - so nothing stops one
-    being applied to the wrong recording, and the result looks plausible
-    rather than broken.  There is no way to be certain, but two shapes are
-    worth stopping for.  Returns a description of the problem, or None.
-
-    This is deliberately a plain function rather than part of the loader, so
-    it can be tested without a video or a running interface.
-    """
-    if not cuts or duration <= 0:
-        return None
-
-    last = max(end for _start, end in cuts)
-    span = last - min(start for start, _end in cuts)
-
-    # Certain: the cut list runs past the end of the video.  Nothing
-    # legitimate does this - the times came from a longer recording.
-    if last > duration + 1.0:
-        return (
-            "This cut list runs %.1f seconds past the end of the video "
-            "(it ends at %.1f seconds, the video is %.1f seconds long)."
-            % (last - duration, last, duration)
-        )
-
-    # Likely: the video is far longer than anything the cut list covers.  A
-    # cut list made for its own recording reaches most of the way through it,
-    # because the breaks are spread across the programme and the recording
-    # padding is usually cut too.
-    #
-    # This one is a judgement rather than a certainty: a recording whose only
-    # break falls early, with a long unpadded tail, could trip it honestly.
-    # It asks rather than refuses for that reason.
-    if span > 0 and duration > 2.0 * last:
-        return (
-            "This cut list only covers the first %.0f%% of the video "
-            "(it ends at %.1f seconds, the video is %.1f seconds long)."
-            % (100.0 * last / duration, last, duration)
-        )
-
-    return None
-
-
 def load_edl(path, index):
     """Parse an EDL and map it onto the given FrameIndex.
 
