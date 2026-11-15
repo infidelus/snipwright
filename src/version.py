@@ -3,7 +3,7 @@
 APP_NAME = "Snipwright"
 
 # major.minor.patch
-VERSION = "2.17.0"
+VERSION = "2.17.1"
 
 # Shown in the title bar, About box and logs, e.g. "Snipwright 1.0.2".
 VERSION_STRING = f"{APP_NAME} {VERSION}"

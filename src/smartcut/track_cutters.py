@@ -223,9 +223,44 @@ def create_subtitle_output_stream(
         out_stream.time_base = in_stream.time_base
     else:
         out_stream = output_av_container.add_stream_from_template(in_stream)
+    _assign_m2ts_pid(output_av_container, out_stream)
     out_stream.metadata.update(in_stream.metadata)
     out_stream.disposition = cast(Disposition, in_stream.disposition.value)
     return out_stream
+
+
+# First PID for subtitle streams in a .m2ts: the Blu-ray range for subtitle
+# (presentation graphics) streams, clear of the muxer's own video (0x1011),
+# audio (0x1100-) and PMT (0x1000-) PIDs.
+_M2TS_SUBTITLE_PID = 0x1200
+
+
+def _assign_m2ts_pid(output_av_container, out_stream) -> None:
+    """Give a subtitle stream a PID when the output is a .m2ts.
+
+    FFmpeg's MPEG-TS muxer switches to Blu-ray (m2ts) mode for a file named
+    .m2ts, and in that mode it numbers only video, audio and Blu-ray's own
+    subtitle formats itself.  A DVB subtitle or teletext stream is left
+    without a PID, and writing the header fails ("Cannot automatically assign
+    PID", EINVAL) - so a Panasonic Blu-ray recorder's .m2ts recording with
+    either could not be saved at all with Match Source (issue #12,
+    2026-11-15).  Giving the stream its PID here is all the muxer needs.
+    """
+    try:
+        name = (output_av_container.name or "").lower()
+        if output_av_container.format.name != "mpegts" or not name.endswith(".m2ts"):
+            return
+        if out_stream.id >= 16:
+            return
+        taken = {s.id for s in output_av_container.streams if s is not out_stream}
+        pid = _M2TS_SUBTITLE_PID
+        while pid in taken:
+            pid += 1
+        out_stream.id = pid
+    except Exception:
+        # Leave it to the muxer; at worst the header write reports the
+        # problem as it did before.
+        pass
 
 
 def teletext_descriptor(media_container: MediaContainer,

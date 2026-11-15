@@ -172,14 +172,23 @@ def restore_descriptors(path, wanted):
     changed = 0
     try:
         with open(path, "r+b") as f:
-            pos = 0
+            # The file written may use 192-byte packets: FFmpeg writes a .m2ts
+            # in Blu-ray form, each packet behind a 4-byte timestamp.  Walking
+            # it in 188-byte steps found no PMT, so the page details were
+            # never put back (found with issue #12, 2026-11-15).
+            grid = _packet_grid(f.read(_SCAN_BYTES))
+            start, step = grid if grid is not None else (0, TS_PACKET)
+            pos = start
             while True:
                 f.seek(pos)
-                chunk = bytearray(f.read(TS_PACKET * 8192))
-                if len(chunk) < TS_PACKET:
+                chunk = bytearray(f.read(step * 8192))
+                if len(chunk) < step:
+                    # Too little left for a whole packet.  Must be "< step",
+                    # not "< 188": a 190-byte tail of a 192-byte file moved
+                    # pos on by nothing and spun for ever.
                     break
                 dirty = False
-                for off in range(0, len(chunk) - TS_PACKET + 1, TS_PACKET):
+                for off in range(0, len(chunk) - TS_PACKET + 1, step):
                     p = chunk[off:off + TS_PACKET]
                     at = _section_start(p)
                     if at is None:
@@ -208,7 +217,7 @@ def restore_descriptors(path, wanted):
                 if dirty:
                     f.seek(pos)
                     f.write(chunk)
-                pos += len(chunk) - len(chunk) % TS_PACKET
+                pos += len(chunk) - len(chunk) % step
     except OSError as e:
         logger.warning("Teletext: could not restore its page details in %s: %s",
                        path, e)

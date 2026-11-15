@@ -6,6 +6,32 @@ All notable changes to Snipwright are documented here. Releases before
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [2.17.1] - 2026-11-15
+
+### Changed
+
+- **In German, the Info panel's Splice line is now called „Übergang“.** It
+  was „Schnitt“, the word the German interface uses for a cut everywhere
+  else, so in Cut Mode the line read as though it described the cut itself
+  rather than where the programme joins up after it.
+
+### Fixed
+
+- **A .m2ts recording with DVB subtitles or teletext can be saved.**
+  Saving with Match Source writes a .m2ts, and for that name FFmpeg uses
+  its Blu-ray layout, which numbers only video, audio and Blu-ray's own
+  subtitle streams. A DVB subtitle or teletext track was left without a
+  number, so the save failed before anything was written - "returned 22",
+  then "Export failed even with a single audio track", which pointed at
+  the audio when the audio was fine. Such tracks are now numbered and kept,
+  and the teletext's page details are put back as they are in a .ts.
+  Reported with two Panasonic Blu-ray recorder recordings by Gloster.
+- **An .mkv save says when a recording's teletext is left out.** Matroska
+  cannot hold teletext, only the subtitles mkvmerge takes from its subtitle
+  pages, so teletext carrying just the information pages (page 100 and the
+  like) was dropped from an .mkv with nothing in the summary. The summary
+  now notes it, and says a .ts save keeps the teletext as it is.
+
 ## [2.17.0] - 2026-11-14
 
 ### Added

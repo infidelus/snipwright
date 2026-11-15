@@ -2235,7 +2235,7 @@ Aufnahmen in Ihren überwachten Ordnern, die auf diese Titel gepasst haben, werd
     <message>
         <location filename="../ui/info_panel.py" line="196"/>
         <source>Splice</source>
-        <translation>Schnitt</translation>
+        <translation>Übergang</translation>
     </message>
     <message>
         <location filename="../ui/info_panel.py" line="197"/>

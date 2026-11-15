@@ -3938,6 +3938,62 @@ _SUBTITLE_NAMES = {
 }
 
 
+# Teletext subtitle page types (EN 300 468, teletext_descriptor): 2 is
+# "teletext subtitle page", 5 the same for the hard of hearing.  Type 1 -
+# the initial page, page 100 - is the information service.
+_TELETEXT_SUBTITLE_TYPES = (2, 5)
+_TEXT_SUBTITLE_CODECS = ("subrip", "ass", "ssa", "text", "webvtt", "mov_text")
+
+
+def _note_mkv_teletext(source_path, source_subs, out_path, notes):
+    """Say so when a recording's teletext did not make it into an .mkv.
+
+    Matroska cannot hold teletext itself; mkvmerge turns its subtitle pages
+    into text subtitles, and that is all an .mkv can keep of it.  Teletext
+    carrying only the information pages - page 100 and the like, as two
+    German recordings from a Panasonic Blu-ray recorder do (issue #12,
+    2026-11-15) - has nothing to turn into subtitles, so it was left out
+    with no word in the summary.  "Keep every stream unless there is a real
+    reason, and then SAY so."
+    """
+    teletext_count = sum(1 for c in source_subs if c in ("dvb_teletext",
+                                                          "libzvbi_teletextdec"))
+    if not teletext_count:
+        return
+    try:
+        out_text = sum(1 for c in _subtitle_codecs(out_path)
+                       if c in _TEXT_SUBTITLE_CODECS)
+    except Exception:
+        return
+    if out_text:
+        # mkvmerge made subtitles from it; nothing was lost that an .mkv
+        # could have held.
+        return
+    has_subtitle_pages = None
+    try:
+        from smartcut.ts_teletext import teletext_streams
+        descriptors = teletext_streams(source_path)
+        if descriptors:
+            has_subtitle_pages = any(
+                (desc[2 + i + 3] >> 3) in _TELETEXT_SUBTITLE_TYPES
+                for desc in descriptors.values()
+                for i in range(0, len(desc) - 2, 5)
+                if 2 + i + 3 < len(desc))
+    except Exception:
+        has_subtitle_pages = None
+    if has_subtitle_pages is False:
+        why = ("This recording's teletext has only information pages and "
+               "no subtitle pages, so there was nothing to keep.")
+    else:
+        why = "No subtitles could be taken from this recording's teletext."
+    notes.append((
+        counted(teletext_count, *_NOTE_SUBS_LOST),
+        "An .mkv cannot hold teletext itself, only subtitles taken from its "
+        "subtitle pages. %s A .ts save keeps the teletext as it is." % why,
+    ))
+    logger.info("MKV output: the recording's teletext is not in it. %s", why)
+
+
 def _subtitle_codecs(path):
     """Every subtitle codec in `path`, in stream order, once per stream.
 
@@ -5160,6 +5216,7 @@ def _export_ranges(
                 problems=errors,
                 audio_sources=audio_sources,
             )
+            _note_mkv_teletext(source_path, source_subs, out_path, notes)
         elif want_mp4:
             #
             # MP4 can't hold broadcast audio (LATM AAC / MP2) or SD MPEG-2
